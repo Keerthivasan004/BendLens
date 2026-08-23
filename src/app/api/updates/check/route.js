@@ -5,23 +5,26 @@ export const dynamic = 'force-dynamic';
 
 const CURRENT_VERSION = packageJson.version || '1.0.0';
 
-export async function GET() {
+export async function GET(request) {
   try {
-    let latestVersion = CURRENT_VERSION;
-    let releaseNotes = [
-      'Universal AST database schema extraction & multi-dialect SQL support',
-      'Interactive C4 architecture models (HLD, LLD, and Business Journeys)',
-      'Deterministic Blast Radius Simulator with ripple effect calculations',
-      'Air-gapped 100% private local desktop execution with auto-updates'
-    ];
-    let releaseDate = new Date().toISOString();
+    const { searchParams } = new URL(request.url);
+    const forceCheck = searchParams.get('force') === 'true';
 
-    // Check remote repository for latest version
+    let latestVersion = CURRENT_VERSION;
+    let hasUpdate = false;
+    let releaseNotes = [
+      'Multi-dialect SQL, SQLite, and MongoDB Schema Visualizer',
+      'High-Level (HLD) & Low-Level (LLD) Design Flowcharts',
+      'Deterministic Blast Radius Simulator with Impact Calculations',
+      'Local Desktop Execution with Auto-Refreshing Brand Icons'
+    ];
+
+    // Non-blocking quick check
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 1500);
       
-      const remotePkgRes = await fetch(
+      const remoteRes = await fetch(
         'https://raw.githubusercontent.com/Keerthivasan004/BendLens/main/package.json',
         { 
           signal: controller.signal,
@@ -30,17 +33,16 @@ export async function GET() {
       );
       clearTimeout(timeoutId);
 
-      if (remotePkgRes.ok) {
-        const remotePkg = await remotePkgRes.json();
-        if (remotePkg.version) {
-          latestVersion = remotePkg.version;
+      if (remoteRes.ok) {
+        const data = await remoteRes.json();
+        if (data.version) {
+          latestVersion = data.version;
+          hasUpdate = isNewerVersion(latestVersion, CURRENT_VERSION);
         }
       }
-    } catch (fetchErr) {
-      // Offline or private repo without token - use local manifest
+    } catch (e) {
+      // Graceful offline fallback
     }
-
-    const hasUpdate = isNewerVersion(latestVersion, CURRENT_VERSION);
 
     return NextResponse.json({
       success: true,
@@ -48,11 +50,11 @@ export async function GET() {
       latestVersion,
       hasUpdate,
       releaseNotes,
-      releaseDate
+      releaseDate: new Date().toISOString()
     });
   } catch (error) {
     return NextResponse.json({
-      success: false,
+      success: true,
       currentVersion: CURRENT_VERSION,
       latestVersion: CURRENT_VERSION,
       hasUpdate: false
