@@ -1,0 +1,21 @@
+import { NextResponse } from 'next/server';
+import ProjectAnalyzer from '@/lib/analyzer';
+import serverCache from '@/lib/serverCache';
+import path from 'path';
+
+export async function GET() {
+  try {
+    const samplePath = path.join(process.cwd(), 'sample_project');
+    const result = ProjectAnalyzer.analyze(samplePath);
+    
+    serverCache.setLatest(result);
+
+    return NextResponse.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Sample Project Analysis Error:', error);
+    return NextResponse.json(
+      { success: false, error: error.message || 'Failed to analyze sample project' },
+      { status: 500 }
+    );
+  }
+}

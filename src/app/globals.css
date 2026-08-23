@@ -1,0 +1,175 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Light Theme Tokens: Pure White Background, Solid Black Text, Dark Blue Bold Headings */
+:root {
+  --background: #ffffff;
+  --foreground: #09090b;
+  --heading-color: #1e3a8a; /* Deep Dark Blue */
+  --surface: #ffffff;
+  --surface-raised: #f8fafc;
+  --surface-card: #ffffff;
+  --border: #cbd5e1;
+  --border-hover: #1e3a8a;
+  --border-glow: #1e3a8a;
+  --subtext: #475569;
+  --canvas-bg: #ffffff;
+  --canvas-dot: rgba(30, 58, 138, 0.12);
+  --accent-primary: #1e3a8a;
+  --accent-secondary: #0284c7;
+}
+
+/* Dark Theme Tokens: Pure Black Background with High-Contrast Slate/Blue Borders */
+.dark {
+  --background: #000000;
+  --foreground: #ffffff;
+  --heading-color: #93c5fd; /* Vibrant Light Blue */
+  --surface: #0a0d14;
+  --surface-raised: #111522;
+  --surface-card: #0f131f;
+  --border: #2d3748; /* Crisp Slate-700 Border */
+  --border-hover: #60a5fa;
+  --border-glow: #3b82f6;
+  --subtext: #94a3b8;
+  --canvas-bg: #000000;
+  --canvas-dot: rgba(96, 165, 250, 0.18);
+  --accent-primary: #3b82f6;
+  --accent-secondary: #38bdf8;
+}
+
+html, body {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow-x: hidden;
+  letter-spacing: -0.01em;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Monospace override for technical metrics, schemas, and code */
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+}
+
+/* Bold Headings */
+h1, h2, h3, h4, h5, h6, .heading-blue {
+  color: var(--heading-color) !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.025em;
+}
+
+.dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6, .dark .heading-blue {
+  color: #93c5fd !important;
+  font-weight: 800 !important;
+}
+
+/* Studio Panels & Cards with Visual Contrast */
+.glass-panel {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 1.25rem;
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.05), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dark .glass-panel {
+  background: #090c14 !important;
+  border: 1px solid #283144 !important;
+  box-shadow: 0 15px 40px -10px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+.glass-card {
+  background: var(--surface-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 1rem;
+  box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.03);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.dark .glass-card {
+  background: #0f1320 !important;
+  border: 1px solid #283144 !important;
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+.glass-card:hover {
+  border-color: var(--border-hover) !important;
+  box-shadow: 0 8px 24px -4px rgba(30, 58, 138, 0.12);
+}
+
+.dark .glass-card:hover, .dark .glass-panel:hover {
+  border-color: #60a5fa !important;
+  box-shadow: 0 8px 25px -4px rgba(59, 130, 246, 0.25) !important;
+}
+
+/* Studio Ambient Dot Grid Canvas */
+.canvas-grid {
+  background-size: 24px 24px;
+  background-image: radial-gradient(circle, var(--canvas-dot) 1.5px, transparent 1.5px);
+}
+
+/* Studio Focus Inputs & Form Controls */
+input[type="text"], select, textarea {
+  transition: all 0.2s ease;
+}
+
+.dark input[type="text"], 
+.dark select, 
+.dark textarea {
+  background-color: #121626 !important;
+  border-color: #2d3748 !important;
+  color: #ffffff !important;
+}
+
+.dark input[type="text"]:focus, 
+.dark select:focus, 
+.dark textarea:focus {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2) !important;
+}
+
+/* Refined Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #64748b;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Diagram SVG Clean Overrides */
+.mermaid-container svg {
+  max-width: none !important;
+  height: auto !important;
+  background-color: transparent !important;
+}
+
+/* Hide Next.js dev overlays, toasts, watermarks and badges */
+#nextjs-toast, 
+[data-nextjs-toast], 
+[data-nextjs-dialog-overlay], 
+nextjs-portal,
+#__next-build-watcher,
+div[data-nextjs-toast-wrapper],
+[data-next-badge],
+.nextjs-toast-errors-parent {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+

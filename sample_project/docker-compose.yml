@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    depends_on:
+      - backend-api
+
+  backend-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:pass@postgres-db:5432/ecommerce
+      - REDIS_URL=redis://redis-cache:6379/0
+    depends_on:
+      - postgres-db
+      - redis-cache
+
+  postgres-db:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=ecommerce
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+
+  redis-cache:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
