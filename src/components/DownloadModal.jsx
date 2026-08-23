@@ -1,17 +1,27 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Logo from '@/components/Logo';
 import { Download, ShieldCheck, HardDrive, Terminal, X, CheckCircle2, ArrowRight, Laptop, Lock, Sparkles, RefreshCw, Play } from 'lucide-react';
 
 export default function DownloadModal({ isOpen, onClose, reason = 'DEFAULT' }) {
-  if (!isOpen) return null;
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!isOpen || !mounted) return null;
 
   const isFromShowLens = reason === 'SHOW_LENS';
 
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fadeIn">
-      <div className="w-full max-w-2xl rounded-3xl bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-blue-900/50 shadow-2xl overflow-hidden flex flex-col">
+  const modalElement = (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fadeIn">
+      <div 
+        onClick={(e) => e.stopPropagation()} 
+        className="w-full max-w-2xl rounded-3xl bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-blue-900/50 shadow-2xl overflow-hidden flex flex-col my-auto"
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 dark:border-neutral-800 flex items-center justify-between bg-slate-50 dark:bg-[#111626]">
           <div className="flex items-center gap-3">
@@ -112,4 +122,6 @@ export default function DownloadModal({ isOpen, onClose, reason = 'DEFAULT' }) {
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalElement, document.body) : null;
 }
