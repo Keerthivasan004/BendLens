@@ -34,8 +34,13 @@ namespace BendLensDesktop
                     }
                 }
 
-                // Create Desktop Shortcut
-                CreateDesktopShortcut(Path.Combine(exeDir, "BendLens.exe"));
+                // Create Desktop Shortcut with custom brand icon
+                string iconPath = Path.Combine(projectDir, "public", "icon.ico");
+                if (!File.Exists(iconPath))
+                {
+                    iconPath = Path.Combine(exeDir, "icon.ico");
+                }
+                CreateDesktopShortcut(Path.Combine(exeDir, "BendLens.exe"), iconPath);
 
                 // If server is not running, start it in the background
                 if (!IsServerRunning(AppUrl))
@@ -104,7 +109,7 @@ namespace BendLensDesktop
             }
         }
 
-        private static void CreateDesktopShortcut(string targetExePath)
+        private static void CreateDesktopShortcut(string targetExePath, string iconPath)
         {
             try
             {
@@ -118,6 +123,10 @@ namespace BendLensDesktop
                     dynamic shortcut = shell.CreateShortcut(shortcutPath);
                     shortcut.TargetPath = targetExePath;
                     shortcut.WorkingDirectory = Path.GetDirectoryName(targetExePath);
+                    if (File.Exists(iconPath))
+                    {
+                        shortcut.IconLocation = iconPath;
+                    }
                     shortcut.Description = "BendLens - Universal Backend Architecture & Blast Platform";
                     shortcut.Save();
                 }

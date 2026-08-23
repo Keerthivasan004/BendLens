@@ -3,23 +3,22 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Logo from '@/components/Logo';
-import DownloadModal from '@/components/DownloadModal';
 import UpdateIndicator from '@/components/UpdateIndicator';
+import DownloadModal from '@/components/DownloadModal';
 import FloatingDataBubbles from '@/components/FloatingDataBubbles';
-import { 
-  Layers, FolderSearch, Play, Sparkles, CheckCircle2, 
-  ArrowRight, Database, FileCode, Cpu, AlertCircle, 
-  Sun, Moon, ShieldAlert, Zap, Box, Code2, Network, 
-  GitPullRequest, ArrowUpRight, UploadCloud, FileSpreadsheet, 
-  Globe, FileText, Download, History, Clock, HardDrive, Laptop
+import {
+  FolderSearch, Play, Sparkles, Database, FileCode, Cpu, Layers,
+  CheckCircle2, ArrowRight, ShieldCheck, HardDrive, Terminal,
+  UploadCloud, GitBranch, Globe, Sun, Moon, Laptop, Lock, AlertTriangle, AlertCircle, Download
 } from 'lucide-react';
 
-export default function Home() {
+export default function LandingPage() {
   const router = useRouter();
-  
+  const fileInputRef = useRef(null);
+
   // Ingestion Mode: 'PATH' | 'UPLOAD' | 'PASTE' | 'GIT'
   const [ingestMode, setIngestMode] = useState('PATH');
-  
+
   // Mode States
   const [folderPath, setFolderPath] = useState('');
   const [gitUrl, setGitUrl] = useState('');
@@ -28,49 +27,38 @@ export default function Home() {
 `-- Paste SQL DDL, Prisma schema, or ORM models here
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
-    email VARCHAR(255) NOT NULL UNIQUE,
-    full_name VARCHAR(150),
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE orders (
     id SERIAL PRIMARY KEY,
-    order_number VARCHAR(64) NOT NULL UNIQUE,
-    user_id INTEGER NOT NULL REFERENCES users(id),
-    total_amount DECIMAL(10, 2) NOT NULL,
-    status VARCHAR(50) DEFAULT 'pending'
-);
-
-CREATE TABLE order_items (
-    id SERIAL PRIMARY KEY,
-    order_id INTEGER NOT NULL REFERENCES orders(id),
-    product_name VARCHAR(200) NOT NULL,
-    price DECIMAL(10, 2) NOT NULL
+    user_id INT REFERENCES users(id),
+    total_amount NUMERIC(10, 2) NOT NULL,
+    status VARCHAR(50) DEFAULT 'PENDING'
 );`
   );
-  const [pastedFileType, setPastedFileType] = useState('schema.sql');
   const [selectedFile, setSelectedFile] = useState(null);
-  const fileInputRef = useRef(null);
 
-  // General State
+  // Shared Execution State
   const [isScanning, setIsScanning] = useState(false);
   const [scanStep, setScanStep] = useState(0);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [localHistory, setLocalHistory] = useState([]);
   const [theme, setTheme] = useState('dark');
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [downloadModalReason, setDownloadModalReason] = useState('DEFAULT');
-  const [localHistory, setLocalHistory] = useState([]);
+  const [isLocalApp, setIsLocalApp] = useState(true);
 
-  // Initialize theme & load local history
+  // Initialize theme, history & local desktop detection
   useEffect(() => {
     let savedTheme = 'dark';
     try {
       savedTheme = localStorage.getItem('bendlens-theme') || 'dark';
-      const savedPath = localStorage.getItem('bendlens-path');
-      if (savedPath) setFolderPath(savedPath);
     } catch {}
-
+    
     setTheme(savedTheme);
     if (savedTheme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -78,18 +66,16 @@ CREATE TABLE order_items (
       document.documentElement.classList.remove('dark');
     }
 
+    // Detect if running locally (Desktop or localhost) vs Web/Vercel
+    if (typeof window !== 'undefined') {
+      const isLocal = window.location.hostname === 'localhost' || 
+                      window.location.hostname === '127.0.0.1' || 
+                      window.location.hostname.endsWith('.local');
+      setIsLocalApp(isLocal);
+    }
+
     fetchLocalHistory();
   }, []);
-
-  const fetchLocalHistory = async () => {
-    try {
-      const res = await fetch('/api/history');
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
-        setLocalHistory(json.data);
-      }
-    } catch {}
-  };
 
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
@@ -104,20 +90,42 @@ CREATE TABLE order_items (
     }
   };
 
+  const fetchLocalHistory = async () => {
+    try {
+      const res = await fetch('/api/history');
+      const data = await res.json();
+      if (data.success && data.data) {
+        setLocalHistory(data.data);
+      }
+    } catch (e) {
+      console.warn('Could not fetch local scan history:', e);
+    }
+  };
+
   const cleanInputPath = (val) => {
-    return (val || '').toString().trim().replace(/^["'`]+|["'`]+$/g, '').trim();
+    if (!val) return '';
+    return val.toString().trim().replace(/^["'`]+|["'`]+$/g, '').trim();
   };
 
   const simulateScanSteps = () => {
     setScanStep(1);
-    const t1 = setTimeout(() => setScanStep(2), 350);
-    const t2 = setTimeout(() => setScanStep(3), 750);
+    const t1 = setTimeout(() => setScanStep(2), 500);
+    const t2 = setTimeout(() => setScanStep(3), 1100);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   };
 
-  // 1. Analyze by Local Path
-  const handleScanPath = async (targetPath = folderPath) => {
-    const sanitized = cleanInputPath(targetPath);
+  // 1. Analyze by Local Folder Path
+  const handleScanPath = async (overridePath) => {
+    const target = overridePath || folderPath;
+
+    // Check if on web version and user entered a personal local hard-drive path
+    if (!isLocalApp && target && (target.includes(':/') || target.includes(':\\') || target.startsWith('/Users/') || target.startsWith('/home/') || target.startsWith('C:') || target.startsWith('D:'))) {
+      setErrorMessage('Browser Security Notice: The Web Edition cannot access your computer\'s local hard drive directly. Please download the BendLens Desktop App for direct folder scans, or use the "ZIP Upload", "Paste Schema", or "Git Clone" tabs.');
+      setDownloadModalReason('DEFAULT');
+      setIsDownloadModalOpen(true);
+      return;
+    }
+
     setIsScanning(true);
     setErrorMessage('');
     simulateScanSteps();
@@ -126,21 +134,17 @@ CREATE TABLE order_items (
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: sanitized })
+        body: JSON.stringify({ path: target })
       });
       const result = await res.json();
       if (result.success) {
         setAnalysisResult(result.data);
-        setFolderPath(result.data.projectPath);
         fetchLocalHistory();
-        try {
-          localStorage.setItem('bendlens-path', result.data.projectPath);
-        } catch {}
       } else {
-        setErrorMessage(result.error || 'Failed to analyze project folder');
+        setErrorMessage(result.error || 'Failed to analyze local path.');
       }
     } catch (err) {
-      setErrorMessage(err.message || 'Error connecting to local engine');
+      setErrorMessage(err.message || 'Error connecting to local analysis engine');
     } finally {
       setIsScanning(false);
       setScanStep(0);
@@ -150,7 +154,7 @@ CREATE TABLE order_items (
   // 2. Analyze by File / ZIP Upload
   const handleScanUpload = async () => {
     if (!selectedFile) {
-      setErrorMessage('Please select a .zip archive or schema file first.');
+      setErrorMessage('Please select a .zip file or schema file to upload.');
       return;
     }
 
@@ -171,7 +175,7 @@ CREATE TABLE order_items (
         setAnalysisResult(result.data);
         fetchLocalHistory();
       } else {
-        setErrorMessage(result.error || 'Upload scan failed');
+        setErrorMessage(result.error || 'Upload scan failed.');
       }
     } catch (err) {
       setErrorMessage(err.message || 'Error uploading file to local engine');
@@ -181,10 +185,10 @@ CREATE TABLE order_items (
     }
   };
 
-  // 3. Analyze by Pasted Code / DDL
+  // 3. Analyze by Pasted Code / Schema
   const handleScanPaste = async () => {
     if (!pastedCode.trim()) {
-      setErrorMessage('Please enter SQL DDL, Prisma, or ORM models.');
+      setErrorMessage('Please paste SQL DDL, Prisma schema, or ORM models.');
       return;
     }
 
@@ -198,8 +202,8 @@ CREATE TABLE order_items (
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code: pastedCode,
-          fileType: pastedFileType,
-          projectName: 'Custom Ingested Schema'
+          fileType: pastedCode.includes('model ') ? 'schema.prisma' : 'schema.sql',
+          projectName: 'Custom Schema Ingestion'
         })
       });
       const result = await res.json();
@@ -207,10 +211,10 @@ CREATE TABLE order_items (
         setAnalysisResult(result.data);
         fetchLocalHistory();
       } else {
-        setErrorMessage(result.error || 'Failed to analyze pasted schema');
+        setErrorMessage(result.error || 'Schema parsing failed.');
       }
     } catch (err) {
-      setErrorMessage(err.message || 'Error processing pasted schema');
+      setErrorMessage(err.message || 'Error parsing schema code');
     } finally {
       setIsScanning(false);
       setScanStep(0);
@@ -252,26 +256,19 @@ CREATE TABLE order_items (
     }
   };
 
-  const handleSampleProject = async () => {
+  // Load Built-in Mock Architecture
+  const handleLoadSample = async () => {
     setIsScanning(true);
     setErrorMessage('');
     simulateScanSteps();
-
     try {
       const res = await fetch('/api/sample');
       const result = await res.json();
       if (result.success) {
         setAnalysisResult(result.data);
-        setFolderPath(result.data.projectPath);
-        fetchLocalHistory();
-        try {
-          localStorage.setItem('bendlens-path', result.data.projectPath);
-        } catch {}
-      } else {
-        setErrorMessage(result.error || 'Failed to load sample project');
       }
     } catch (err) {
-      setErrorMessage(err.message || 'Error connecting to backend engine');
+      setErrorMessage('Failed to load sample project');
     } finally {
       setIsScanning(false);
       setScanStep(0);
@@ -296,14 +293,24 @@ CREATE TABLE order_items (
           {/* Auto-Update Indicator */}
           <UpdateIndicator />
 
-          {/* Download Desktop App Button */}
-          <button
-            onClick={() => setIsDownloadModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/80 dark:hover:bg-blue-900 text-blue-900 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-all cursor-pointer shadow-sm"
-          >
-            <Laptop className="h-3.5 w-3.5" />
-            <span>Download Desktop App</span>
-          </button>
+          {/* If running locally, show Desktop Edition badge. If on web, show Download button */}
+          {isLocalApp ? (
+            <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-blue-50 dark:bg-blue-950/80 text-blue-900 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shadow-sm">
+              <ShieldCheck className="h-3.5 w-3.5 text-blue-900 dark:text-blue-400" />
+              <span>Desktop Edition (100% Local & Private)</span>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setDownloadModalReason('DEFAULT');
+                setIsDownloadModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/80 dark:hover:bg-blue-900 text-blue-900 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-all cursor-pointer shadow-sm"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Download Desktop App</span>
+            </button>
+          )}
 
           <button
             onClick={toggleTheme}
@@ -325,18 +332,18 @@ CREATE TABLE order_items (
         <div className="text-center mb-8">
           <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/80 text-blue-900 dark:text-blue-300 text-xs font-bold shadow-sm">
-              <Zap className="h-3.5 w-3.5 text-blue-900 dark:text-blue-400" />
+              <ShieldCheck className="h-3.5 w-3.5 text-blue-900 dark:text-blue-400" />
               <span>Deterministic AST Graph & Blast-Radius Engine</span>
             </div>
 
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 text-emerald-900 dark:text-emerald-300 text-xs font-bold shadow-sm">
-              <ShieldAlert className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>100% Local & Air-Gapped: Zero Code Leaves Your Machine</span>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 text-emerald-700 dark:text-emerald-300 text-xs font-bold shadow-sm">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>Air-Gapped & Offline Architecture</span>
             </div>
           </div>
-          
-          <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-blue-950 dark:text-blue-400 mb-3 max-w-3xl mx-auto leading-tight">
-            Universal Backend Architecture & Blast Lens
+
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight mb-3 text-blue-950 dark:text-blue-300">
+            Universal Backend Architecture & Blast Platform
           </h1>
           
           <p className="text-xs sm:text-sm text-slate-600 dark:text-neutral-400 max-w-2xl mx-auto font-medium leading-relaxed">
@@ -400,6 +407,42 @@ CREATE TABLE order_items (
           {/* MODE 1: Local Folder Path */}
           {ingestMode === 'PATH' && (
             <div>
+              {/* Web Edition Notice */}
+              {!isLocalApp && (
+                <div className="mb-4 p-4 rounded-2xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70 flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-blue-900 dark:text-blue-400 shrink-0 mt-0.5" />
+                  <div className="text-xs">
+                    <span className="font-bold text-blue-950 dark:text-blue-300 block mb-0.5">
+                      Web Edition Notice: Direct Local Folder Path Access
+                    </span>
+                    <p className="text-blue-900/80 dark:text-blue-300/80 font-medium leading-relaxed mb-2.5">
+                      Web browsers cannot access files directly from your computer's hard drive (e.g. <code>C:/...</code>, <code>/Users/...</code>) for privacy and security. To scan your local codebase folders directly, please <strong>Download the BendLens Desktop App</strong>.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => { setDownloadModalReason('DEFAULT'); setIsDownloadModalOpen(true); }}
+                        className="px-3 py-1.5 rounded-lg bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-[11px] shadow-sm flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Download className="h-3 w-3" />
+                        <span>Download Desktop App (.exe)</span>
+                      </button>
+                      <button
+                        onClick={() => setIngestMode('UPLOAD')}
+                        className="px-3 py-1.5 rounded-lg bg-surface-card border border-border text-foreground font-bold text-[11px] hover:bg-slate-100 dark:hover:bg-neutral-800 cursor-pointer"
+                      >
+                        Upload .ZIP Archive
+                      </button>
+                      <button
+                        onClick={() => setIngestMode('PASTE')}
+                        className="px-3 py-1.5 rounded-lg bg-surface-card border border-border text-foreground font-bold text-[11px] hover:bg-slate-100 dark:hover:bg-neutral-800 cursor-pointer"
+                      >
+                        Paste SQL / Schema
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <label className="block text-xs font-bold uppercase tracking-wider text-blue-950 dark:text-blue-300 mb-2">
                 Enter Local Codebase Folder Path
               </label>
@@ -452,53 +495,45 @@ CREATE TABLE order_items (
                   {selectedFile ? `Selected: ${selectedFile.name}` : 'Click or Drag & Drop .ZIP or Schema Files here'}
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Supports .zip codebase archives, .sql DDLs, schema.prisma, and Python ORMs
+                  Supports zip archives of full backend repos, `.sql` DDLs, Prisma schemas, Python models, and JSON definitions.
                 </p>
               </div>
+
               <button
                 onClick={handleScanUpload}
                 disabled={isScanning || !selectedFile}
-                className="w-full py-2.5 text-xs font-black rounded-xl bg-blue-900 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white shadow-md disabled:opacity-50 transition-all cursor-pointer flex items-center justify-center gap-2"
+                className="w-full py-3 px-6 text-xs font-black rounded-xl bg-blue-900 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 disabled:opacity-40 text-white shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
               >
                 {isScanning ? (
                   <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <Play className="h-3.5 w-3.5 fill-current" />
                 )}
-                <span>Extract & Analyze Upload</span>
+                <span>Analyze Uploaded Archive</span>
               </button>
             </div>
           )}
 
-          {/* MODE 3: Paste Schema / DDL Code */}
+          {/* MODE 3: Paste SQL / DDL / Prisma */}
           {ingestMode === 'PASTE' && (
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-blue-950 dark:text-blue-300">
-                  Paste Raw SQL DDL, Prisma, or ORM Models
-                </label>
-                <select
-                  value={pastedFileType}
-                  onChange={(e) => setPastedFileType(e.target.value)}
-                  className="px-2 py-1 text-[11px] font-mono font-bold rounded bg-surface-card border border-border text-foreground outline-none"
-                >
-                  <option value="schema.sql">SQL DDL (.sql)</option>
-                  <option value="schema.prisma">Prisma (.prisma)</option>
-                  <option value="models.py">Python ORM (.py)</option>
-                </select>
+              <label className="block text-xs font-bold uppercase tracking-wider text-blue-950 dark:text-blue-300 mb-2">
+                Paste SQL DDL / Prisma Schema / ORM Definition
+              </label>
+              <div className="relative mb-4">
+                <textarea
+                  value={pastedCode}
+                  onChange={(e) => setPastedCode(e.target.value)}
+                  rows={8}
+                  placeholder="Paste CREATE TABLE ... or model User { ... }"
+                  className="w-full p-4 text-xs rounded-xl bg-surface-card border border-border focus:border-blue-900 dark:focus:border-blue-400 outline-none text-foreground font-mono font-medium placeholder-slate-400 resize-y shadow-inner"
+                />
               </div>
-
-              <textarea
-                rows={6}
-                value={pastedCode}
-                onChange={(e) => setPastedCode(e.target.value)}
-                className="w-full p-3 text-xs font-mono rounded-xl bg-surface-card border border-border focus:border-blue-900 dark:focus:border-blue-400 outline-none text-foreground mb-3"
-              />
 
               <button
                 onClick={handleScanPaste}
-                disabled={isScanning}
-                className="w-full py-2.5 text-xs font-black rounded-xl bg-blue-900 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+                disabled={isScanning || !pastedCode.trim()}
+                className="w-full py-3 px-6 text-xs font-black rounded-xl bg-blue-900 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 disabled:opacity-40 text-white shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
               >
                 {isScanning ? (
                   <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -566,85 +601,90 @@ CREATE TABLE order_items (
               </div>
               <div className="w-full bg-slate-200 dark:bg-neutral-800 h-1.5 rounded-full overflow-hidden">
                 <div 
-                  className="bg-blue-900 dark:bg-blue-500 h-full rounded-full transition-all duration-300"
-                  style={{ width: scanStep === 1 ? '30%' : scanStep === 2 ? '70%' : '95%' }}
+                  className="bg-blue-900 dark:bg-blue-500 h-full transition-all duration-300 rounded-full"
+                  style={{ width: `${scanStep === 1 ? 30 : scanStep === 2 ? 70 : 95}%` }}
                 />
               </div>
             </div>
           )}
 
-          <div className="flex items-center justify-between flex-wrap gap-3 pt-4 border-t border-border text-xs">
-            <span className="text-slate-500 font-medium">Or test with ready-to-run architecture:</span>
+          {/* Error Banner */}
+          {errorMessage && (
+            <div className="mt-4 p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/80 text-rose-700 dark:text-rose-400 text-xs flex items-center gap-2 animate-fadeIn font-medium">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {/* Quick Demo Sample Action */}
+          <div className="mt-5 pt-4 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <span className="text-slate-500 font-medium">
+              Want to see a real-world multi-service architecture demo?
+            </span>
             <button
-              onClick={handleSampleProject}
+              onClick={handleLoadSample}
               disabled={isScanning}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-surface-card hover:bg-slate-100 dark:hover:bg-neutral-900 text-blue-900 dark:text-blue-300 border border-blue-900/30 dark:border-blue-400/30 transition-all cursor-pointer shadow-sm"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-surface-card hover:bg-slate-100 dark:hover:bg-neutral-900 text-blue-900 dark:text-blue-300 font-bold border border-blue-900/20 dark:border-blue-400/20 transition-all cursor-pointer shadow-sm"
             >
               <Sparkles className="h-3.5 w-3.5 text-blue-900 dark:text-blue-400" />
-              Load Sample E-Commerce Backend
+              <span>Load Interactive E-Commerce Architecture</span>
             </button>
           </div>
         </div>
 
-        {/* Error Alert */}
-        {errorMessage && (
-          <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center gap-3 text-rose-600 dark:text-rose-400 text-xs font-bold mb-8 shadow-sm animate-fadeIn">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{errorMessage}</span>
-          </div>
-        )}
-
-        {/* Scan Results Card & "Show Lens" Launch Trigger */}
+        {/* Live Analysis Summary Card */}
         {analysisResult && (
-          <div className="glass-panel p-6 sm:p-8 rounded-3xl border-2 border-blue-900/40 dark:border-blue-500/40 shadow-2xl mb-12 animate-fadeIn bg-gradient-to-b from-blue-50/20 to-transparent dark:from-blue-950/10">
-            <div className="flex items-center justify-between mb-5 pb-3.5 border-b border-border">
-              <div className="flex items-center gap-2.5">
-                <div className="h-7 w-7 rounded-lg bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="h-4 w-4" />
-                </div>
-                <div>
+          <div className="glass-panel p-6 sm:p-7 rounded-3xl border border-blue-900/30 dark:border-blue-500/30 shadow-2xl mb-8 animate-fadeIn">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-border mb-5">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                   <h2 className="text-base font-extrabold text-blue-950 dark:text-blue-300">
-                    Analysis Completed Successfully
+                    AST Architecture & Blast Radius Model Ready
                   </h2>
-                  <span className="text-[11px] text-slate-500 font-medium">
-                    Target: <strong className="font-mono text-foreground">{analysisResult.projectName}</strong>
-                  </span>
                 </div>
+                <p className="text-xs text-slate-500 font-mono">
+                  Project: <strong className="text-foreground">{analysisResult.projectName}</strong> ({analysisResult.projectPath})
+                </p>
               </div>
-              <span className="text-xs font-mono font-bold text-slate-500">
-                {new Date(analysisResult.timestamp).toLocaleTimeString()}
-              </span>
+
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>100% Deterministic</span>
+                </span>
+              </div>
             </div>
 
-            {/* Quick Stats Grid */}
+            {/* Quick Metrics Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-              <div className="p-4 rounded-xl bg-surface-card border border-border">
-                <span className="text-[10px] uppercase font-bold text-slate-500 block">Scanned Files</span>
-                <div className="text-2xl font-black text-foreground mt-1">
-                  {analysisResult.scannedFilesCount}
+              <div className="p-3 rounded-2xl bg-surface-card border border-border text-center">
+                <FileCode className="h-4 w-4 text-blue-900 dark:text-blue-400 mx-auto mb-1" />
+                <div className="text-lg font-black text-blue-950 dark:text-blue-300 font-mono">
+                  {analysisResult.scannedFilesCount || 0}
                 </div>
-                <span className="text-[10px] text-slate-500 font-medium">Source modules</span>
+                <span className="text-[10px] text-slate-500 font-medium">Scanned Files</span>
               </div>
 
-              <div className="p-4 rounded-xl bg-surface-card border border-border">
-                <span className="text-[10px] uppercase font-bold text-blue-900 dark:text-blue-400 block">Database Tables</span>
-                <div className="text-2xl font-black text-foreground mt-1">
+              <div className="p-3 rounded-2xl bg-surface-card border border-border text-center">
+                <Database className="h-4 w-4 text-violet-700 dark:text-violet-400 mx-auto mb-1" />
+                <div className="text-lg font-black text-violet-900 dark:text-violet-300 font-mono">
                   {analysisResult.schema?.tables?.length || 0}
                 </div>
-                <span className="text-[10px] text-slate-500 font-medium">Entities & Schemas</span>
+                <span className="text-[10px] text-slate-500 font-medium">Database Tables</span>
               </div>
 
-              <div className="p-4 rounded-xl bg-surface-card border border-border">
-                <span className="text-[10px] uppercase font-bold text-violet-700 dark:text-violet-400 block">API Endpoints</span>
-                <div className="text-2xl font-black text-foreground mt-1">
+              <div className="p-3 rounded-2xl bg-surface-card border border-border text-center">
+                <Cpu className="h-4 w-4 text-rose-700 dark:text-rose-400 mx-auto mb-1" />
+                <div className="text-lg font-black text-rose-900 dark:text-rose-300 font-mono">
                   {analysisResult.code?.endpoints?.length || 0}
                 </div>
-                <span className="text-[10px] text-slate-500 font-medium">REST & Route Sites</span>
+                <span className="text-[10px] text-slate-500 font-medium">API Endpoints</span>
               </div>
 
-              <div className="p-4 rounded-xl bg-surface-card border border-border">
-                <span className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-400 block">Knowledge Nodes</span>
-                <div className="text-2xl font-black text-foreground mt-1">
+              <div className="p-3 rounded-2xl bg-surface-card border border-border text-center">
+                <Layers className="h-4 w-4 text-emerald-700 dark:text-emerald-400 mx-auto mb-1" />
+                <div className="text-lg font-black text-emerald-900 dark:text-emerald-300 font-mono">
                   {analysisResult.graph?.stats?.totalNodes || 0}
                 </div>
                 <span className="text-[10px] text-slate-500 font-medium">Graph Connections</span>
@@ -661,16 +701,18 @@ CREATE TABLE order_items (
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </button>
 
-              <button
-                onClick={() => {
-                  setDownloadModalReason('DEFAULT');
-                  setIsDownloadModalOpen(true);
-                }}
-                className="w-full sm:w-auto py-3.5 px-5 rounded-2xl bg-surface-card hover:bg-slate-100 dark:hover:bg-neutral-800 text-foreground font-bold text-xs border border-border shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <Download className="h-4 w-4 text-blue-900 dark:text-blue-400" />
-                <span>Download .EXE App</span>
-              </button>
+              {!isLocalApp && (
+                <button
+                  onClick={() => {
+                    setDownloadModalReason('DEFAULT');
+                    setIsDownloadModalOpen(true);
+                  }}
+                  className="w-full sm:w-auto py-3.5 px-5 rounded-2xl bg-surface-card hover:bg-slate-100 dark:hover:bg-neutral-800 text-foreground font-bold text-xs border border-border shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <Download className="h-4 w-4 text-blue-900 dark:text-blue-400" />
+                  <span>Download .EXE App</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -682,35 +724,42 @@ CREATE TABLE order_items (
               <div className="flex items-center gap-2">
                 <HardDrive className="h-4 w-4 text-blue-900 dark:text-blue-400" />
                 <h3 className="text-xs font-black uppercase tracking-wider text-blue-950 dark:text-blue-300">
-                  Recent Local Scans (Stored on Your PC)
+                  Recent Scans ({isLocalApp ? 'Stored on Your PC' : 'Workspace History'})
                 </h3>
               </div>
               <span className="text-[11px] text-slate-500 font-medium">
-                {localHistory.length} Projects Saved Locally
+                {localHistory.length} Projects Saved
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {localHistory.slice(0, 6).map((item) => (
+              {localHistory.map((item) => (
                 <div
                   key={item.id}
-                  onClick={() => {
-                    if (item.projectPath) handleScanPath(item.projectPath);
-                  }}
-                  className="bg-surface-card hover:bg-slate-50 dark:hover:bg-neutral-900 p-3.5 rounded-xl border border-border transition-all cursor-pointer shadow-sm group"
+                  onClick={() => handleScanPath(item.projectPath)}
+                  className="p-3.5 rounded-xl bg-surface-card hover:bg-slate-50 dark:hover:bg-neutral-800/80 border border-border hover:border-blue-900/40 dark:hover:border-blue-400/40 transition-all cursor-pointer group shadow-sm flex flex-col justify-between"
                 >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-mono text-xs font-bold text-foreground truncate group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                      {item.projectName}
-                    </span>
-                    <ArrowUpRight className="h-3.5 w-3.5 text-slate-400 group-hover:text-blue-500 transition-transform group-hover:translate-x-0.5" />
+                  <div className="mb-2">
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <span className="text-xs font-bold text-foreground truncate group-hover:text-blue-900 dark:group-hover:text-blue-300 transition-colors">
+                        {item.projectName || 'Project'}
+                      </span>
+                      <ArrowRight className="h-3.5 w-3.5 text-slate-400 group-hover:text-blue-900 dark:group-hover:text-blue-300 transition-transform group-hover:translate-x-0.5 shrink-0" />
+                    </div>
+                    <p className="text-[10px] font-mono text-slate-500 truncate" title={item.projectPath}>
+                      {item.projectPath}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-3 text-[10px] text-slate-500">
-                    <span>{item.tablesCount} Tables</span>
-                    <span>•</span>
-                    <span>{item.endpointsCount} APIs</span>
-                    <span>•</span>
-                    <span>{new Date(item.timestamp).toLocaleDateString()}</span>
+
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 pt-2 border-t border-border/50">
+                    <span className="flex items-center gap-1">
+                      <Database className="h-3 w-3 text-violet-600 dark:text-violet-400" />
+                      <span>{item.tablesCount} tables</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Cpu className="h-3 w-3 text-rose-600 dark:text-rose-400" />
+                      <span>{item.endpointsCount} APIs</span>
+                    </span>
                   </div>
                 </div>
               ))}
@@ -718,47 +767,53 @@ CREATE TABLE order_items (
           </div>
         )}
 
-        {/* Feature Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <div className="glass-card p-5 rounded-2xl border border-border">
-            <div className="h-8 w-8 rounded-lg bg-blue-50 dark:bg-blue-950 flex items-center justify-center text-blue-900 dark:text-blue-400 mb-3">
-              <Database className="h-4 w-4" />
+        {/* Feature Highlights Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="glass-card p-5 rounded-2xl border border-border flex flex-col justify-between">
+            <div>
+              <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 w-fit mb-3 text-blue-900 dark:text-blue-400">
+                <Database className="h-5 w-5" />
+              </div>
+              <h3 className="text-xs font-bold text-blue-950 dark:text-blue-300 uppercase tracking-wider mb-1.5">
+                Deterministic Schema & ERD
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 font-medium leading-relaxed">
+                Extracts tables, primary/foreign keys, and relationships directly from SQL, Prisma, Django, SQLAlchemy, and TypeORM.
+              </p>
             </div>
-            <h3 className="text-sm font-extrabold text-blue-950 dark:text-blue-300 mb-1.5">
-              Cross-Dialect Database ERD
-            </h3>
-            <p className="text-xs text-slate-600 dark:text-neutral-400 leading-relaxed font-medium">
-              Extracts schemas from Postgres, MySQL, SQLite, SQL Server, MongoDB, Prisma, and ORM models with live data value previews.
-            </p>
           </div>
 
-          <div className="glass-card p-5 rounded-2xl border border-border">
-            <div className="h-8 w-8 rounded-lg bg-violet-50 dark:bg-violet-950 flex items-center justify-center text-violet-700 dark:text-violet-400 mb-3">
-              <Network className="h-4 w-4" />
+          <div className="glass-card p-5 rounded-2xl border border-border flex flex-col justify-between">
+            <div>
+              <div className="p-2 rounded-xl bg-violet-50 dark:bg-violet-950/60 w-fit mb-3 text-violet-700 dark:text-violet-400">
+                <Layers className="h-5 w-5" />
+              </div>
+              <h3 className="text-xs font-bold text-violet-950 dark:text-violet-300 uppercase tracking-wider mb-1.5">
+                Multi-Perspective Views
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 font-medium leading-relaxed">
+                Dedicated role consoles for <strong>Developers</strong> (LLD/Code), <strong>Managers</strong> (HLD/Services), and <strong>Business Owners</strong> (Journeys).
+              </p>
             </div>
-            <h3 className="text-sm font-extrabold text-blue-950 dark:text-blue-300 mb-1.5">
-              High & Low-Level Diagrams
-            </h3>
-            <p className="text-xs text-slate-600 dark:text-neutral-400 leading-relaxed font-medium">
-              Auto-generates C4 Container views, component call graphs, and interactive execution sequence flows with infinite zoom & pan.
-            </p>
           </div>
 
-          <div className="glass-card p-5 rounded-2xl border border-border">
-            <div className="h-8 w-8 rounded-lg bg-rose-50 dark:bg-rose-950 flex items-center justify-center text-rose-700 dark:text-rose-400 mb-3">
-              <GitPullRequest className="h-4 w-4" />
+          <div className="glass-card p-5 rounded-2xl border border-border flex flex-col justify-between">
+            <div>
+              <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 w-fit mb-3 text-rose-700 dark:text-rose-400">
+                <Cpu className="h-5 w-5" />
+              </div>
+              <h3 className="text-xs font-bold text-rose-950 dark:text-rose-300 uppercase tracking-wider mb-1.5">
+                Blast Radius Simulator
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 font-medium leading-relaxed">
+                Simulate column drops, schema changes, and endpoint mutations to calculate dependency impact before deploying.
+              </p>
             </div>
-            <h3 className="text-sm font-extrabold text-blue-950 dark:text-blue-300 mb-1.5">
-              Blast Radius Simulator
-            </h3>
-            <p className="text-xs text-slate-600 dark:text-neutral-400 leading-relaxed font-medium">
-              Simulate modifications to tables or methods and calculate upstream/downstream breaking changes before merging pull requests.
-            </p>
           </div>
         </div>
       </div>
 
-      {/* Download Desktop Studio Modal */}
+      {/* Download Desktop App Modal */}
       <DownloadModal
         isOpen={isDownloadModalOpen}
         onClose={() => setIsDownloadModalOpen(false)}
