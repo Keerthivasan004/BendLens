@@ -5,9 +5,7 @@ const nextConfig = {
     buildActivity: false,
     appIsrStatus: false
   },
-  experimental: {
-    serverComponentsExternalPackages: []
-  }
+  serverExternalPackages: ['adm-zip']
 };
 
 module.exports = nextConfig;
