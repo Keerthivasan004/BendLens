@@ -2,9 +2,12 @@ import { NextResponse } from 'next/server';
 import ProjectAnalyzer from '@/lib/analyzer';
 import serverCache from '@/lib/serverCache';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
-const HISTORY_FILE = path.join(process.cwd(), '.bendlens_history.json');
+export const dynamic = 'force-dynamic';
+
+const HISTORY_FILE = path.join(os.tmpdir(), '.bendlens_history.json');
 
 function saveToHistory(result) {
   try {

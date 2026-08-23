@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 import ProjectAnalyzer from '@/lib/analyzer';
 import serverCache from '@/lib/serverCache';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
   try {
@@ -13,7 +16,7 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'No code or schema provided' }, { status: 400 });
     }
 
-    const uploadsDir = path.join(process.cwd(), '.temp_scans');
+    const uploadsDir = path.join(os.tmpdir(), 'bendlens_temp_scans');
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }

@@ -2,8 +2,11 @@ import { NextResponse } from 'next/server';
 import ProjectAnalyzer from '@/lib/analyzer';
 import serverCache from '@/lib/serverCache';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import AdmZip from 'adm-zip';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
   try {
@@ -18,8 +21,8 @@ export async function POST(request) {
     const buffer = Buffer.from(bytes);
     const fileName = file.name || 'project.zip';
 
-    // Temporary upload target
-    const uploadsDir = path.join(process.cwd(), '.temp_scans');
+    // Temporary upload target in os.tmpdir()
+    const uploadsDir = path.join(os.tmpdir(), 'bendlens_temp_scans');
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
@@ -37,8 +40,15 @@ export async function POST(request) {
       fs.writeFileSync(targetFilePath, buffer);
     }
 
+    // If zip extracted into a single root folder, analyze inner folder
+    const extractedItems = fs.readdirSync(extractDir);
+    let targetAnalyzeDir = extractDir;
+    if (extractedItems.length === 1 && fs.statSync(path.join(extractDir, extractedItems[0])).isDirectory()) {
+      targetAnalyzeDir = path.join(extractDir, extractedItems[0]);
+    }
+
     // Analyze extracted project
-    const result = ProjectAnalyzer.analyze(extractDir);
+    const result = ProjectAnalyzer.analyze(targetAnalyzeDir);
     result.projectName = fileName.replace(/\.zip$/i, '');
     
     serverCache.setLatest(result);

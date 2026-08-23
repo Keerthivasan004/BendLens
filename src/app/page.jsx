@@ -23,6 +23,7 @@ export default function Home() {
   // Mode States
   const [folderPath, setFolderPath] = useState('');
   const [gitUrl, setGitUrl] = useState('');
+  const [gitToken, setGitToken] = useState('');
   const [pastedCode, setPastedCode] = useState(
 `-- Paste SQL DDL, Prisma schema, or ORM models here
 CREATE TABLE users (
@@ -231,14 +232,17 @@ CREATE TABLE order_items (
       const res = await fetch('/api/git-clone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repoUrl: gitUrl.trim() })
+        body: JSON.stringify({ 
+          repoUrl: gitUrl.trim(),
+          token: gitToken.trim()
+        })
       });
       const result = await res.json();
       if (result.success) {
         setAnalysisResult(result.data);
         fetchLocalHistory();
       } else {
-        setErrorMessage(result.error || 'Git clone failed. Ensure git is installed and repo is public.');
+        setErrorMessage(result.error || 'Git clone failed. If this is a private repository, please provide a GitHub Personal Access Token (PAT).');
       }
     } catch (err) {
       setErrorMessage(err.message || 'Error connecting to git engine');
@@ -510,16 +514,16 @@ CREATE TABLE order_items (
           {ingestMode === 'GIT' && (
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-blue-950 dark:text-blue-300 mb-2">
-                Enter Public Git / GitHub Repository URL
+                Enter Git / GitHub Repository URL (Public or Private)
               </label>
-              <div className="flex flex-col sm:flex-row items-center gap-3 mb-4">
+              <div className="flex flex-col sm:flex-row items-center gap-3 mb-3">
                 <div className="relative flex-1 w-full">
                   <Globe className="h-4 w-4 absolute left-3.5 top-3.5 text-slate-400 pointer-events-none" />
                   <input
                     type="text"
                     value={gitUrl}
                     onChange={(e) => setGitUrl(e.target.value)}
-                    placeholder="e.g., https://github.com/fastapi/fastapi or https://github.com/expressjs/express"
+                    placeholder="e.g., https://github.com/Keerthivasan004/BendLens"
                     className="w-full pl-10 pr-4 py-3 text-xs rounded-xl bg-surface-card border border-border focus:border-blue-900 dark:focus:border-blue-400 outline-none text-foreground font-mono font-medium placeholder-slate-400 transition-all shadow-sm"
                   />
                 </div>
@@ -536,6 +540,20 @@ CREATE TABLE order_items (
                   <span>Clone & Analyze</span>
                 </button>
               </div>
+
+              {/* Optional Token Field for Private Repositories */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  value={gitToken}
+                  onChange={(e) => setGitToken(e.target.value)}
+                  placeholder="GitHub Personal Access Token (Optional - Required for Private Repos)"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl bg-surface-card border border-border/70 focus:border-blue-900 dark:focus:border-blue-400 outline-none text-foreground font-mono placeholder-slate-400"
+                />
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1.5">
+                For private repositories, generate a Personal Access Token (classic) with <code className="font-mono text-blue-600 dark:text-blue-400">repo</code> scope on GitHub.
+              </p>
             </div>
           )}
 
