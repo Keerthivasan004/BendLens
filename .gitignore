@@ -45,14 +45,12 @@ dist/
 dist-electron/
 
 # 5. Compiled Executables & Generated Downloads
-*.exe
-*.dmg
-*.pkg
-*.deb
-*.rpm
-*.AppImage
-*.msi
-public/downloads/
+# Track BendLens binaries for Vercel and direct distribution
+!public/downloads/**
+!public/icon.ico
+!public/icon.png
+!BendLens.exe
+!BendLens.bat
 
 # 6. Debug Logs & System Runtime Artifacts
 npm-debug.log*

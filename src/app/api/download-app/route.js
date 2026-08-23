@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import path from 'path';
 import fs from 'fs';
+import AdmZip from 'adm-zip';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,30 +9,91 @@ export async function GET(request) {
   try {
     const projectRoot = process.cwd();
     const exePath = path.join(projectRoot, 'public', 'downloads', 'BendLens.exe');
+    const rootExePath = path.join(projectRoot, 'BendLens.exe');
 
-    // Ensure the binary is compiled and available
-    if (!fs.existsSync(exePath)) {
-      const { execSync } = require('child_process');
-      const cscCompiler = 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe';
-      const csSource = path.join(projectRoot, 'scripts', 'BendLensLauncher.cs');
-      execSync(`"${cscCompiler}" /target:winexe /platform:anycpu /optimize+ /out:"${exePath}" "${csSource}" /reference:System.Windows.Forms.dll,System.Drawing.dll,System.dll,Microsoft.CSharp.dll`, { cwd: projectRoot });
+    // 1. If compiled BendLens.exe exists in public/downloads or root, serve it directly
+    if (fs.existsSync(exePath)) {
+      const fileBuffer = fs.readFileSync(exePath);
+      return new NextResponse(fileBuffer, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/vnd.microsoft.portable-executable',
+          'Content-Disposition': 'attachment; filename="BendLens.exe"',
+          'Content-Length': fileBuffer.length.toString(),
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        }
+      });
     }
 
-    const fileBuffer = fs.readFileSync(exePath);
+    if (fs.existsSync(rootExePath)) {
+      const fileBuffer = fs.readFileSync(rootExePath);
+      return new NextResponse(fileBuffer, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/vnd.microsoft.portable-executable',
+          'Content-Disposition': 'attachment; filename="BendLens.exe"',
+          'Content-Length': fileBuffer.length.toString(),
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        }
+      });
+    }
 
-    return new NextResponse(fileBuffer, {
+    // 2. On Windows local runtime, compile if CSC is available
+    if (process.platform === 'win32') {
+      try {
+        const { execSync } = require('child_process');
+        const cscCompiler = 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe';
+        const csSource = path.join(projectRoot, 'scripts', 'BendLensLauncher.cs');
+        const iconPath = path.join(projectRoot, 'public', 'icon.ico');
+        
+        if (fs.existsSync(cscCompiler) && fs.existsSync(csSource)) {
+          const iconFlag = fs.existsSync(iconPath) ? `/win32icon:"${iconPath}"` : '';
+          execSync(`"${cscCompiler}" /target:winexe ${iconFlag} /platform:anycpu /optimize+ /out:"${exePath}" "${csSource}" /reference:System.Windows.Forms.dll,System.Drawing.dll,System.dll,Microsoft.CSharp.dll`, { cwd: projectRoot });
+          
+          if (fs.existsSync(exePath)) {
+            const fileBuffer = fs.readFileSync(exePath);
+            return new NextResponse(fileBuffer, {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/vnd.microsoft.portable-executable',
+                'Content-Disposition': 'attachment; filename="BendLens.exe"',
+                'Content-Length': fileBuffer.length.toString()
+              }
+            });
+          }
+        }
+      } catch (compileErr) {
+        console.warn('CSC compile error:', compileErr.message);
+      }
+    }
+
+    // 3. Fallback: Standalone Portable Desktop Bundle
+    const zip = new AdmZip();
+    const DIRS = ['src', 'public', 'electron', 'scripts', 'sample_project'];
+    const FILES = ['BendLens.bat', 'package.json', 'README.md', 'tailwind.config.js', 'next.config.js'];
+
+    for (const dir of DIRS) {
+      const p = path.join(projectRoot, dir);
+      if (fs.existsSync(p)) zip.addLocalFolder(p, dir);
+    }
+    for (const f of FILES) {
+      const p = path.join(projectRoot, f);
+      if (fs.existsSync(p)) zip.addLocalFile(p);
+    }
+
+    const zipBuffer = zip.toBuffer();
+    return new NextResponse(zipBuffer, {
       status: 200,
       headers: {
-        'Content-Type': 'application/vnd.microsoft.portable-executable',
-        'Content-Disposition': 'attachment; filename="BendLens.exe"',
-        'Content-Length': fileBuffer.length.toString(),
-        'Cache-Control': 'no-cache, no-store, must-revalidate'
+        'Content-Type': 'application/zip',
+        'Content-Disposition': 'attachment; filename="BendLens-Desktop.zip"',
+        'Content-Length': zipBuffer.length.toString()
       }
     });
   } catch (error) {
-    console.error('Download executable error:', error);
+    console.error('Download route error:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to download BendLens.exe executable' },
+      { success: false, error: 'Failed to package BendLens application' },
       { status: 500 }
     );
   }
