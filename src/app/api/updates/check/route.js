@@ -1,47 +1,67 @@
 import { NextResponse } from 'next/server';
 import packageJson from '@/../package.json';
 
-// Local current version
+export const dynamic = 'force-dynamic';
+
 const CURRENT_VERSION = packageJson.version || '1.0.0';
 
 export async function GET() {
   try {
-    // In production, this can query GitHub Releases API or your hosted version manifest
-    // e.g. https://api.github.com/repos/your-org/bendlens/releases/latest
-    
-    // We provide a live version check structure:
-    const remoteManifest = {
-      latestVersion: CURRENT_VERSION, // Dynamically matched or set to newer
-      minRequiredVersion: '1.0.0',
-      releaseNotes: [
-        'Multi-dialect SQL & SQLite binary parser support',
-        'Universal database live data values previewer',
-        '1-Click Desktop bundle downloader and local storage persistence',
-        'Deterministic AST call graph and blast-radius calculator'
-      ],
-      releaseDate: new Date().toISOString()
-    };
+    let latestVersion = CURRENT_VERSION;
+    let releaseNotes = [
+      'Universal AST database schema extraction & multi-dialect SQL support',
+      'Interactive C4 architecture models (HLD, LLD, and Business Journeys)',
+      'Deterministic Blast Radius Simulator with ripple effect calculations',
+      'Air-gapped 100% private local desktop execution with auto-updates'
+    ];
+    let releaseDate = new Date().toISOString();
 
-    const hasUpdate = isNewerVersion(remoteManifest.latestVersion, CURRENT_VERSION);
+    // Check remote repository for latest version
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      
+      const remotePkgRes = await fetch(
+        'https://raw.githubusercontent.com/Keerthivasan004/BendLens/main/package.json',
+        { 
+          signal: controller.signal,
+          headers: { 'Cache-Control': 'no-cache' }
+        }
+      );
+      clearTimeout(timeoutId);
+
+      if (remotePkgRes.ok) {
+        const remotePkg = await remotePkgRes.json();
+        if (remotePkg.version) {
+          latestVersion = remotePkg.version;
+        }
+      }
+    } catch (fetchErr) {
+      // Offline or private repo without token - use local manifest
+    }
+
+    const hasUpdate = isNewerVersion(latestVersion, CURRENT_VERSION);
 
     return NextResponse.json({
       success: true,
       currentVersion: CURRENT_VERSION,
-      latestVersion: remoteManifest.latestVersion,
+      latestVersion,
       hasUpdate,
-      releaseNotes: remoteManifest.releaseNotes,
-      releaseDate: remoteManifest.releaseDate
+      releaseNotes,
+      releaseDate
     });
   } catch (error) {
     return NextResponse.json({
       success: false,
       currentVersion: CURRENT_VERSION,
+      latestVersion: CURRENT_VERSION,
       hasUpdate: false
     });
   }
 }
 
 function isNewerVersion(remote, local) {
+  if (!remote || !local) return false;
   const r = remote.split('.').map(Number);
   const l = local.split('.').map(Number);
   for (let i = 0; i < 3; i++) {

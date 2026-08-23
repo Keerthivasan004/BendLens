@@ -12,7 +12,7 @@ export async function POST(request) {
   try {
     const body = await request.json();
     let repoUrl = (body.repoUrl || '').trim();
-    const token = (body.token || '').trim(); // GitHub Personal Access Token (for private repos)
+    let token = (body.token || '').trim(); // GitHub Personal Access Token
 
     if (!repoUrl || !repoUrl.startsWith('http')) {
       return NextResponse.json(
@@ -31,29 +31,48 @@ export async function POST(request) {
     const cloneDir = path.join(uploadsDir, scanId);
     fs.mkdirSync(cloneDir, { recursive: true });
 
-    // Parse owner and repo from URL
-    const cleanUrl = repoUrl.replace(/\.git$/i, '').replace(/\/+$/, '');
-    const urlParts = cleanUrl.split('/');
-    const repoName = urlParts[urlParts.length - 1] || 'repository';
-    const ownerName = urlParts[urlParts.length - 2] || '';
+    // Robust parsing of owner and repo name
+    // Matches https://github.com/owner/repo, https://github.com/owner/repo.git, etc.
+    const urlPattern = /github\.com\/([^\/]+)\/([^\/\?#]+)/i;
+    const match = repoUrl.match(urlPattern);
+    
+    const ownerName = match ? match[1] : '';
+    const repoName = match ? match[2].replace(/\.git$/i, '') : 'repository';
 
     let success = false;
-    let errorMessage = '';
+    let lastError = '';
 
-    // Method 1: GitHub API Zipball Download (Works on Vercel serverless without git CLI)
-    if (ownerName && repoName && cleanUrl.includes('github.com')) {
+    // =========================================================================
+    // METHOD 1: GitHub API Zipball with Manual Redirect Handling (Handles Private Repos)
+    // =========================================================================
+    if (ownerName && repoName) {
       try {
         const apiUrl = `https://api.github.com/repos/${ownerName}/${repoName}/zipball`;
         const headers = {
           'User-Agent': 'BendLens-Studio/1.0',
-          'Accept': 'application/vnd.github.v3+json'
+          'Accept': 'application/vnd.github+json'
         };
 
         if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
+          // Supports classic PAT ('token ...') and fine-grained PAT ('Bearer ...')
+          headers['Authorization'] = token.startsWith('ghp_') || token.startsWith('github_pat_') 
+            ? `Bearer ${token}` 
+            : `token ${token}`;
         }
 
-        const res = await fetch(apiUrl, { headers });
+        // Use manual redirect so Authorization header isn't dropped by Node fetch
+        let res = await fetch(apiUrl, { 
+          headers,
+          redirect: 'manual'
+        });
+
+        // Follow 302 / 301 redirect to pre-authenticated codeload URL
+        if (res.status === 302 || res.status === 301) {
+          const redirectUrl = res.headers.get('location');
+          if (redirectUrl) {
+            res = await fetch(redirectUrl);
+          }
+        }
 
         if (res.ok) {
           const arrayBuffer = await res.arrayBuffer();
@@ -61,7 +80,7 @@ export async function POST(request) {
           const zip = new AdmZip(buffer);
           zip.extractAllTo(cloneDir, true);
 
-          // If zipball extracted into a single nested folder, resolve it
+          // Find extracted root folder
           const extractedItems = fs.readdirSync(cloneDir);
           let targetAnalyzeDir = cloneDir;
           if (extractedItems.length === 1 && fs.statSync(path.join(cloneDir, extractedItems[0])).isDirectory()) {
@@ -73,20 +92,74 @@ export async function POST(request) {
           serverCache.setLatest(result);
 
           return NextResponse.json({ success: true, data: result });
-        } else if (res.status === 404 || res.status === 401) {
-          errorMessage = 'Repository not found or private. If this is a private repo, please provide a GitHub Personal Access Token (PAT).';
+        } else {
+          const errText = await res.text().catch(() => '');
+          lastError = `GitHub API returned ${res.status}: ${errText || 'Unauthorized or repo not found.'}`;
         }
       } catch (apiErr) {
-        console.warn('GitHub API download failed, falling back to git CLI:', apiErr.message);
+        lastError = apiErr.message;
+        console.warn('GitHub API download failed, trying direct archive method:', apiErr.message);
       }
     }
 
-    // Method 2: Git CLI Fallback
+    // =========================================================================
+    // METHOD 2: Direct Archive Download with Token (Fallback for branches)
+    // =========================================================================
+    if (ownerName && repoName && token) {
+      for (const branch of ['main', 'master']) {
+        try {
+          const branchUrl = `https://raw.githubusercontent.com/${ownerName}/${repoName}/${branch}/package.json`;
+          const checkRes = await fetch(branchUrl, {
+            headers: {
+              'Authorization': `token ${token}`,
+              'User-Agent': 'BendLens-Studio/1.0'
+            }
+          });
+          if (checkRes.ok) {
+            // Branch confirmed
+            const archiveUrl = `https://api.github.com/repos/${ownerName}/${repoName}/zipball/${branch}`;
+            let zipRes = await fetch(archiveUrl, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'User-Agent': 'BendLens-Studio/1.0',
+                'Accept': 'application/vnd.github+json'
+              },
+              redirect: 'manual'
+            });
+            if (zipRes.status === 302 || zipRes.status === 301) {
+              const redir = zipRes.headers.get('location');
+              if (redir) zipRes = await fetch(redir);
+            }
+            if (zipRes.ok) {
+              const arrayBuffer = await zipRes.arrayBuffer();
+              const buffer = Buffer.from(arrayBuffer);
+              const zip = new AdmZip(buffer);
+              zip.extractAllTo(cloneDir, true);
+
+              const extractedItems = fs.readdirSync(cloneDir);
+              let targetAnalyzeDir = cloneDir;
+              if (extractedItems.length === 1 && fs.statSync(path.join(cloneDir, extractedItems[0])).isDirectory()) {
+                targetAnalyzeDir = path.join(cloneDir, extractedItems[0]);
+              }
+
+              const result = ProjectAnalyzer.analyze(targetAnalyzeDir);
+              result.projectName = repoName;
+              serverCache.setLatest(result);
+              return NextResponse.json({ success: true, data: result });
+            }
+          }
+        } catch (branchErr) {}
+      }
+    }
+
+    // =========================================================================
+    // METHOD 3: Git CLI Clone (When running in environments with git installed)
+    // =========================================================================
     try {
       const { execSync } = require('child_process');
       let targetCloneUrl = repoUrl;
       if (token && repoUrl.includes('github.com')) {
-        targetCloneUrl = repoUrl.replace('https://', `https://${token}@`);
+        targetCloneUrl = `https://x-access-token:${token}@github.com/${ownerName}/${repoName}.git`;
       }
 
       execSync(`git clone --depth 1 "${targetCloneUrl}" "${cloneDir}"`, {
@@ -100,11 +173,17 @@ export async function POST(request) {
 
       return NextResponse.json({ success: true, data: result });
     } catch (gitErr) {
-      console.error('Git CLI fallback failed:', gitErr.message);
-      throw new Error(
-        errorMessage || 'Failed to clone repository. If this is a private repository, please enter your GitHub Personal Access Token (PAT).'
-      );
+      console.error('Git CLI fallback error:', gitErr.message);
     }
+
+    // If all methods exhausted
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: 'Unable to access private repository. Please ensure your Personal Access Token has the "repo" (Full control of private repositories) scope enabled.' 
+      },
+      { status: 400 }
+    );
   } catch (error) {
     console.error('Git Clone Route Error:', error);
     return NextResponse.json(
