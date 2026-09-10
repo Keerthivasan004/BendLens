@@ -152,16 +152,16 @@ export default function Logo({ size = 'md', withText = true, className = '' }) {
             <span
               className={`${
                 textSizes[size] || textSizes.md
-              } font-black tracking-tight text-blue-950 dark:text-white leading-none`}
+              } font-extrabold tracking-tight text-foreground leading-none`}
             >
-              Bend<span className="text-blue-700 dark:text-blue-400">Lens</span>
+              Bend<span className="text-brand">Lens</span>
             </span>
-            <span className="text-[10px] uppercase font-mono tracking-wider font-extrabold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-900 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+            <span className="text-[10px] uppercase font-mono tracking-wider font-semibold px-1.5 py-0.2 rounded bg-surface-raised text-muted border border-border">
               Data Studio
             </span>
           </div>
-          <span className="text-[10px] text-slate-500 font-medium tracking-tight mt-0.5">
-            Database Architecture & Data Intelligence
+          <span className="text-[10px] text-muted font-medium tracking-tight mt-0.5">
+            Database Architecture & Blast Platform
           </span>
         </div>
       )}

@@ -18,6 +18,69 @@ class SchemaParser {
     this.sampleData = {}; // tableName -> array of sample row objects
   }
 
+  splitClauses(body) {
+    const clauses = [];
+    let current = '';
+    let depth = 0;
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+    let inBacktick = false;
+
+    for (let i = 0; i < body.length; i++) {
+      const char = body[i];
+      const prev = body[i - 1];
+
+      if (char === "'" && prev !== '\\' && !inDoubleQuote && !inBacktick) {
+        inSingleQuote = !inSingleQuote;
+      } else if (char === '"' && prev !== '\\' && !inSingleQuote && !inBacktick) {
+        inDoubleQuote = !inDoubleQuote;
+      } else if (char === '`' && !inSingleQuote && !inDoubleQuote) {
+        inBacktick = !inBacktick;
+      } else if (!inSingleQuote && !inDoubleQuote && !inBacktick) {
+        if (char === '(') depth++;
+        else if (char === ')') depth--;
+        else if (char === ',' && depth === 0) {
+          if (current.trim()) clauses.push(current.trim());
+          current = '';
+          continue;
+        }
+      }
+      current += char;
+    }
+    if (current.trim()) clauses.push(current.trim());
+    return clauses;
+  }
+
+  splitValues(str) {
+    const values = [];
+    let current = '';
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+    let depth = 0;
+
+    for (let i = 0; i < str.length; i++) {
+      const char = str[i];
+      const prev = str[i - 1];
+
+      if (char === "'" && prev !== '\\' && !inDoubleQuote) {
+        inSingleQuote = !inSingleQuote;
+      } else if (char === '"' && prev !== '\\' && !inSingleQuote) {
+        inDoubleQuote = !inDoubleQuote;
+      } else if (!inSingleQuote && !inDoubleQuote) {
+        if (char === '(') depth++;
+        else if (char === ')') depth--;
+        else if (char === ',' && depth === 0) {
+          values.push(current.trim().replace(/^['"]|['"]$/g, ''));
+          current = '';
+          continue;
+        }
+      }
+      current += char;
+    }
+    if (current.trim()) values.push(current.trim().replace(/^['"]|['"]$/g, ''));
+    return values;
+  }
+
   parseDirectory(dirPath, fileList) {
     for (const filePath of fileList) {
       try {
@@ -32,14 +95,14 @@ class SchemaParser {
 
         const content = fs.readFileSync(filePath, 'utf-8');
 
-        // 2. SQL Files (Postgres, MySQL, SQLite, T-SQL, Oracle, DDLs, Migrations)
-        if (ext === '.sql' || baseName.includes('migration') || baseName.includes('schema')) {
+        // 2. Prisma Schema
+        if (ext === '.prisma' || baseName.endsWith('.prisma')) {
+          this.parsePrisma(content, filePath);
+        }
+        // 3. SQL Files (Postgres, MySQL, SQLite, T-SQL, Oracle, DDLs, Migrations)
+        else if (ext === '.sql' || ['.ddl', '.dump'].includes(ext) || baseName.endsWith('.sql')) {
           this.parseSQL(content, filePath);
           this.parseSQLInserts(content);
-        }
-        // 3. Prisma Schema
-        else if (filePath.endsWith('schema.prisma') || ext === '.prisma') {
-          this.parsePrisma(content, filePath);
         }
         // 4. Python Models (SQLAlchemy, Django, Tortoise, SQLModel, Pydantic)
         else if (ext === '.py') {
@@ -85,15 +148,53 @@ class SchemaParser {
 
   /**
    * Universal SQL Parser: Postgres, MySQL, SQLite, SQL Server, Oracle
+   * Uses balanced-parenthesis depth matching to guarantee zero column truncation
    */
   parseSQL(content, filePath) {
-    // Matches: CREATE TABLE [IF NOT EXISTS] [schema.]table ( ... )
-    const createTableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:`|"|\[)?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:`|"|\])?\s*\(([\s\S]*?)\)(?:\s*(?:ENGINE|DEFAULT|COLLATE|TABLESPACE|WITHOUT\s+ROWID)[\s\S]*?)?;/gi;
+    const cleanContent = content
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/--.*$/gm, '')
+      .replace(/#.*$/gm, '');
+
+    const createTableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:`|"|\[)?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:`|"|\])?\s*\(/gi;
     let match;
 
-    while ((match = createTableRegex.exec(content)) !== null) {
+    while ((match = createTableRegex.exec(cleanContent)) !== null) {
       const tableName = match[1];
-      const body = match[2];
+      const startIndex = createTableRegex.lastIndex;
+
+      let depth = 1;
+      let inSingleQuote = false;
+      let inDoubleQuote = false;
+      let inBacktick = false;
+      let endIndex = -1;
+
+      for (let i = startIndex; i < cleanContent.length; i++) {
+        const char = cleanContent[i];
+        const prev = cleanContent[i - 1];
+
+        if (char === "'" && prev !== '\\' && !inDoubleQuote && !inBacktick) {
+          inSingleQuote = !inSingleQuote;
+        } else if (char === '"' && prev !== '\\' && !inSingleQuote && !inBacktick) {
+          inDoubleQuote = !inDoubleQuote;
+        } else if (char === '`' && !inSingleQuote && !inDoubleQuote) {
+          inBacktick = !inBacktick;
+        } else if (!inSingleQuote && !inDoubleQuote && !inBacktick) {
+          if (char === '(') depth++;
+          else if (char === ')') {
+            depth--;
+            if (depth === 0) {
+              endIndex = i;
+              break;
+            }
+          }
+        }
+      }
+
+      if (endIndex === -1) continue;
+      const body = cleanContent.substring(startIndex, endIndex);
+      createTableRegex.lastIndex = endIndex + 1;
+
       const columns = [];
       const foreignKeys = [];
       let primaryKey = null;
@@ -101,59 +202,84 @@ class SchemaParser {
       // Detect SQL Dialect hints
       let dbType = 'Relational SQL';
       if (/SERIAL|UUID|JSONB|TIMESTAMPTZ|bytea/i.test(body)) dbType = 'PostgreSQL';
-      else if (/AUTO_INCREMENT|ENGINE=InnoDB|TINYINT/i.test(body) || /ENGINE\s*=/i.test(match[0])) dbType = 'MySQL / MariaDB';
+      else if (/AUTO_INCREMENT|ENGINE=InnoDB|TINYINT/i.test(body)) dbType = 'MySQL / MariaDB';
       else if (/AUTOINCREMENT|WITHOUT\s+ROWID/i.test(body)) dbType = 'SQLite';
       else if (/IDENTITY\s*\(\s*1\s*,\s*1\s*\)|NVARCHAR|DATETIME2/i.test(body)) dbType = 'SQL Server (T-SQL)';
       else if (/NUMBER\s*\(|VARCHAR2/i.test(body)) dbType = 'Oracle';
 
-      const lines = body.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('--') && !l.startsWith('/*') && !l.startsWith('#'));
+      const clauses = this.splitClauses(body);
 
-      for (const line of lines) {
-        // PRIMARY KEY constraint
-        const pkMatch = line.match(/^(?:CONSTRAINT\s+[a-zA-Z0-9_]+\s+)?PRIMARY\s+KEY\s*(?:`|"|\[)?\s*\((?:`|"|\[)?([a-zA-Z0-9_,\s]+)(?:`|"|\])?\)/i);
+      for (const rawClause of clauses) {
+        const clause = rawClause.replace(/[\r\n]+/g, ' ').trim();
+        if (!clause) continue;
+
+        // 1. PRIMARY KEY constraint
+        const pkMatch = clause.match(/^(?:CONSTRAINT\s+[a-zA-Z0-9_]+\s+)?PRIMARY\s+KEY\s*(?:`|"|\[)?\s*\(([^)]+)\)/i);
         if (pkMatch) {
           primaryKey = pkMatch[1].replace(/[`"\[\]]/g, '').trim();
           continue;
         }
 
-        // FOREIGN KEY constraint
-        const fkMatch = line.match(/^(?:CONSTRAINT\s+[a-zA-Z0-9_]+\s+)?FOREIGN\s+KEY\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\)\s*REFERENCES\s*(?:`|"|\[)?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:`|"|\])?\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\)/i);
+        // 2. FOREIGN KEY constraint
+        const fkMatch = clause.match(/^(?:CONSTRAINT\s+[a-zA-Z0-9_]+\s+)?FOREIGN\s+KEY\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\)\s*REFERENCES\s*(?:`|"|\[)?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:`|"|\])?(?:\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\))?/i);
         if (fkMatch) {
           foreignKeys.push({
             column: fkMatch[1],
             targetTable: fkMatch[2],
-            targetColumn: fkMatch[3]
+            targetColumn: fkMatch[3] || 'id'
           });
           continue;
         }
 
-        // Column definition
-        const colMatch = line.match(/^(?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\s+([a-zA-Z0-9_()]+)(.*)/i);
-        if (colMatch && !['KEY', 'INDEX', 'UNIQUE', 'CHECK', 'CONSTRAINT'].includes(colMatch[1].toUpperCase())) {
+        // 3. Skip table-level INDEX, KEY, UNIQUE, CHECK constraints
+        if (/^(?:CONSTRAINT\s+[a-zA-Z0-9_]+\s+)?(?:UNIQUE|CHECK|KEY|INDEX)\s*\(/i.test(clause)) {
+          continue;
+        }
+
+        // 4. Column definition
+        const colMatch = clause.match(/^(?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\s+(.+)$/);
+        if (colMatch) {
           const colName = colMatch[1];
-          const colType = colMatch[2];
-          const rest = colMatch[3] || '';
+          if (['KEY', 'INDEX', 'UNIQUE', 'CHECK', 'CONSTRAINT'].includes(colName.toUpperCase())) {
+            continue;
+          }
+
+          const restOfClause = colMatch[2].trim();
+          // Extract type (including multi-word types like DOUBLE PRECISION, TIMESTAMP WITH TIME ZONE, DECIMAL(10, 2))
+          const typeMatch = restOfClause.match(/^((?:DOUBLE\s+PRECISION|TIMESTAMP(?:\s+WITH(?:OUT)?\s+TIME\s+ZONE)?|TIME(?:\s+WITH(?:OUT)?\s+TIME\s+ZONE)?|CHARACTER\s+VARYING|[a-zA-Z0-9_]+)(?:\s*\([^)]*\))?)\s*([\s\S]*)$/i);
           
-          const isPK = /PRIMARY\s+KEY|AUTO_INCREMENT|SERIAL|IDENTITY/i.test(rest) || /SERIAL/i.test(colType);
-          const isNullable = !/NOT\s+NULL/i.test(rest);
-          const isUnique = /UNIQUE/i.test(rest);
+          let colType = 'VARCHAR';
+          let modifiers = '';
+          if (typeMatch) {
+            colType = typeMatch[1].trim();
+            modifiers = typeMatch[2].trim();
+          } else {
+            const firstToken = restOfClause.split(/\s+/)[0];
+            colType = firstToken;
+            modifiers = restOfClause.substring(firstToken.length).trim();
+          }
+
+          const isPK = /PRIMARY\s+KEY|AUTO_INCREMENT|SERIAL|IDENTITY/i.test(modifiers) || /SERIAL/i.test(colType);
+          const isNullable = !/NOT\s+NULL/i.test(modifiers);
+          const isUnique = /UNIQUE/i.test(modifiers);
 
           // Default value detection
           let defaultValue = null;
-          const defaultMatch = rest.match(/DEFAULT\s+([^,]+)/i);
+          const defaultMatch = modifiers.match(/DEFAULT\s+('([^'\\]*(?:\\.[^'\\]*)*)'|"([^"\\]*(?:\\.[^"\\]*)*)"|([^\s,;]+))/i);
           if (defaultMatch) {
-            defaultValue = defaultMatch[1].trim().replace(/^['"]|['"]$/g, '');
+            defaultValue = defaultMatch[2] || defaultMatch[3] || defaultMatch[4] || null;
+            if (defaultValue) defaultValue = defaultValue.trim();
           }
 
           if (isPK && !primaryKey) primaryKey = colName;
 
           // Inline REFERENCES
-          const refMatch = rest.match(/REFERENCES\s+(?:`|"|\[)?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:`|"|\])?\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\)/i);
+          const refMatch = modifiers.match(/REFERENCES\s+(?:`|"|\[)?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:`|"|\])?(?:\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\))?/i);
           if (refMatch) {
             foreignKeys.push({
               column: colName,
               targetTable: refMatch[1],
-              targetColumn: refMatch[2]
+              targetColumn: refMatch[2] || 'id'
             });
           }
 
@@ -171,12 +297,22 @@ class SchemaParser {
       }
 
       if (primaryKey) {
+        const pkNames = primaryKey.split(',').map(s => s.trim());
         columns.forEach(col => {
-          if (primaryKey.split(',').map(s => s.trim()).includes(col.name)) {
+          if (pkNames.includes(col.name)) {
             col.isPrimaryKey = true;
           }
         });
       }
+
+      const uniqueForeignKeys = Array.from(
+        new Map(
+          foreignKeys.map((foreignKey) => [
+            `${foreignKey.column.toLowerCase()}:${foreignKey.targetTable.toLowerCase()}:${(foreignKey.targetColumn || 'id').toLowerCase()}`,
+            foreignKey
+          ])
+        ).values()
+      );
 
       this.tables[tableName] = {
         name: tableName,
@@ -184,7 +320,7 @@ class SchemaParser {
         sourceFile: filePath,
         sourceType: 'SQL DDL / Schema',
         columns,
-        foreignKeys,
+        foreignKeys: uniqueForeignKeys,
         primaryKey: primaryKey || (columns.find(c => c.isPrimaryKey)?.name || 'id'),
         sampleRows: []
       };
@@ -203,7 +339,7 @@ class SchemaParser {
       const colsPart = match[2];
       const valuesPart = match[3];
 
-      const values = valuesPart.split(',').map(v => v.trim().replace(/^['"]|['"]$/g, ''));
+      const values = this.splitValues(valuesPart);
       let colNames = [];
 
       if (colsPart) {
@@ -216,7 +352,6 @@ class SchemaParser {
       colNames.forEach((col, idx) => {
         if (values[idx] !== undefined) {
           row[col] = values[idx];
-          // Set sample value on column if available
           if (this.tables[tableName]) {
             const tableCol = this.tables[tableName].columns.find(c => c.name === col);
             if (tableCol) tableCol.sampleValue = values[idx];
@@ -531,11 +666,21 @@ class SchemaParser {
   inferRelations() {
     this.relations = [];
     const tableKeys = Object.keys(this.tables);
+    const relationKeys = new Set();
+
+    const addRelation = (relation) => {
+      const key = [relation.sourceTable, relation.sourceColumn, relation.targetTable, relation.targetColumn]
+        .map(value => String(value || '').toLowerCase()).join(':');
+      if (!relationKeys.has(key)) {
+        relationKeys.add(key);
+        this.relations.push(relation);
+      }
+    };
 
     for (const [tableName, table] of Object.entries(this.tables)) {
       for (const fk of table.foreignKeys || []) {
         const target = tableKeys.find(t => t.toLowerCase() === fk.targetTable.toLowerCase()) || fk.targetTable;
-        this.relations.push({
+        addRelation({
           sourceTable: tableName,
           sourceColumn: fk.column,
           targetTable: target,
@@ -555,7 +700,7 @@ class SchemaParser {
           );
 
           if (target && target !== tableName) {
-            this.relations.push({
+            addRelation({
               sourceTable: tableName,
               sourceColumn: col.name,
               targetTable: target,

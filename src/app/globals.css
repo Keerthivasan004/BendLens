@@ -2,153 +2,233 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Light Theme Tokens: Pure White Background, Solid Black Text, Dark Blue Bold Headings */
+/* Enterprise Light Theme Tokens: Crisp Porcelain & Structured Slate */
 :root {
-  --background: #ffffff;
-  --foreground: #09090b;
-  --heading-color: #1e3a8a; /* Deep Dark Blue */
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --heading-color: #0f172a;
   --surface: #ffffff;
-  --surface-raised: #f8fafc;
+  --surface-raised: #f1f5f9;
   --surface-card: #ffffff;
-  --border: #cbd5e1;
-  --border-hover: #1e3a8a;
-  --border-glow: #1e3a8a;
-  --subtext: #475569;
-  --canvas-bg: #ffffff;
-  --canvas-dot: rgba(30, 58, 138, 0.12);
-  --accent-primary: #1e3a8a;
+  --surface-subtle: #f8fafc;
+  --border: #e2e8f0;
+  --border-subtle: #edf2f7;
+  --border-hover: #cbd5e1;
+  --subtext: #64748b;
+  --canvas-bg: #f8fafc;
+  --canvas-dot: rgba(100, 116, 139, 0.12);
+  --accent-primary: #2563eb;
+  --accent-primary-hover: #1d4ed8;
   --accent-secondary: #0284c7;
+  --card-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.03);
 }
 
-/* Dark Theme Tokens: Pure Black Background with High-Contrast Slate/Blue Borders */
+/* Enterprise Dark Theme Tokens: Obsidian Slate & High-Precision Neutrals */
 .dark {
-  --background: #000000;
-  --foreground: #ffffff;
-  --heading-color: #93c5fd; /* Vibrant Light Blue */
-  --surface: #0a0d14;
-  --surface-raised: #111522;
-  --surface-card: #0f131f;
-  --border: #2d3748; /* Crisp Slate-700 Border */
-  --border-hover: #60a5fa;
-  --border-glow: #3b82f6;
-  --subtext: #94a3b8;
-  --canvas-bg: #000000;
-  --canvas-dot: rgba(96, 165, 250, 0.18);
+  --background: #090d16;
+  --foreground: #f8fafc;
+  --heading-color: #f8fafc;
+  --surface: #0e1320;
+  --surface-raised: #141a29;
+  --surface-card: #0e1320;
+  --surface-subtle: #121826;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-hover: rgba(255, 255, 255, 0.16);
+  --subtext: #8b9bb4;
+  --canvas-bg: #090d16;
+  --canvas-dot: rgba(255, 255, 255, 0.07);
   --accent-primary: #3b82f6;
+  --accent-primary-hover: #2563eb;
   --accent-secondary: #38bdf8;
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 html, body {
-  background-color: var(--background) !important;
-  color: var(--foreground) !important;
+  background-color: var(--background);
+  color: var(--foreground);
   min-height: 100vh;
   margin: 0;
   padding: 0;
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   overflow-x: hidden;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.011em;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* Monospace override for technical metrics, schemas, and code */
+/* Monospace for technical metrics, schemas, and code */
 code, pre, .font-mono {
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
 }
 
-/* Bold Headings */
-h1, h2, h3, h4, h5, h6, .heading-blue {
-  color: var(--heading-color) !important;
-  font-weight: 800 !important;
-  letter-spacing: -0.025em;
+/* Semantic Typography Hierarchy */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  color: var(--heading-color);
 }
 
-.dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6, .dark .heading-blue {
-  color: #93c5fd !important;
-  font-weight: 800 !important;
-}
-
-/* Studio Panels & Cards with Visual Contrast */
+/* Structured Studio Panels & Cards */
 .glass-panel {
-  background: var(--surface) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 1.25rem;
-  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.05), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: var(--card-shadow);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .dark .glass-panel {
-  background: #090c14 !important;
-  border: 1px solid #283144 !important;
-  box-shadow: 0 15px 40px -10px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  background: #0e1320;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .glass-card {
-  background: var(--surface-card) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 1rem;
-  box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.03);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: var(--card-shadow);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .dark .glass-card {
-  background: #0f1320 !important;
-  border: 1px solid #283144 !important;
-  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  background: #111726;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .glass-card:hover {
-  border-color: var(--border-hover) !important;
-  box-shadow: 0 8px 24px -4px rgba(30, 58, 138, 0.12);
+  border-color: var(--border-hover);
 }
 
-.dark .glass-card:hover, .dark .glass-panel:hover {
-  border-color: #60a5fa !important;
-  box-shadow: 0 8px 25px -4px rgba(59, 130, 246, 0.25) !important;
-}
-
-/* Studio Ambient Dot Grid Canvas */
+/* Subtle Technical Dot Grid Canvas */
 .canvas-grid {
-  background-size: 24px 24px;
-  background-image: radial-gradient(circle, var(--canvas-dot) 1.5px, transparent 1.5px);
+  background-size: 20px 20px;
+  background-image: radial-gradient(circle, var(--canvas-dot) 1px, transparent 1px);
 }
 
-/* Studio Focus Inputs & Form Controls */
-input[type="text"], select, textarea {
-  transition: all 0.2s ease;
+/* Form Controls with Micro-transitions */
+input[type="text"], input[type="password"], select, textarea {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="text"]:focus-visible, 
+input[type="password"]:focus-visible,
+select:focus-visible, 
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
 }
 
 .dark input[type="text"], 
+.dark input[type="password"],
 .dark select, 
 .dark textarea {
-  background-color: #121626 !important;
-  border-color: #2d3748 !important;
-  color: #ffffff !important;
+  background-color: #0e1320;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
 }
 
-.dark input[type="text"]:focus, 
-.dark select:focus, 
-.dark textarea:focus {
-  border-color: #60a5fa !important;
-  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2) !important;
+.dark input[type="text"]:focus-visible, 
+.dark input[type="password"]:focus-visible,
+.dark select:focus-visible, 
+.dark textarea:focus-visible {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
 }
 
 /* Refined Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--background);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #64748b;
+  background: #cbd5e1;
   border-radius: 9999px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #1e293b;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* Product Shell Background */
+.app-shell {
+  background-color: var(--background);
+}
+
+.product-nav,
+.product-header {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.dark .product-nav,
+.dark .product-header {
+  background: #0e1320;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.ingestion-shell {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: var(--card-shadow);
+}
+
+.dark .ingestion-shell {
+  background: #0e1320;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.mode-rail {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.dark .mode-rail {
+  background: #141a29;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Action Buttons */
+.primary-action {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
+  border-radius: 0.5rem !important;
+  transition: all 0.15s ease !important;
+}
+
+.primary-action:hover {
+  background-color: #1d4ed8 !important;
+}
+
+.primary-action:active {
+  transform: scale(0.98);
+}
+
+.dark .primary-action {
+  background-color: #3b82f6 !important;
+}
+
+.dark .primary-action:hover {
+  background-color: #2563eb !important;
 }
 
 /* Diagram SVG Clean Overrides */
@@ -166,10 +246,135 @@ nextjs-portal,
 #__next-build-watcher,
 div[data-nextjs-toast-wrapper],
 [data-next-badge],
-.nextjs-toast-errors-parent {
+.nextjs-toast-errors-parent,
+body > [id^="dmermaid"],
+body > [id*="mermaid-"][aria-roledescription="error"],
+body > svg[aria-roledescription="error"],
+.error-icon,
+.error-text {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
   pointer-events: none !important;
+  height: 0 !important;
+  width: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Global Keyframe Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Dark Theme Analysis Animation: Cybernetic Emerald/Cyan Laser Scanner */
+@keyframes laserBeamDark {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(300%);
+    opacity: 0;
+  }
+}
+
+@keyframes cyberPulseDark {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.25), inset 0 0 10px rgba(6, 182, 212, 0.15);
+    border-color: rgba(16, 185, 129, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(16, 185, 129, 0.45), inset 0 0 18px rgba(6, 182, 212, 0.25);
+    border-color: rgba(6, 182, 212, 0.6);
+  }
+}
+
+.analysis-scanner-dark {
+  animation: cyberPulseDark 2s infinite ease-in-out;
+  background: radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.08), transparent 70%), #0b111e;
+}
+
+.laser-beam-dark {
+  animation: laserBeamDark 1.8s infinite cubic-bezier(0.4, 0, 0.2, 1);
+  background: linear-gradient(90deg, transparent, #10b981, #06b6d4, #ffffff, #06b6d4, #10b981, transparent);
+  box-shadow: 0 0 14px #06b6d4, 0 0 28px #10b981;
+}
+
+/* Light Theme Analysis Animation: Enterprise Sapphire Fluid Shimmer Wave */
+@keyframes shimmerWaveLight {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+@keyframes sapphirePulseLight {
+  0%, 100% {
+    box-shadow: 0 4px 18px -2px rgba(37, 99, 235, 0.18), 0 0 0 1px rgba(37, 99, 235, 0.15);
+    border-color: rgba(37, 99, 235, 0.3);
+  }
+  50% {
+    box-shadow: 0 8px 24px -2px rgba(37, 99, 235, 0.28), 0 0 0 2px rgba(59, 130, 246, 0.35);
+    border-color: rgba(37, 99, 235, 0.55);
+  }
+}
+
+.analysis-scanner-light {
+  animation: sapphirePulseLight 2s infinite ease-in-out;
+  background: radial-gradient(circle at 50% 0%, rgba(37, 99, 235, 0.06), transparent 70%), #ffffff;
+}
+
+.shimmer-wave-light {
+  animation: shimmerWaveLight 1.6s infinite ease-in-out;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+}
+
+/* Scanning Step Radar Wave */
+@keyframes stepRadar {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+}
+
+.step-radar-pulse {
+  animation: stepRadar 1.5s infinite ease-in-out;
+}
+
+/* Terminal Cursor Blink */
+@keyframes consoleBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.console-cursor {
+  animation: consoleBlink 1s infinite;
 }
 

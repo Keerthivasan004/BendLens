@@ -12,7 +12,7 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         {/* Official BendLens Favicon & Icons */}
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />

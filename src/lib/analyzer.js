@@ -98,7 +98,7 @@ class ProjectAnalyzer {
       sampleType = 'endpoint';
     }
 
-    const sampleImpact = ImpactAnalyzer.simulate(graph, sampleTarget, sampleType);
+    const sampleImpact = ImpactAnalyzer.simulate(graph, sampleTarget, sampleType, schemaData, codeData);
 
     // 5. Generate 3-Tier Persona Intelligence Views
     const developerView = PersonaMapper.getDeveloperView(schemaData, codeData, infraData, graph);

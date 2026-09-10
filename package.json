@@ -10,7 +10,12 @@
     "start": "next start -p 3000",
     "desktop": "electron .",
     "launch": "node scripts/launch-desktop.js",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report"
   },
   "build": {
     "appId": "com.bendlens.studio",
@@ -19,7 +24,10 @@
       "output": "dist"
     },
     "win": {
-      "target": ["portable", "nsis"],
+      "target": [
+        "portable",
+        "nsis"
+      ],
       "icon": "public/icon.svg"
     },
     "nsis": {
@@ -39,6 +47,7 @@
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "autoprefixer": "^10.4.20",
     "electron": "^43.4.1",
     "electron-builder": "^26.7.0",

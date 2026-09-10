@@ -5,11 +5,10 @@ import { useRouter } from 'next/navigation';
 import Logo from '@/components/Logo';
 import UpdateIndicator from '@/components/UpdateIndicator';
 import DownloadModal from '@/components/DownloadModal';
-import FloatingDataBubbles from '@/components/FloatingDataBubbles';
 import {
   FolderSearch, Play, Sparkles, Database, FileCode, Cpu, Layers,
   CheckCircle2, ArrowRight, ShieldCheck, HardDrive, Terminal,
-  UploadCloud, GitBranch, Globe, Sun, Moon, Laptop, Lock, AlertTriangle, AlertCircle, Download
+  UploadCloud, GitBranch, Globe, Sun, Moon, Laptop, Lock, AlertTriangle, AlertCircle, Download, Zap, RefreshCw
 } from 'lucide-react';
 
 export default function LandingPage() {
@@ -44,6 +43,7 @@ CREATE TABLE orders (
   // Shared Execution State
   const [isScanning, setIsScanning] = useState(false);
   const [scanStep, setScanStep] = useState(0);
+  const [scanProgress, setScanProgress] = useState(0);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [localHistory, setLocalHistory] = useState([]);
@@ -66,7 +66,6 @@ CREATE TABLE orders (
       document.documentElement.classList.remove('dark');
     }
 
-    // Detect if running locally (Desktop or localhost) vs Web/Vercel
     if (typeof window !== 'undefined') {
       const isLocal = window.location.hostname === 'localhost' || 
                       window.location.hostname === '127.0.0.1' || 
@@ -107,82 +106,87 @@ CREATE TABLE orders (
     return val.toString().trim().replace(/^["'`]+|["'`]+$/g, '').trim();
   };
 
-  const simulateScanSteps = () => {
+  const executeScanWithStages = async (fetchPromise, onComplete) => {
+    setIsScanning(true);
+    setErrorMessage('');
     setScanStep(1);
-    const t1 = setTimeout(() => setScanStep(2), 500);
-    const t2 = setTimeout(() => setScanStep(3), 1100);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    setScanProgress(25);
+
+    let currentStep = 1;
+    const interval = setInterval(() => {
+      currentStep++;
+      if (currentStep <= 4) {
+        setScanStep(currentStep);
+        setScanProgress(currentStep === 2 ? 50 : currentStep === 3 ? 75 : 95);
+      }
+    }, 180);
+
+    try {
+      const res = await fetchPromise;
+      const result = await res.json();
+      clearInterval(interval);
+
+      if (result.success) {
+        setScanStep(5);
+        setScanProgress(100);
+        await new Promise((r) => setTimeout(r, 120));
+        onComplete(result.data);
+      } else {
+        setErrorMessage(result.error || 'Analysis failed.');
+      }
+    } catch (err) {
+      clearInterval(interval);
+      setErrorMessage(err.message || 'Error executing architecture analysis');
+    } finally {
+      clearInterval(interval);
+      setIsScanning(false);
+      setScanStep(0);
+      setScanProgress(0);
+    }
   };
 
   // 1. Analyze by Local Folder Path
   const handleScanPath = async (overridePath) => {
     const target = overridePath || folderPath;
 
-    // Check if on web version and user entered a personal local hard-drive path
     if (!isLocalApp && target && (target.includes(':/') || target.includes(':\\') || target.startsWith('/Users/') || target.startsWith('/home/') || target.startsWith('C:') || target.startsWith('D:'))) {
-      setErrorMessage('Browser Security Notice: The Web Edition cannot access your computer\'s local hard drive directly. Please download the BendLens Desktop App for direct folder scans, or use the "ZIP Upload", "Paste Schema", or "Git Clone" tabs.');
+      setErrorMessage('Browser Security Notice: Web browsers cannot access host disk paths directly. Download the BendLens Desktop App for direct folder scans, or use ZIP Upload, Paste Schema, or Git Clone.');
       setDownloadModalReason('DEFAULT');
       setIsDownloadModalOpen(true);
       return;
     }
 
-    setIsScanning(true);
-    setErrorMessage('');
-    simulateScanSteps();
+    const fetchPromise = fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: target })
+    });
 
-    try {
-      const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: target })
-      });
-      const result = await res.json();
-      if (result.success) {
-        setAnalysisResult(result.data);
-        fetchLocalHistory();
-      } else {
-        setErrorMessage(result.error || 'Failed to analyze local path.');
-      }
-    } catch (err) {
-      setErrorMessage(err.message || 'Error connecting to local analysis engine');
-    } finally {
-      setIsScanning(false);
-      setScanStep(0);
-    }
+    await executeScanWithStages(fetchPromise, (data) => {
+      setAnalysisResult(data);
+      fetchLocalHistory();
+    });
   };
 
   // 2. Analyze by File / ZIP Upload
   const handleScanUpload = async () => {
     if (!selectedFile) {
-      setErrorMessage('Please select a .zip file or schema file to upload.');
+      setErrorMessage('Please select a .zip archive or schema file to upload.');
       return;
     }
-
-    setIsScanning(true);
-    setErrorMessage('');
-    simulateScanSteps();
 
     const formData = new FormData();
     formData.append('file', selectedFile);
 
-    try {
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      });
-      const result = await res.json();
-      if (result.success) {
-        setAnalysisResult(result.data);
-        fetchLocalHistory();
-      } else {
-        setErrorMessage(result.error || 'Upload scan failed.');
-      }
-    } catch (err) {
-      setErrorMessage(err.message || 'Error uploading file to local engine');
-    } finally {
-      setIsScanning(false);
-      setScanStep(0);
-    }
+    const fetchPromise = fetch('/api/upload', {
+      method: 'POST',
+      body: formData
+    });
+
+    await executeScanWithStages(fetchPromise, (data) => {
+      setAnalysisResult(data);
+      fetchLocalHistory();
+    });
   };
 
   // 3. Analyze by Pasted Code / Schema
@@ -192,175 +196,138 @@ CREATE TABLE orders (
       return;
     }
 
-    setIsScanning(true);
-    setErrorMessage('');
-    simulateScanSteps();
+    const fetchPromise = fetch('/api/paste', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: pastedCode,
+        fileType: pastedCode.includes('model ') ? 'schema.prisma' : 'schema.sql',
+        projectName: 'Custom Schema Ingestion'
+      })
+    });
 
-    try {
-      const res = await fetch('/api/paste', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: pastedCode,
-          fileType: pastedCode.includes('model ') ? 'schema.prisma' : 'schema.sql',
-          projectName: 'Custom Schema Ingestion'
-        })
-      });
-      const result = await res.json();
-      if (result.success) {
-        setAnalysisResult(result.data);
-        fetchLocalHistory();
-      } else {
-        setErrorMessage(result.error || 'Schema parsing failed.');
-      }
-    } catch (err) {
-      setErrorMessage(err.message || 'Error parsing schema code');
-    } finally {
-      setIsScanning(false);
-      setScanStep(0);
-    }
+    await executeScanWithStages(fetchPromise, (data) => {
+      setAnalysisResult(data);
+      fetchLocalHistory();
+    });
   };
 
   // 4. Analyze by Git / GitHub Clone
   const handleScanGit = async () => {
     if (!gitUrl.trim()) {
-      setErrorMessage('Please enter a valid Git / GitHub repository URL.');
+      setErrorMessage('Please enter a valid Git repository URL.');
       return;
     }
 
-    setIsScanning(true);
-    setErrorMessage('');
-    simulateScanSteps();
+    const fetchPromise = fetch('/api/git-clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        repoUrl: gitUrl.trim(),
+        token: gitToken.trim()
+      })
+    });
 
-    try {
-      const res = await fetch('/api/git-clone', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          repoUrl: gitUrl.trim(),
-          token: gitToken.trim()
-        })
-      });
-      const result = await res.json();
-      if (result.success) {
-        setAnalysisResult(result.data);
-        fetchLocalHistory();
-      } else {
-        setErrorMessage(result.error || 'Git clone failed. If this is a private repository, please provide a GitHub Personal Access Token (PAT).');
-      }
-    } catch (err) {
-      setErrorMessage(err.message || 'Error connecting to git engine');
-    } finally {
-      setIsScanning(false);
-      setScanStep(0);
-    }
+    await executeScanWithStages(fetchPromise, (data) => {
+      setAnalysisResult(data);
+      fetchLocalHistory();
+    });
   };
 
   // Load Built-in Mock Architecture
   const handleLoadSample = async () => {
-    setIsScanning(true);
-    setErrorMessage('');
-    simulateScanSteps();
-    try {
-      const res = await fetch('/api/sample');
-      const result = await res.json();
-      if (result.success) {
-        setAnalysisResult(result.data);
-      }
-    } catch (err) {
-      setErrorMessage('Failed to load sample project');
-    } finally {
-      setIsScanning(false);
-      setScanStep(0);
-    }
+    const fetchPromise = fetch('/api/sample');
+    await executeScanWithStages(fetchPromise, (data) => {
+      setAnalysisResult(data);
+    });
   };
 
-  // Show Lens navigates directly to the Studio Console
-  const handleOpenLens = () => {
+  // Navigate to Studio Console
+  const handleOpenLens = (role = 'DEVELOPER') => {
+    try {
+      localStorage.setItem('bendlens-initial-role', role);
+    } catch {}
     router.push('/lens');
   };
 
   return (
-    <main className="relative min-h-screen bg-white dark:bg-black text-black dark:text-white flex flex-col transition-colors selection:bg-blue-900/20 selection:text-blue-900 dark:selection:bg-blue-500/30 dark:selection:text-blue-200 overflow-hidden">
-      {/* Floating Tiny Data Bubbles Background Canvas */}
-      <FloatingDataBubbles theme={theme} />
+    <main className="min-h-screen bg-background text-foreground flex flex-col transition-colors selection:bg-brand/20 selection:text-foreground">
+      {/* Top Navigation Bar */}
+      <nav className="w-full border-b border-border bg-surface/80 backdrop-blur-md sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+          <Logo size="md" />
 
-      {/* Top Navbar */}
-      <nav className="relative z-10 w-full px-6 lg:px-12 py-4 border-b border-border flex items-center justify-between max-w-7xl mx-auto bg-white/80 dark:bg-black/80 backdrop-blur-md">
-        <Logo size="md" />
+          <div className="flex items-center gap-2.5">
+            <UpdateIndicator />
 
-        <div className="flex items-center gap-3">
-          {/* Auto-Update Indicator */}
-          <UpdateIndicator />
-
-          {/* If running locally, show Desktop Edition badge. If on web, show Download button */}
-          {isLocalApp ? (
-            <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-blue-50 dark:bg-blue-950/80 text-blue-900 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shadow-sm">
-              <ShieldCheck className="h-3.5 w-3.5 text-blue-900 dark:text-blue-400" />
-              <span>Desktop Edition (100% Local & Private)</span>
-            </div>
-          ) : (
-            <button
-              onClick={() => {
-                setDownloadModalReason('DEFAULT');
-                setIsDownloadModalOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/80 dark:hover:bg-blue-900 text-blue-900 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-all cursor-pointer shadow-sm"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>Download Desktop App</span>
-            </button>
-          )}
-
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-xl bg-surface-card hover:bg-slate-100 dark:hover:bg-neutral-900 text-foreground border border-border transition-all cursor-pointer shadow-sm"
-            title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-          >
-            {theme === 'dark' ? (
-              <Sun className="h-4 w-4 text-amber-400" />
+            {isLocalApp ? (
+              <div className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-surface-raised text-muted border border-border">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                <span>Desktop Edition · Local & Private</span>
+              </div>
             ) : (
-              <Moon className="h-4 w-4 text-blue-900" />
+              <button
+                onClick={() => {
+                  setDownloadModalReason('DEFAULT');
+                  setIsDownloadModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-surface-raised hover:bg-surface-subtle text-foreground border border-border transition-colors cursor-pointer"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>Download Desktop App</span>
+              </button>
             )}
-          </button>
+
+            <button
+              onClick={toggleTheme}
+              className="p-1.5 rounded-md hover:bg-surface-raised text-muted hover:text-foreground border border-border transition-colors cursor-pointer"
+              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? (
+                <Sun className="h-4 w-4 text-amber-400" />
+              ) : (
+                <Moon className="h-4 w-4 text-slate-700" />
+              )}
+            </button>
+          </div>
         </div>
       </nav>
 
-      {/* Main Hero Container */}
-      <div className="relative z-10 flex-1 max-w-5xl mx-auto w-full px-6 py-10 lg:py-12 flex flex-col justify-center">
+      {/* Hero & Ingestion Container */}
+      <div className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-10 sm:py-14 flex flex-col justify-center">
         {/* Hero Section */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-8 sm:mb-10">
           <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/80 text-blue-900 dark:text-blue-300 text-xs font-bold shadow-sm">
-              <ShieldCheck className="h-3.5 w-3.5 text-blue-900 dark:text-blue-400" />
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-raised border border-border text-xs font-medium text-foreground">
+              <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulse" />
               <span>Deterministic AST Graph & Blast-Radius Engine</span>
             </div>
-
-            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 text-emerald-700 dark:text-emerald-300 text-xs font-bold shadow-sm">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-raised border border-border text-xs font-medium text-muted">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
               <span>Air-Gapped & Offline Architecture</span>
             </div>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight mb-3 text-blue-950 dark:text-blue-300">
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-foreground mb-3">
             Universal Backend Architecture & Blast Platform
           </h1>
           
-          <p className="text-xs sm:text-sm text-slate-600 dark:text-neutral-400 max-w-2xl mx-auto font-medium leading-relaxed">
-            Extract Database Schemas, High-Level (HLD) & Low-Level (LLD) Design Diagrams, and simulate modification ripple effects across Developers, Managers, and Business Owners.
+          <p className="text-sm sm:text-base text-muted max-w-2xl mx-auto leading-relaxed">
+            Extract relational schemas, high-level (HLD) & low-level (LLD) architectural diagrams, and simulate modification ripple effects across Developers, Managers, and Business Owners.
           </p>
         </div>
 
-        {/* Multi-Modal Ingestion Console Box */}
-        <div className="glass-panel p-6 sm:p-7 rounded-3xl border border-border shadow-xl mb-8 transition-all">
-          {/* Mode Switcher Segmented Pills */}
-          <div className="flex items-center justify-center sm:justify-start gap-1 p-1 bg-slate-100 dark:bg-neutral-900 rounded-2xl mb-5 max-w-fit border border-border">
+        {/* Multi-Modal Ingestion Shell */}
+        <div className="p-5 sm:p-7 rounded-xl border border-border bg-surface-card shadow-card mb-8 transition-all">
+          {/* Segmented Mode Selector */}
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-surface-subtle border border-border-subtle mb-5 max-w-fit flex-wrap">
             <button
               onClick={() => setIngestMode('PATH')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                 ingestMode === 'PATH'
-                  ? 'bg-blue-900 dark:bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-foreground'
+                  ? 'bg-surface-raised text-foreground shadow-xs border border-border'
+                  : 'text-muted hover:text-foreground'
               }`}
             >
               <FolderSearch className="h-3.5 w-3.5" />
@@ -369,10 +336,10 @@ CREATE TABLE orders (
 
             <button
               onClick={() => setIngestMode('UPLOAD')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                 ingestMode === 'UPLOAD'
-                  ? 'bg-blue-900 dark:bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-foreground'
+                  ? 'bg-surface-raised text-foreground shadow-xs border border-border'
+                  : 'text-muted hover:text-foreground'
               }`}
             >
               <UploadCloud className="h-3.5 w-3.5" />
@@ -381,10 +348,10 @@ CREATE TABLE orders (
 
             <button
               onClick={() => setIngestMode('PASTE')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                 ingestMode === 'PASTE'
-                  ? 'bg-blue-900 dark:bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-foreground'
+                  ? 'bg-surface-raised text-foreground shadow-xs border border-border'
+                  : 'text-muted hover:text-foreground'
               }`}
             >
               <FileCode className="h-3.5 w-3.5" />
@@ -393,10 +360,10 @@ CREATE TABLE orders (
 
             <button
               onClick={() => setIngestMode('GIT')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                 ingestMode === 'GIT'
-                  ? 'bg-blue-900 dark:bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-foreground'
+                  ? 'bg-surface-raised text-foreground shadow-xs border border-border'
+                  : 'text-muted hover:text-foreground'
               }`}
             >
               <Globe className="h-3.5 w-3.5" />
@@ -407,34 +374,33 @@ CREATE TABLE orders (
           {/* MODE 1: Local Folder Path */}
           {ingestMode === 'PATH' && (
             <div>
-              {/* Web Edition Notice */}
               {!isLocalApp && (
-                <div className="mb-4 p-4 rounded-2xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70 flex items-start gap-3">
-                  <AlertCircle className="h-5 w-5 text-blue-900 dark:text-blue-400 shrink-0 mt-0.5" />
-                  <div className="text-xs">
-                    <span className="font-bold text-blue-950 dark:text-blue-300 block mb-0.5">
-                      Web Edition Notice: Direct Local Folder Path Access
+                <div className="mb-4 p-3.5 rounded-lg bg-surface-subtle border border-border flex items-start gap-3 text-xs">
+                  <AlertCircle className="h-4 w-4 text-brand shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-semibold text-foreground block mb-0.5">
+                      Direct Hard-Drive Path Notice
                     </span>
-                    <p className="text-blue-900/80 dark:text-blue-300/80 font-medium leading-relaxed mb-2.5">
-                      Web browsers cannot access files directly from your computer's hard drive (e.g. <code>C:/...</code>, <code>/Users/...</code>) for privacy and security. To scan your local codebase folders directly, please <strong>Download the BendLens Desktop App</strong>.
+                    <p className="text-muted leading-relaxed mb-2.5">
+                      Web browsers cannot access local disk paths directly due to browser sandboxing. For direct folder scans, download the BendLens Desktop App, or use ZIP Upload or Paste Schema.
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         onClick={() => { setDownloadModalReason('DEFAULT'); setIsDownloadModalOpen(true); }}
-                        className="px-3 py-1.5 rounded-lg bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-[11px] shadow-sm flex items-center gap-1.5 cursor-pointer"
+                        className="btn-primary text-xs py-1.5 px-3"
                       >
-                        <Download className="h-3 w-3" />
+                        <Download className="h-3 w-3 mr-1.5" />
                         <span>Download Desktop App (.exe)</span>
                       </button>
                       <button
                         onClick={() => setIngestMode('UPLOAD')}
-                        className="px-3 py-1.5 rounded-lg bg-surface-card border border-border text-foreground font-bold text-[11px] hover:bg-slate-100 dark:hover:bg-neutral-800 cursor-pointer"
+                        className="btn-secondary text-xs py-1.5 px-3"
                       >
                         Upload .ZIP Archive
                       </button>
                       <button
                         onClick={() => setIngestMode('PASTE')}
-                        className="px-3 py-1.5 rounded-lg bg-surface-card border border-border text-foreground font-bold text-[11px] hover:bg-slate-100 dark:hover:bg-neutral-800 cursor-pointer"
+                        className="btn-secondary text-xs py-1.5 px-3"
                       >
                         Paste SQL / Schema
                       </button>
@@ -443,31 +409,45 @@ CREATE TABLE orders (
                 </div>
               )}
 
-              <label className="block text-xs font-bold uppercase tracking-wider text-blue-950 dark:text-blue-300 mb-2">
-                Enter Local Codebase Folder Path
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Local Codebase Directory Path
               </label>
-              <div className="flex flex-col sm:flex-row items-center gap-3 mb-4">
+              <div className="flex flex-col sm:flex-row items-center gap-2.5 mb-3">
                 <div className="relative flex-1 w-full">
-                  <FolderSearch className="h-4 w-4 absolute left-3.5 top-3.5 text-slate-400 pointer-events-none" />
+                  <FolderSearch className="h-4 w-4 absolute left-3 top-2.5 text-muted pointer-events-none" />
                   <input
                     type="text"
                     value={folderPath}
                     onChange={(e) => setFolderPath(cleanInputPath(e.target.value))}
                     placeholder="e.g., C:/Projects/my-backend or D:/BCBUZZ_Side_Project/data-project/sample_project"
-                    className="w-full pl-10 pr-4 py-3 text-xs rounded-xl bg-surface-card border border-border focus:border-blue-900 dark:focus:border-blue-400 outline-none text-foreground font-mono font-medium placeholder-slate-400 transition-all shadow-sm"
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-lg bg-surface border border-border focus:border-brand outline-none text-foreground font-mono placeholder:text-muted/60 transition-colors"
                   />
                 </div>
                 <button
                   onClick={() => handleScanPath()}
                   disabled={isScanning}
-                  className="w-full sm:w-auto px-7 py-3 text-xs font-black rounded-xl bg-blue-900 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white shadow-md transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-2"
+                  className={`w-full sm:w-auto px-5 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center cursor-pointer shadow-xs ${
+                    analysisResult
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-1 ring-emerald-500/50'
+                      : 'btn-primary'
+                  }`}
                 >
                   {isScanning ? (
-                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin mr-2" />
+                      <span>Analyzing Codebase AST...</span>
+                    </>
+                  ) : analysisResult ? (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-2 text-white" />
+                      <span>Analysis Complete (Rescan)</span>
+                    </>
                   ) : (
-                    <Play className="h-3.5 w-3.5 fill-current" />
+                    <>
+                      <Play className="h-3.5 w-3.5 fill-current mr-2" />
+                      <span>Analyze Folder</span>
+                    </>
                   )}
-                  <span>Analyze Folder</span>
                 </button>
               </div>
             </div>
@@ -476,12 +456,12 @@ CREATE TABLE orders (
           {/* MODE 2: Drag & Drop ZIP Upload */}
           {ingestMode === 'UPLOAD' && (
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-blue-950 dark:text-blue-300 mb-2">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Upload Project .ZIP Archive or Schema Files
               </label>
               <div
                 onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-border hover:border-blue-900 dark:hover:border-blue-400 rounded-2xl p-8 text-center bg-surface-card cursor-pointer transition-all mb-4"
+                className="border border-dashed border-border hover:border-brand rounded-xl p-8 text-center bg-surface-subtle/50 cursor-pointer transition-colors mb-3"
               >
                 <input
                   type="file"
@@ -490,26 +470,40 @@ CREATE TABLE orders (
                   accept=".zip,.sql,.prisma,.py,.ts,.js,.json"
                   className="hidden"
                 />
-                <UploadCloud className="h-8 w-8 text-blue-900 dark:text-blue-400 mx-auto mb-2" />
-                <div className="text-xs font-bold text-foreground">
-                  {selectedFile ? `Selected: ${selectedFile.name}` : 'Click or Drag & Drop .ZIP or Schema Files here'}
+                <UploadCloud className="h-7 w-7 text-muted mx-auto mb-2" />
+                <div className="text-xs font-semibold text-foreground">
+                  {selectedFile ? `Selected: ${selectedFile.name}` : 'Click or drop .ZIP or schema files here'}
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Supports zip archives of full backend repos, `.sql` DDLs, Prisma schemas, Python models, and JSON definitions.
+                <p className="text-[11px] text-muted mt-1">
+                  Supports backend repository ZIPs, .sql DDL scripts, Prisma schemas, and Python model definitions.
                 </p>
               </div>
 
               <button
                 onClick={handleScanUpload}
                 disabled={isScanning || !selectedFile}
-                className="w-full py-3 px-6 text-xs font-black rounded-xl bg-blue-900 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 disabled:opacity-40 text-white shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+                className={`w-full py-2.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center cursor-pointer shadow-xs ${
+                  analysisResult
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-1 ring-emerald-500/50'
+                    : 'btn-primary'
+                }`}
               >
                 {isScanning ? (
-                  <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin mr-2" />
+                    <span>Unpacking & Analyzing Archive...</span>
+                  </>
+                ) : analysisResult ? (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-2 text-white" />
+                    <span>Analysis Complete (Re-upload)</span>
+                  </>
                 ) : (
-                  <Play className="h-3.5 w-3.5 fill-current" />
+                  <>
+                    <Play className="h-3.5 w-3.5 fill-current mr-2" />
+                    <span>Analyze Uploaded Archive</span>
+                  </>
                 )}
-                <span>Analyze Uploaded Archive</span>
               </button>
             </div>
           )}
@@ -517,30 +511,154 @@ CREATE TABLE orders (
           {/* MODE 3: Paste SQL / DDL / Prisma */}
           {ingestMode === 'PASTE' && (
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-blue-950 dark:text-blue-300 mb-2">
-                Paste SQL DDL / Prisma Schema / ORM Definition
-              </label>
-              <div className="relative mb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                <label className="block text-xs font-semibold text-foreground">
+                  Paste SQL DDL / Prisma Schema / ORM Definition
+                </label>
+                <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                  <span className="text-[11px] text-muted">Presets:</span>
+                  <button
+                    type="button"
+                    onClick={() => setPastedCode(`-- 🛍️ E-Commerce Architecture (PostgreSQL / Relational)
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    role VARCHAR(50) DEFAULT 'CUSTOMER',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    price NUMERIC(10, 2) NOT NULL,
+    stock INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE orders (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    total_amount NUMERIC(10, 2) NOT NULL,
+    status VARCHAR(50) DEFAULT 'PENDING',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INT REFERENCES orders(id) ON DELETE CASCADE,
+    product_id INT REFERENCES products(id),
+    quantity INT NOT NULL,
+    unit_price NUMERIC(10, 2) NOT NULL
+);`)}
+                    className="px-2 py-0.5 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-[11px] font-medium text-foreground cursor-pointer transition-colors"
+                  >
+                    E-Commerce
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPastedCode(`-- 💳 SaaS Multi-Tenant Billing (PostgreSQL)
+CREATE TABLE organizations (
+    id UUID PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    plan_tier VARCHAR(50) DEFAULT 'FREE'
+);
+
+CREATE TABLE team_members (
+    id UUID PRIMARY KEY,
+    org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    email VARCHAR(255) NOT NULL,
+    role VARCHAR(50) DEFAULT 'MEMBER'
+);
+
+CREATE TABLE subscriptions (
+    id UUID PRIMARY KEY,
+    org_id UUID REFERENCES organizations(id),
+    stripe_sub_id VARCHAR(255) UNIQUE NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    renews_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE invoices (
+    id UUID PRIMARY KEY,
+    org_id UUID REFERENCES organizations(id),
+    amount_due NUMERIC(12, 2) NOT NULL,
+    paid BOOLEAN DEFAULT FALSE,
+    issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);`)}
+                    className="px-2 py-0.5 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-[11px] font-medium text-foreground cursor-pointer transition-colors"
+                  >
+                    SaaS Billing
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPastedCode(`-- 🏦 Fintech Double-Entry Ledger (PostgreSQL)
+CREATE TABLE accounts (
+    id UUID PRIMARY KEY,
+    account_number VARCHAR(50) UNIQUE NOT NULL,
+    currency VARCHAR(3) DEFAULT 'USD',
+    balance NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
+    status VARCHAR(30) DEFAULT 'ACTIVE'
+);
+
+CREATE TABLE ledger_entries (
+    id UUID PRIMARY KEY,
+    account_id UUID REFERENCES accounts(id),
+    entry_type VARCHAR(20) NOT NULL,
+    amount NUMERIC(18, 4) NOT NULL,
+    reference_id VARCHAR(100) NOT NULL,
+    posted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE audit_logs (
+    id SERIAL PRIMARY KEY,
+    account_id UUID REFERENCES accounts(id),
+    action VARCHAR(100) NOT NULL,
+    performed_by VARCHAR(100) NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);`)}
+                    className="px-2 py-0.5 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-[11px] font-medium text-foreground cursor-pointer transition-colors"
+                  >
+                    Fintech Ledger
+                  </button>
+                </div>
+              </div>
+
+              <div className="relative mb-3">
                 <textarea
                   value={pastedCode}
                   onChange={(e) => setPastedCode(e.target.value)}
                   rows={8}
                   placeholder="Paste CREATE TABLE ... or model User { ... }"
-                  className="w-full p-4 text-xs rounded-xl bg-surface-card border border-border focus:border-blue-900 dark:focus:border-blue-400 outline-none text-foreground font-mono font-medium placeholder-slate-400 resize-y shadow-inner"
+                  className="w-full p-3.5 text-xs rounded-lg bg-surface border border-border focus:border-brand outline-none text-foreground font-mono placeholder:text-muted/60 resize-y"
                 />
               </div>
 
               <button
                 onClick={handleScanPaste}
                 disabled={isScanning || !pastedCode.trim()}
-                className="w-full py-3 px-6 text-xs font-black rounded-xl bg-blue-900 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 disabled:opacity-40 text-white shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+                className={`w-full py-2.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center cursor-pointer shadow-xs ${
+                  analysisResult
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-1 ring-emerald-500/50'
+                    : 'btn-primary'
+                }`}
               >
                 {isScanning ? (
-                  <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin mr-2" />
+                    <span>Synthesizing Architecture & ERD...</span>
+                  </>
+                ) : analysisResult ? (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-2 text-white" />
+                    <span>Architecture Ready (Re-generate)</span>
+                  </>
                 ) : (
-                  <Play className="h-3.5 w-3.5 fill-current" />
+                  <>
+                    <Play className="h-3.5 w-3.5 fill-current mr-2" />
+                    <span>Generate Architecture & ERD from Schema</span>
+                  </>
                 )}
-                <span>Generate Architecture & ERD from Schema</span>
               </button>
             </div>
           )}
@@ -548,217 +666,431 @@ CREATE TABLE orders (
           {/* MODE 4: Git / GitHub Clone */}
           {ingestMode === 'GIT' && (
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-blue-950 dark:text-blue-300 mb-2">
-                Enter Git / GitHub Repository URL (Public or Private)
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
+                Git / GitHub Repository URL (Public or Private)
               </label>
-              <div className="flex flex-col sm:flex-row items-center gap-3 mb-3">
+              <div className="flex flex-col sm:flex-row items-center gap-2.5 mb-2.5">
                 <div className="relative flex-1 w-full">
-                  <Globe className="h-4 w-4 absolute left-3.5 top-3.5 text-slate-400 pointer-events-none" />
+                  <Globe className="h-4 w-4 absolute left-3 top-2.5 text-muted pointer-events-none" />
                   <input
                     type="text"
                     value={gitUrl}
                     onChange={(e) => setGitUrl(e.target.value)}
                     placeholder="e.g., https://github.com/Keerthivasan004/BendLens"
-                    className="w-full pl-10 pr-4 py-3 text-xs rounded-xl bg-surface-card border border-border focus:border-blue-900 dark:focus:border-blue-400 outline-none text-foreground font-mono font-medium placeholder-slate-400 transition-all shadow-sm"
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-lg bg-surface border border-border focus:border-brand outline-none text-foreground font-mono placeholder:text-muted/60 transition-colors"
                   />
                 </div>
                 <button
                   onClick={handleScanGit}
                   disabled={isScanning}
-                  className="w-full sm:w-auto px-7 py-3 text-xs font-black rounded-xl bg-blue-900 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white shadow-md transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-2"
+                  className={`w-full sm:w-auto px-5 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center cursor-pointer shadow-xs ${
+                    analysisResult
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-1 ring-emerald-500/50'
+                      : 'btn-primary'
+                  }`}
                 >
                   {isScanning ? (
-                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin mr-2" />
+                      <span>Cloning Repo & Analyzing AST...</span>
+                    </>
+                  ) : analysisResult ? (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-2 text-white" />
+                      <span>Clone & Analysis Complete</span>
+                    </>
                   ) : (
-                    <Play className="h-3.5 w-3.5 fill-current" />
+                    <>
+                      <Play className="h-3.5 w-3.5 fill-current mr-2" />
+                      <span>Clone & Analyze</span>
+                    </>
                   )}
-                  <span>Clone & Analyze</span>
                 </button>
               </div>
 
-              {/* Optional Token Field for Private Repositories */}
               <div className="flex items-center gap-2">
                 <input
                   type="password"
                   value={gitToken}
                   onChange={(e) => setGitToken(e.target.value)}
                   placeholder="GitHub Personal Access Token (Optional - Required for Private Repos)"
-                  className="w-full px-3.5 py-2 text-xs rounded-xl bg-surface-card border border-border/70 focus:border-blue-900 dark:focus:border-blue-400 outline-none text-foreground font-mono placeholder-slate-400"
+                  className="w-full px-3 py-1.5 text-xs rounded-lg bg-surface border border-border focus:border-brand outline-none text-foreground font-mono placeholder:text-muted/60"
                 />
               </div>
-              <p className="text-[11px] text-slate-500 mt-1.5">
-                For private repositories, generate a Personal Access Token (classic) with <code className="font-mono text-blue-600 dark:text-blue-400">repo</code> scope on GitHub.
+              <p className="text-[11px] text-muted mt-1.5">
+                For private repositories, use a classic Personal Access Token with <code className="font-mono text-foreground font-semibold">repo</code> scope.
               </p>
             </div>
           )}
 
-          {/* Scanning Progress Bar */}
+          {/* Scanning Animation & Progress HUD - Distinct Dark and Light Theme Experiences */}
           {isScanning && (
-            <div className="my-4 p-4 rounded-2xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800/50 animate-fadeIn">
-              <div className="flex items-center justify-between text-xs font-bold text-blue-950 dark:text-blue-300 mb-2">
-                <span>Running AST & Graph Pipeline...</span>
-                <span>{scanStep === 1 ? '30%' : scanStep === 2 ? '70%' : '95%'}</span>
+            <div
+              className={`my-4 p-4 sm:p-5 rounded-xl border transition-all animate-fadeIn ${
+                theme === 'dark'
+                  ? 'analysis-scanner-dark border-emerald-500/40 text-slate-100'
+                  : 'analysis-scanner-light border-blue-500/40 text-slate-900 shadow-card'
+              }`}
+            >
+              {/* Active Stage Header & Telemetry */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 border ${
+                      theme === 'dark'
+                        ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                        : 'bg-blue-50 border-blue-200 text-blue-600 shadow-sm'
+                    }`}
+                  >
+                    {scanStep === 1 && <FileCode className="h-4 w-4 step-radar-pulse" />}
+                    {scanStep === 2 && <Database className="h-4 w-4 step-radar-pulse" />}
+                    {scanStep === 3 && <Layers className="h-4 w-4 step-radar-pulse" />}
+                    {scanStep === 4 && <Zap className="h-4 w-4 step-radar-pulse" />}
+                    {scanStep === 5 && <CheckCircle2 className="h-4 w-4 text-emerald-500 animate-bounce" />}
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-xs font-bold uppercase tracking-wider ${
+                          theme === 'dark' ? 'text-emerald-400' : 'text-blue-600'
+                        }`}
+                      >
+                        {scanStep === 5 ? 'Analysis Finalized' : `Stage ${scanStep || 1} of 4`}
+                      </span>
+                      <span className={`text-[10px] font-mono ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {theme === 'dark' ? '• Cybernetic Laser Scanline' : '• Fluid Shimmer Beam'}
+                      </span>
+                    </div>
+
+                    <h4
+                      className={`text-sm sm:text-base font-bold transition-colors ${
+                        theme === 'dark' ? 'text-slate-100' : 'text-slate-900'
+                      }`}
+                    >
+                      {scanStep === 1 && 'AST Ingestion & Syntax Tokenization'}
+                      {scanStep === 2 && 'Relational Schema & Key Extraction'}
+                      {scanStep === 3 && 'Full-Stack Call Graph & Route Mapping'}
+                      {scanStep === 4 && 'Blast Radius & Persona Modeling'}
+                      {scanStep === 5 && 'Architecture Model Ready!'}
+                    </h4>
+                  </div>
+                </div>
+
+                {/* Percentage Pill */}
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <span
+                    className={`text-xs font-mono font-bold px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${
+                      theme === 'dark'
+                        ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                        : 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        theme === 'dark' ? 'bg-emerald-400' : 'bg-blue-600'
+                      } animate-ping`}
+                    />
+                    <span>{scanProgress || 25}%</span>
+                  </span>
+                </div>
               </div>
-              <div className="w-full bg-slate-200 dark:bg-neutral-800 h-1.5 rounded-full overflow-hidden">
-                <div 
-                  className="bg-blue-900 dark:bg-blue-500 h-full transition-all duration-300 rounded-full"
-                  style={{ width: `${scanStep === 1 ? 30 : scanStep === 2 ? 70 : 95}%` }}
-                />
+
+              {/* Progress Bar Track with Theme-Specific Animation */}
+              <div
+                className={`relative w-full h-2 rounded-full overflow-hidden mb-3.5 ${
+                  theme === 'dark' ? 'bg-slate-900 border border-slate-800' : 'bg-slate-200 border border-slate-300/60'
+                }`}
+              >
+                {/* Background Fill */}
+                <div
+                  className={`h-full transition-all duration-300 rounded-full relative overflow-hidden ${
+                    theme === 'dark'
+                      ? 'bg-gradient-to-r from-emerald-500 via-cyan-400 to-emerald-400 shadow-[0_0_16px_rgba(16,185,129,0.6)]'
+                      : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 shadow-[0_2px_8px_rgba(37,99,235,0.3)]'
+                  }`}
+                  style={{ width: `${scanProgress || 25}%` }}
+                >
+                  {/* Theme-Differentiated Overlays */}
+                  {theme === 'dark' ? (
+                    <div className="absolute inset-0 w-full h-full laser-beam-dark" />
+                  ) : (
+                    <div className="absolute inset-0 w-full h-full shimmer-wave-light" />
+                  )}
+                </div>
+              </div>
+
+              {/* Step Progression Badges - All 4 Stages with Crisp Contrast */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-border/50">
+                {[
+                  { stepNum: 1, label: 'AST Syntax Tokens' },
+                  { stepNum: 2, label: 'Schema & Keys' },
+                  { stepNum: 3, label: 'Topology Graph' },
+                  { stepNum: 4, label: 'Blast Radius' },
+                ].map((st) => {
+                  const isDone = (scanStep || 1) > st.stepNum || scanStep === 5;
+                  const isActive = (scanStep || 1) === st.stepNum && scanStep !== 5;
+
+                  return (
+                    <div
+                      key={st.stepNum}
+                      className={`p-2 rounded-lg border text-xs flex items-center gap-1.5 transition-all ${
+                        isDone
+                          ? theme === 'dark'
+                            ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300 font-semibold'
+                            : 'bg-emerald-50 border-emerald-200 text-emerald-800 font-semibold'
+                          : isActive
+                          ? theme === 'dark'
+                            ? 'bg-cyan-950/50 border-cyan-500/40 text-cyan-200 font-bold shadow-[0_0_8px_rgba(6,182,212,0.25)]'
+                            : 'bg-blue-50 border-blue-300 text-blue-900 font-bold shadow-xs'
+                          : theme === 'dark'
+                          ? 'bg-surface-raised/40 border-border/40 text-slate-400'
+                          : 'bg-slate-50 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {isDone ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                      ) : isActive ? (
+                        <RefreshCw className="h-3 w-3 animate-spin shrink-0 text-brand" />
+                      ) : (
+                        <span className="h-1.5 w-1.5 rounded-full bg-border shrink-0 ml-1 mr-0.5" />
+                      )}
+                      <span className="truncate">{st.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Real-time Telemetry Terminal Strip */}
+              <div
+                className={`mt-3 px-3 py-2 rounded-md font-mono text-[11px] flex items-center justify-between border ${
+                  theme === 'dark'
+                    ? 'bg-[#080d18] border-emerald-500/20 text-emerald-400'
+                    : 'bg-[#f8fafc] border-slate-300 text-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 truncate">
+                  <span className={theme === 'dark' ? 'text-cyan-400 font-bold' : 'text-blue-700 font-bold'}>
+                    [AST-ENGINE]
+                  </span>
+                  <span className="truncate">
+                    {scanStep === 1 && '> Scanning source files & generating AST token stream...'}
+                    {scanStep === 2 && '> Parsing SQL DDL tables, foreign keys & constraints...'}
+                    {scanStep === 3 && '> Linking controllers, endpoints & execution call hierarchy...'}
+                    {scanStep === 4 && '> Computing bidirectional ripple matrix & severity scores...'}
+                    {scanStep === 5 && '> Pipeline execution complete. AST model synthesized.'}
+                  </span>
+                </div>
+                <span className="console-cursor text-brand font-bold shrink-0 ml-2">_</span>
               </div>
             </div>
           )}
 
           {/* Error Banner */}
           {errorMessage && (
-            <div className="mt-4 p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/80 text-rose-700 dark:text-rose-400 text-xs flex items-center gap-2 animate-fadeIn font-medium">
+            <div className="mt-3.5 p-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2 animate-fadeIn font-medium">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{errorMessage}</span>
             </div>
           )}
 
           {/* Quick Demo Sample Action */}
-          <div className="mt-5 pt-4 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-            <span className="text-slate-500 font-medium">
-              Want to see a real-world multi-service architecture demo?
+          <div className="mt-4 pt-3.5 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <span className="text-muted">
+              Want to explore a pre-scanned multi-service architecture demo?
             </span>
             <button
               onClick={handleLoadSample}
               disabled={isScanning}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-surface-card hover:bg-slate-100 dark:hover:bg-neutral-900 text-blue-900 dark:text-blue-300 font-bold border border-blue-900/20 dark:border-blue-400/20 transition-all cursor-pointer shadow-sm"
+              className={`text-xs py-1.5 px-3.5 rounded-md font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                analysisResult
+                  ? 'bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                  : 'btn-secondary'
+              }`}
             >
-              <Sparkles className="h-3.5 w-3.5 text-blue-900 dark:text-blue-400" />
-              <span>Load Interactive E-Commerce Architecture</span>
+              {isScanning ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-brand mr-1" />
+                  <span>Compiling Sample Architecture...</span>
+                </>
+              ) : analysisResult ? (
+                <>
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                  <span>Load Interactive E-Commerce Architecture (Ready ✓)</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5 text-brand" />
+                  <span>Load Interactive E-Commerce Architecture</span>
+                </>
+              )}
             </button>
           </div>
         </div>
 
         {/* Live Analysis Summary Card */}
         {analysisResult && (
-          <div className="glass-panel p-6 sm:p-7 rounded-3xl border border-blue-900/30 dark:border-blue-500/30 shadow-2xl mb-8 animate-fadeIn">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-border mb-5">
+          <div className="p-5 sm:p-6 rounded-xl border border-border bg-surface-card shadow-card mb-8 animate-fadeIn">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-border mb-4">
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                  <h2 className="text-base font-extrabold text-blue-950 dark:text-blue-300">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  <h2 className="text-sm sm:text-base font-bold text-foreground">
                     AST Architecture & Blast Radius Model Ready
                   </h2>
                 </div>
-                <p className="text-xs text-slate-500 font-mono">
+                <p className="text-xs text-muted font-mono">
                   Project: <strong className="text-foreground">{analysisResult.projectName}</strong> ({analysisResult.projectPath})
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-1.5">
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                  <span>100% Deterministic</span>
-                </span>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-raised border border-border text-xs font-semibold text-foreground">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                <span>Deterministic Model</span>
               </div>
             </div>
 
-            {/* Quick Metrics Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-              <div className="p-3 rounded-2xl bg-surface-card border border-border text-center">
-                <FileCode className="h-4 w-4 text-blue-900 dark:text-blue-400 mx-auto mb-1" />
-                <div className="text-lg font-black text-blue-950 dark:text-blue-300 font-mono">
+            {/* Metrics KPI Strip - Seamless Hairline Dividers (No Boxes) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-border border-y border-border py-3 mb-5">
+              <div className="py-2 sm:py-0 px-4 text-center">
+                <div className="text-2xl font-bold text-foreground font-mono">
                   {analysisResult.scannedFilesCount || 0}
                 </div>
-                <span className="text-[10px] text-slate-500 font-medium">Scanned Files</span>
+                <div className="text-[11px] font-medium text-muted mt-0.5 flex items-center justify-center gap-1">
+                  <FileCode className="h-3 w-3 text-brand" />
+                  <span>Scanned Files</span>
+                </div>
               </div>
 
-              <div className="p-3 rounded-2xl bg-surface-card border border-border text-center">
-                <Database className="h-4 w-4 text-violet-700 dark:text-violet-400 mx-auto mb-1" />
-                <div className="text-lg font-black text-violet-900 dark:text-violet-300 font-mono">
+              <div className="py-2 sm:py-0 px-4 text-center">
+                <div className="text-2xl font-bold text-foreground font-mono">
                   {analysisResult.schema?.tables?.length || 0}
                 </div>
-                <span className="text-[10px] text-slate-500 font-medium">Database Tables</span>
+                <div className="text-[11px] font-medium text-muted mt-0.5 flex items-center justify-center gap-1">
+                  <Database className="h-3 w-3 text-violet-500" />
+                  <span>Database Tables</span>
+                </div>
               </div>
 
-              <div className="p-3 rounded-2xl bg-surface-card border border-border text-center">
-                <Cpu className="h-4 w-4 text-rose-700 dark:text-rose-400 mx-auto mb-1" />
-                <div className="text-lg font-black text-rose-900 dark:text-rose-300 font-mono">
+              <div className="py-2 sm:py-0 px-4 text-center">
+                <div className="text-2xl font-bold text-foreground font-mono">
                   {analysisResult.code?.endpoints?.length || 0}
                 </div>
-                <span className="text-[10px] text-slate-500 font-medium">API Endpoints</span>
+                <div className="text-[11px] font-medium text-muted mt-0.5 flex items-center justify-center gap-1">
+                  <Cpu className="h-3 w-3 text-rose-500" />
+                  <span>API Endpoints</span>
+                </div>
               </div>
 
-              <div className="p-3 rounded-2xl bg-surface-card border border-border text-center">
-                <Layers className="h-4 w-4 text-emerald-700 dark:text-emerald-400 mx-auto mb-1" />
-                <div className="text-lg font-black text-emerald-900 dark:text-emerald-300 font-mono">
+              <div className="py-2 sm:py-0 px-4 text-center">
+                <div className="text-2xl font-bold text-foreground font-mono">
                   {analysisResult.graph?.stats?.totalNodes || 0}
                 </div>
-                <span className="text-[10px] text-slate-500 font-medium">Graph Connections</span>
+                <div className="text-[11px] font-medium text-muted mt-0.5 flex items-center justify-center gap-1">
+                  <Layers className="h-3 w-3 text-emerald-500" />
+                  <span>Graph Connections</span>
+                </div>
               </div>
             </div>
 
-            {/* Prominent High-Impact Launch Buttons */}
-            <div className="flex flex-col sm:flex-row items-center gap-3">
-              <button
-                onClick={handleOpenLens}
-                className="w-full sm:flex-1 py-3.5 px-6 rounded-2xl bg-blue-900 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-extrabold text-sm shadow-xl flex items-center justify-center gap-2.5 transition-all cursor-pointer group"
-              >
-                <span>Show Lens (Open Architecture & Blast Studio)</span>
-                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-              </button>
-
-              {!isLocalApp && (
+            {/* Launch Console CTA Actions */}
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col sm:flex-row items-center gap-2.5">
                 <button
-                  onClick={() => {
-                    setDownloadModalReason('DEFAULT');
-                    setIsDownloadModalOpen(true);
-                  }}
-                  className="w-full sm:w-auto py-3.5 px-5 rounded-2xl bg-surface-card hover:bg-slate-100 dark:hover:bg-neutral-800 text-foreground font-bold text-xs border border-border shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  onClick={() => handleOpenLens('DEVELOPER')}
+                  className="btn-primary w-full sm:flex-1 py-3 text-xs font-bold justify-center group shadow-md bg-brand hover:bg-brand-hover text-white transition-all cursor-pointer ring-2 ring-brand/20"
                 >
-                  <Download className="h-4 w-4 text-blue-900 dark:text-blue-400" />
-                  <span>Download .EXE App</span>
+                  <span>Show Lens (Launch Studio Console)</span>
+                  <ArrowRight className="h-3.5 w-3.5 ml-1.5 transition-transform group-hover:translate-x-0.5" />
                 </button>
-              )}
+
+                {!isLocalApp && (
+                  <button
+                    onClick={() => {
+                      setDownloadModalReason('DEFAULT');
+                      setIsDownloadModalOpen(true);
+                    }}
+                    className="btn-secondary w-full sm:w-auto py-3 text-xs justify-center font-semibold"
+                  >
+                    <Download className="h-3.5 w-3.5 mr-1.5" />
+                    <span>Download .EXE App</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Direct Deep-Link Shortcuts */}
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border">
+                <span className="text-[11px] font-semibold text-muted">Jump to:</span>
+                <button
+                  onClick={() => handleOpenLens('SIMULATOR')}
+                  className="px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-xs font-medium text-foreground transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Zap className="h-3 w-3 text-rose-500" />
+                  <span>Blast Radius Simulator</span>
+                </button>
+                <button
+                  onClick={() => handleOpenLens('DEVELOPER')}
+                  className="px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-xs font-medium text-foreground transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Database className="h-3 w-3 text-blue-500" />
+                  <span>Interactive ERD & Schemas</span>
+                </button>
+                <button
+                  onClick={() => handleOpenLens('MANAGER')}
+                  className="px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-xs font-medium text-foreground transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Layers className="h-3 w-3 text-violet-500" />
+                  <span>Engineering Manager HLD</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Local Scans History / Saved Projects on User Machine */}
+        {/* Local Scans History - Frameless Clean List Table */}
         {localHistory.length > 0 && (
-          <div className="glass-panel p-5 rounded-2xl border border-border mb-8">
-            <div className="flex items-center justify-between pb-3 border-b border-border mb-3">
+          <div className="mb-8">
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
               <div className="flex items-center gap-2">
-                <HardDrive className="h-4 w-4 text-blue-900 dark:text-blue-400" />
-                <h3 className="text-xs font-black uppercase tracking-wider text-blue-950 dark:text-blue-300">
-                  Recent Scans ({isLocalApp ? 'Stored on Your PC' : 'Workspace History'})
+                <HardDrive className="h-4 w-4 text-muted" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
+                  Recent Scans ({isLocalApp ? 'Stored Locally' : 'Workspace History'})
                 </h3>
               </div>
-              <span className="text-[11px] text-slate-500 font-medium">
-                {localHistory.length} Projects Saved
+              <span className="text-[11px] text-muted font-mono">
+                {localHistory.length} saved
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="divide-y divide-border border-b border-border">
               {localHistory.map((item) => (
                 <div
                   key={item.id}
                   onClick={() => handleScanPath(item.projectPath)}
-                  className="p-3.5 rounded-xl bg-surface-card hover:bg-slate-50 dark:hover:bg-neutral-800/80 border border-border hover:border-blue-900/40 dark:hover:border-blue-400/40 transition-all cursor-pointer group shadow-sm flex flex-col justify-between"
+                  className="py-2.5 px-3 hover:bg-surface-raised/60 transition-colors cursor-pointer group flex flex-col sm:flex-row sm:items-center justify-between gap-2"
                 >
-                  <div className="mb-2">
-                    <div className="flex items-center justify-between gap-1 mb-1">
-                      <span className="text-xs font-bold text-foreground truncate group-hover:text-blue-900 dark:group-hover:text-blue-300 transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-foreground group-hover:text-brand transition-colors">
                         {item.projectName || 'Project'}
                       </span>
-                      <ArrowRight className="h-3.5 w-3.5 text-slate-400 group-hover:text-blue-900 dark:group-hover:text-blue-300 transition-transform group-hover:translate-x-0.5 shrink-0" />
+                      <span className="text-[10px] font-mono text-muted truncate max-w-xs sm:max-w-md">
+                        {item.projectPath}
+                      </span>
                     </div>
-                    <p className="text-[10px] font-mono text-slate-500 truncate" title={item.projectPath}>
-                      {item.projectPath}
-                    </p>
                   </div>
 
-                  <div className="flex items-center justify-between text-[10px] text-slate-500 pt-2 border-t border-border/50">
-                    <span className="flex items-center gap-1">
-                      <Database className="h-3 w-3 text-violet-600 dark:text-violet-400" />
+                  <div className="flex items-center gap-4 shrink-0 text-[11px] text-muted">
+                    <span className="flex items-center gap-1 font-mono">
+                      <Database className="h-3 w-3 text-violet-500" />
                       <span>{item.tablesCount} tables</span>
                     </span>
-                    <span className="flex items-center gap-1">
-                      <Cpu className="h-3 w-3 text-rose-600 dark:text-rose-400" />
+                    <span className="flex items-center gap-1 font-mono">
+                      <Cpu className="h-3 w-3 text-rose-500" />
                       <span>{item.endpointsCount} APIs</span>
+                    </span>
+                    <span className="text-brand font-medium text-xs group-hover:translate-x-0.5 transition-transform inline-flex items-center gap-0.5">
+                      Open <ArrowRight className="h-3 w-3" />
                     </span>
                   </div>
                 </div>
@@ -767,48 +1099,42 @@ CREATE TABLE orders (
           </div>
         )}
 
-        {/* Feature Highlights Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="glass-card p-5 rounded-2xl border border-border flex flex-col justify-between">
-            <div>
-              <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 w-fit mb-3 text-blue-900 dark:text-blue-400">
-                <Database className="h-5 w-5" />
-              </div>
-              <h3 className="text-xs font-bold text-blue-950 dark:text-blue-300 uppercase tracking-wider mb-1.5">
-                Deterministic Schema & ERD
+        {/* Feature Highlights - Open Editorial Layout (No Box Cards) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-5 border-t border-border">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-brand">
+              <Database className="h-4 w-4" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
+                Deterministic Schemas & ERD
               </h3>
-              <p className="text-xs text-slate-600 dark:text-slate-400 font-medium leading-relaxed">
-                Extracts tables, primary/foreign keys, and relationships directly from SQL, Prisma, Django, SQLAlchemy, and TypeORM.
-              </p>
             </div>
+            <p className="text-xs text-muted leading-relaxed">
+              Extracts tables, primary/foreign keys, and relationships directly from SQL DDL, Prisma, Django, and ORM declarations with zero runtime telemetry required.
+            </p>
           </div>
 
-          <div className="glass-card p-5 rounded-2xl border border-border flex flex-col justify-between">
-            <div>
-              <div className="p-2 rounded-xl bg-violet-50 dark:bg-violet-950/60 w-fit mb-3 text-violet-700 dark:text-violet-400">
-                <Layers className="h-5 w-5" />
-              </div>
-              <h3 className="text-xs font-bold text-violet-950 dark:text-violet-300 uppercase tracking-wider mb-1.5">
-                Multi-Perspective Views
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-violet-500">
+              <Layers className="h-4 w-4" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
+                Multi-Perspective Role Consoles
               </h3>
-              <p className="text-xs text-slate-600 dark:text-slate-400 font-medium leading-relaxed">
-                Dedicated role consoles for <strong>Developers</strong> (LLD/Code), <strong>Managers</strong> (HLD/Services), and <strong>Business Owners</strong> (Journeys).
-              </p>
             </div>
+            <p className="text-xs text-muted leading-relaxed">
+              Tailored lenses for Developers (AST & LLD), Engineering Managers (coupling & debt), and Business Owners (capabilities & customer journeys).
+            </p>
           </div>
 
-          <div className="glass-card p-5 rounded-2xl border border-border flex flex-col justify-between">
-            <div>
-              <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 w-fit mb-3 text-rose-700 dark:text-rose-400">
-                <Cpu className="h-5 w-5" />
-              </div>
-              <h3 className="text-xs font-bold text-rose-950 dark:text-rose-300 uppercase tracking-wider mb-1.5">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-rose-500">
+              <Cpu className="h-4 w-4" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
                 Blast Radius Simulator
               </h3>
-              <p className="text-xs text-slate-600 dark:text-slate-400 font-medium leading-relaxed">
-                Simulate column drops, schema changes, and endpoint mutations to calculate dependency impact before deploying.
-              </p>
             </div>
+            <p className="text-xs text-muted leading-relaxed">
+              Simulate column drops, schema alterations, and route mutations to calculate dependency impact and downstream risks before deploying changes.
+            </p>
           </div>
         </div>
       </div>

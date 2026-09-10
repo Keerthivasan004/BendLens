@@ -10,7 +10,7 @@ namespace BendLensDesktop
     static class Program
     {
         private const int Port = 3000;
-        private const string AppUrl = "http://localhost:3000";
+        private const string AppUrl = "http://127.0.0.1:3000";
 
         [STAThread]
         static void Main()
@@ -34,42 +34,14 @@ namespace BendLensDesktop
                     }
                 }
 
-                // Create Desktop Shortcut with custom brand icon
-                string iconPath = Path.Combine(projectDir, "public", "icon.ico");
-                if (!File.Exists(iconPath))
-                {
-                    iconPath = Path.Combine(exeDir, "icon.ico");
-                }
-                CreateDesktopShortcut(Path.Combine(exeDir, "BendLens.exe"), iconPath);
-
-                // If server is not running, start it in the background
-                if (!IsServerRunning(AppUrl))
-                {
-                    ProcessStartInfo serverPsi = new ProcessStartInfo
-                    {
-                        FileName = "cmd.exe",
-                        Arguments = "/c npm run dev",
-                        WorkingDirectory = projectDir,
-                        CreateNoWindow = true,
-                        WindowStyle = ProcessWindowStyle.Hidden,
-                        UseShellExecute = false
-                    };
-                    Process.Start(serverPsi);
-                }
-
-                // Poll until server is ready
-                int attempts = 0;
-                while (attempts < 25)
-                {
-                    Thread.Sleep(400);
-                    if (IsServerRunning(AppUrl)) break;
-                    attempts++;
-                }
-
-                // Try to launch as a Native Standalone Desktop Window via Electron
+                // 1. Check if native Electron runtime is present
                 string electronLocal = Path.Combine(projectDir, "node_modules", "electron", "dist", "electron.exe");
+
                 if (File.Exists(electronLocal))
                 {
+                    // ZERO-LATENCY LAUNCH:
+                    // Launch Electron immediately (<150ms). Electron will instantly display 
+                    // the embedded splash screen and manage backend engine initialization concurrently.
                     ProcessStartInfo electronPsi = new ProcessStartInfo
                     {
                         FileName = electronLocal,
@@ -78,14 +50,47 @@ namespace BendLensDesktop
                         UseShellExecute = false
                     };
                     Process.Start(electronPsi);
+
+                    // Ensure Desktop Shortcut exists in background
+                    EnsureShortcutInBackground(exeDir, projectDir);
+                    return;
                 }
-                else
+
+                // 2. Fallback Web Mode (if Electron is not installed):
+                // Ensure desktop shortcut
+                EnsureShortcutInBackground(exeDir, projectDir);
+
+                // Smart launch: use production 'start' if build exists, otherwise 'dev'
+                bool hasBuild = Directory.Exists(Path.Combine(projectDir, ".next"));
+                string scriptCmd = hasBuild ? "npm run start" : "npm run dev";
+
+                if (!IsServerRunning(AppUrl))
                 {
-                    // Fallback to launching in default browser
-                    Process.Start(new ProcessStartInfo(AppUrl) { UseShellExecute = true });
+                    ProcessStartInfo serverPsi = new ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = "/c " + scriptCmd,
+                        WorkingDirectory = projectDir,
+                        CreateNoWindow = true,
+                        WindowStyle = ProcessWindowStyle.Hidden,
+                        UseShellExecute = false
+                    };
+                    Process.Start(serverPsi);
                 }
+
+                // Fast poll server readiness at 150ms intervals
+                int attempts = 0;
+                while (attempts < 40)
+                {
+                    Thread.Sleep(150);
+                    if (IsServerRunning(AppUrl)) break;
+                    attempts++;
+                }
+
+                // Open default browser
+                Process.Start(new ProcessStartInfo(AppUrl) { UseShellExecute = true });
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 try { Process.Start(new ProcessStartInfo(AppUrl) { UseShellExecute = true }); } catch { }
             }
@@ -96,7 +101,7 @@ namespace BendLensDesktop
             try
             {
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
-                request.Timeout = 800;
+                request.Timeout = 500;
                 request.Method = "GET";
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
@@ -109,29 +114,41 @@ namespace BendLensDesktop
             }
         }
 
-        private static void CreateDesktopShortcut(string targetExePath, string iconPath)
+        private static void EnsureShortcutInBackground(string exeDir, string projectDir)
         {
-            try
+            ThreadPool.QueueUserWorkItem(_ =>
             {
-                string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                string shortcutPath = Path.Combine(desktopPath, "BendLens.lnk");
-
-                Type shellType = Type.GetTypeFromProgID("WScript.Shell");
-                if (shellType != null)
+                try
                 {
-                    dynamic shell = Activator.CreateInstance(shellType);
-                    dynamic shortcut = shell.CreateShortcut(shortcutPath);
-                    shortcut.TargetPath = targetExePath;
-                    shortcut.WorkingDirectory = Path.GetDirectoryName(targetExePath);
-                    if (File.Exists(iconPath))
+                    string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                    string shortcutPath = Path.Combine(desktopPath, "BendLens.lnk");
+
+                    // If shortcut already exists, don't waste CPU/IO recreating it
+                    if (File.Exists(shortcutPath)) return;
+
+                    string iconPath = Path.Combine(projectDir, "public", "icon.ico");
+                    if (!File.Exists(iconPath))
                     {
-                        shortcut.IconLocation = iconPath;
+                        iconPath = Path.Combine(exeDir, "icon.ico");
                     }
-                    shortcut.Description = "BendLens - Universal Backend Architecture & Blast Platform";
-                    shortcut.Save();
+
+                    Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+                    if (shellType != null)
+                    {
+                        dynamic shell = Activator.CreateInstance(shellType);
+                        dynamic shortcut = shell.CreateShortcut(shortcutPath);
+                        shortcut.TargetPath = Path.Combine(exeDir, "BendLens.exe");
+                        shortcut.WorkingDirectory = exeDir;
+                        if (File.Exists(iconPath))
+                        {
+                            shortcut.IconLocation = iconPath;
+                        }
+                        shortcut.Description = "BendLens - Universal Backend Architecture & Blast Platform";
+                        shortcut.Save();
+                    }
                 }
-            }
-            catch { }
+                catch { }
+            });
         }
     }
 }

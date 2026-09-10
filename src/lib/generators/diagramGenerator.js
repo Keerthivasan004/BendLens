@@ -8,36 +8,58 @@
  */
 class DiagramGenerator {
   static generateERD(schemaData) {
-    const { tables, relations } = schemaData;
+    const { tables, relations } = schemaData || {};
+    if (!tables || tables.length === 0) {
+      return {
+        type: 'ERD',
+        title: 'Database Entity-Relationship Diagram',
+        mermaid: 'erDiagram\n    DATABASE_MODELS {\n        string note\n    }',
+        tablesCount: 0,
+        relationsCount: 0
+      };
+    }
     let mermaid = 'erDiagram\n';
 
     // Format tables with clean types and PK/FK markers
     for (const table of tables) {
-      mermaid += `    ${table.name} {\n`;
-      for (const col of table.columns || []) {
-        const pk = col.isPrimaryKey ? 'PK' : '';
-        const fk = (table.foreignKeys || []).some(f => f.column === col.name) ? 'FK' : '';
-        const tag = pk && fk ? 'PK,FK' : (pk || fk || '');
-        let cleanType = (col.type || 'VARCHAR')
-          .replace(/[()0-9\s,]/g, '_')
-          .replace(/_+/g, '_')
-          .replace(/^_|_$/g, '')
-          .toLowerCase();
-        if (!cleanType) cleanType = 'string';
-        
-        mermaid += `        ${cleanType} ${col.name} ${tag}\n`;
+      const safeTableName = (table.name || 'table').replace(/[^a-zA-Z0-9_]/g, '_');
+      mermaid += `    ${safeTableName} {\n`;
+      const cols = table.columns || [];
+      if (cols.length === 0) {
+        mermaid += `        string id PK\n`;
+      } else {
+        for (const col of cols) {
+          const pk = col.isPrimaryKey ? 'PK' : '';
+          const fk = (table.foreignKeys || []).some(f => f.column === col.name) ? 'FK' : '';
+          const tag = pk || fk || '';
+          let cleanType = (col.type || 'VARCHAR')
+            .replace(/[^a-zA-Z0-9_]/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_|_$/g, '')
+            .toLowerCase();
+          if (!cleanType) cleanType = 'string';
+          const safeColName = (col.name || 'column').replace(/[^a-zA-Z0-9_]/g, '_');
+          
+          const tokens = [cleanType, safeColName];
+          if (tag) tokens.push(tag);
+          mermaid += `        ${tokens.join(' ')}\n`;
+        }
       }
       mermaid += `    }\n`;
     }
 
     // Deduplicate relations
     const seenRelations = new Set();
-    for (const rel of relations) {
-      const relKey = `${rel.targetTable}->${rel.sourceTable}:${rel.sourceColumn}`;
+    for (const rel of (relations || [])) {
+      if (!rel.targetTable || !rel.sourceTable) continue;
+      const safeTarget = rel.targetTable.replace(/[^a-zA-Z0-9_]/g, '_');
+      const safeSource = rel.sourceTable.replace(/[^a-zA-Z0-9_]/g, '_');
+      const safeCol = (rel.sourceColumn || 'references').replace(/[^a-zA-Z0-9_]/g, '_');
+      const relKey = `${safeTarget}->${safeSource}:${safeCol}`;
       if (!seenRelations.has(relKey)) {
         seenRelations.add(relKey);
-        const relSymbol = rel.type.includes('1:1') ? '||--||' : '||--o{';
-        mermaid += `    ${rel.targetTable} ${relSymbol} ${rel.sourceTable} : "${rel.sourceColumn}"\n`;
+        const relSymbol = (rel.type || '').includes('1:1') ? '||--||' : '||--o{';
+        mermaid += `    ${safeTarget} ${relSymbol} ${safeSource} : "${safeCol}"\n`;
       }
     }
 
@@ -62,32 +84,38 @@ class DiagramGenerator {
     mermaid += '    end\n\n';
 
     mermaid += '    subgraph SERVICES ["Application Services Layer"]\n';
-    if (infraData.services && infraData.services.length > 0) {
-      for (const s of infraData.services) {
-        if (!s.isDatabase) {
-          mermaid += `        ${s.name.toUpperCase()}["Service: ${s.name.toUpperCase()}\\nPorts: ${(s.ports || []).join(', ') || 'Internal'}"]\n`;
-        }
+    const validServices = ((infraData && infraData.services) || []).filter(s => !s.isDatabase);
+    if (validServices.length > 0) {
+      for (const s of validServices) {
+        const nodeId = (s.name || 'SVC').toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+        const portsStr = (s.ports || []).map(p => String(p).replace(/:/g, ' to ')).join(', ') || 'Internal';
+        const cleanName = (s.name || 'Service').toUpperCase().replace(/[^A-Z0-9_ -]/g, '');
+        mermaid += `        ${nodeId}["Service: ${cleanName}\\nPorts: ${portsStr}"]\n`;
       }
     } else {
       mermaid += '        CORE_API["Core Backend Service"]\n';
-      mermaid += '        AUTH_SVC["Auth & Identity Service"]\n';
+      mermaid += '        AUTH_SVC["Auth and Identity Service"]\n';
       mermaid += '        BIZ_SVC["Business Logic Engine"]\n';
     }
     mermaid += '    end\n\n';
 
-    mermaid += '    subgraph DATA_LAYER ["Persistence & Storage Layer"]\n';
-    if (schemaData.tables && schemaData.tables.length > 0) {
+    mermaid += '    subgraph DATA_LAYER ["Persistence and Storage Layer"]\n';
+    if (schemaData && schemaData.tables && schemaData.tables.length > 0) {
       mermaid += `        MAIN_DB[("Primary SQL Database\\n(${schemaData.tables.length} Tables)")]\n`;
     } else {
       mermaid += '        MAIN_DB[("Primary Database")]\n';
     }
-    mermaid += '        CACHE[("Redis Cache & Session Store")]\n';
+    mermaid += '        CACHE[("Redis Cache and Session Store")]\n';
     mermaid += '    end\n\n';
 
-    // Edges
-    mermaid += '    CLIENTS --> PROXY\n';
-    mermaid += '    PROXY --> SERVICES\n';
-    mermaid += '    SERVICES --> DATA_LAYER\n';
+    // Edges connecting nodes
+    const primaryServiceNode = validServices.length > 0
+      ? (validServices[0].name || 'SVC').toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+      : 'CORE_API';
+
+    mermaid += '    WEB --> PROXY\n';
+    mermaid += `    PROXY --> ${primaryServiceNode}\n`;
+    mermaid += `    ${primaryServiceNode} --> MAIN_DB\n`;
 
     return {
       type: 'HLD',
@@ -100,10 +128,11 @@ class DiagramGenerator {
     let mermaid = 'flowchart LR\n';
     
     mermaid += '    subgraph CONTROLLERS ["Controllers & API Endpoints"]\n';
-    const topEndpoints = (codeData.endpoints || []).slice(0, 8);
+    const topEndpoints = ((codeData && codeData.endpoints) || []).slice(0, 8);
     if (topEndpoints.length > 0) {
       topEndpoints.forEach((ep, idx) => {
-        mermaid += `        EP_${idx}["${ep.method} ${ep.path}"]\n`;
+        const cleanPath = (ep.path || '/').replace(/["\[\]]/g, '').replace(/[\{\}]/g, ':');
+        mermaid += `        EP_${idx}["${ep.method} ${cleanPath}"]\n`;
       });
     } else {
       mermaid += '        EP_1["GET /api/users"]\n';
@@ -112,10 +141,11 @@ class DiagramGenerator {
     mermaid += '    end\n\n';
 
     mermaid += '    subgraph SERVICES ["Services & Business Handlers"]\n';
-    const topFunctions = (codeData.functions || []).slice(0, 8);
+    const topFunctions = ((codeData && codeData.functions) || []).slice(0, 8);
     if (topFunctions.length > 0) {
       topFunctions.forEach((fn, idx) => {
-        mermaid += `        FN_${idx}["${fn.name}()"]\n`;
+        const cleanFn = (fn.name || 'handler').replace(/[^a-zA-Z0-9_]/g, '_');
+        mermaid += `        FN_${idx}["${cleanFn}()"]\n`;
       });
     } else {
       mermaid += '        FN_1["UserService.authenticate()"]\n';
@@ -124,10 +154,11 @@ class DiagramGenerator {
     mermaid += '    end\n\n';
 
     mermaid += '    subgraph REPOSITORIES ["Data Models & Entities"]\n';
-    const topTables = (schemaData.tables || []).slice(0, 8);
+    const topTables = ((schemaData && schemaData.tables) || []).slice(0, 8);
     if (topTables.length > 0) {
       topTables.forEach((t, idx) => {
-        mermaid += `        TB_${idx}[("${t.name}")]\n`;
+        const cleanTb = (t.name || 'table').replace(/[^a-zA-Z0-9_]/g, '_');
+        mermaid += `        TB_${idx}[("${cleanTb}")]\n`;
       });
     } else {
       mermaid += '        TB_1[("users")]\n';

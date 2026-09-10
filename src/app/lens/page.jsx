@@ -36,6 +36,14 @@ export default function LensDashboard() {
       document.documentElement.classList.remove('dark');
     }
 
+    try {
+      const initialRole = localStorage.getItem('bendlens-initial-role');
+      if (initialRole) {
+        setRole(initialRole);
+        localStorage.removeItem('bendlens-initial-role');
+      }
+    } catch {}
+
     // Fetch active analysis directly from server cache (No browser 5MB limit!)
     fetchCurrentAnalysis();
   }, []);
@@ -49,10 +57,10 @@ export default function LensDashboard() {
         setAnalysisData(result.data);
         setCurrentPath(result.data.projectPath || '');
       } else {
-        loadSampleProject();
+        await loadSampleProject();
       }
     } catch (err) {
-      loadSampleProject();
+      await loadSampleProject();
     } finally {
       setIsLoading(false);
     }
@@ -124,12 +132,21 @@ export default function LensDashboard() {
     }
   };
 
-  const handleSelectForImpact = () => {
+  const [selectedSimulatorTarget, setSelectedSimulatorTarget] = useState(null);
+
+  const handleSelectForImpact = (targetName, targetType = 'table', changeType = 'table_name', columnName = null, keyName = null) => {
+    setSelectedSimulatorTarget({
+      targetName,
+      targetType,
+      changeType,
+      columnName,
+      keyName
+    });
     setRole('SIMULATOR');
   };
 
   return (
-    <main className="min-h-screen bg-white dark:bg-black text-black dark:text-white flex flex-col pb-16 transition-colors selection:bg-blue-900/20 selection:text-blue-900 dark:selection:bg-blue-500/30 dark:selection:text-blue-200">
+    <main className="min-h-screen bg-background text-foreground flex flex-col pb-16 transition-colors selection:bg-brand/20 selection:text-foreground">
       {/* Top Header */}
       <Header
         onAnalyze={handleAnalyze}
@@ -143,30 +160,33 @@ export default function LensDashboard() {
         onToggleTheme={toggleTheme}
       />
 
-        {/* Breadcrumb & Navigation Strip */}
-        <div className="max-w-7xl mx-auto w-full px-6 lg:px-10 pt-4 flex items-center justify-between">
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-black bg-surface-card hover:bg-slate-100 dark:hover:bg-neutral-900 text-blue-900 dark:text-blue-400 border border-border shadow-sm transition-all cursor-pointer group"
-          >
-            <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-1" />
-            <span>Ingestion Portal / New Scan</span>
-          </button>
+      {/* Breadcrumb & Navigation Strip */}
+      <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 pt-3.5 flex items-center justify-between">
+        <button
+          onClick={() => {
+            if (typeof window !== 'undefined') window.location.href = '/';
+            else router.push('/');
+          }}
+          className="btn-secondary text-xs py-1.5 px-3 group cursor-pointer"
+        >
+          <ArrowLeft className="h-3.5 w-3.5 mr-1.5 transition-transform group-hover:-translate-x-0.5" />
+          <span>Ingestion Portal / New Scan</span>
+        </button>
 
-          {analysisData && (
-            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-              <span>Repository:</span>
-              <span className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-950 dark:text-blue-300 font-mono font-bold">
-                {analysisData.projectName}
-              </span>
-            </div>
-          )}
-        </div>
+        {analysisData && (
+          <div className="flex items-center gap-2 text-xs text-muted">
+            <span>Repository:</span>
+            <span className="px-2 py-0.5 rounded-md bg-surface-raised border border-border text-foreground font-mono font-semibold">
+              {analysisData.projectName}
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* Error Alert */}
       {errorMessage && (
-        <div className="max-w-7xl mx-auto w-full px-6 lg:px-10 mt-4">
-          <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center gap-3 text-rose-600 dark:text-rose-400 text-xs font-bold shadow-sm">
+        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 mt-3.5">
+          <div className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/25 flex items-center gap-2 text-rose-600 dark:text-rose-400 text-xs font-medium">
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span>{errorMessage}</span>
           </div>
@@ -174,17 +194,76 @@ export default function LensDashboard() {
       )}
 
       {/* Main Studio Body */}
-      <div className="max-w-7xl mx-auto w-full px-6 lg:px-10 flex-1 flex flex-col">
+      <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 flex-1 flex flex-col">
+        {/* Active In-Studio Rescan Banner with Theme-Differentiated Animation */}
+        {isLoading && (
+          <div
+            className={`mb-4 p-3.5 rounded-xl border transition-all animate-fadeIn ${
+              theme === 'dark'
+                ? 'analysis-scanner-dark border-emerald-500/40 text-slate-100'
+                : 'analysis-scanner-light border-blue-500/40 text-slate-900 shadow-card'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <RefreshCw className="h-4 w-4 animate-spin text-brand" />
+                <div>
+                  <div className="text-xs font-bold">
+                    {theme === 'dark' ? 'AST Pipeline Rescan in Progress' : 'Re-analyzing Architecture AST...'}
+                  </div>
+                  <div className="text-[11px] text-muted font-mono">
+                    Resolving relational models, call graph & blast radius
+                  </div>
+                </div>
+              </div>
+              <span
+                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                  theme === 'dark'
+                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                    : 'bg-blue-50 border-blue-200 text-blue-700'
+                }`}
+              >
+                Live Scanning
+              </span>
+            </div>
+            <div
+              className={`mt-2 w-full h-1.5 rounded-full overflow-hidden relative ${
+                theme === 'dark' ? 'bg-slate-900' : 'bg-slate-200'
+              }`}
+            >
+              <div
+                className={`h-full w-2/3 rounded-full relative overflow-hidden ${
+                  theme === 'dark'
+                    ? 'bg-gradient-to-r from-emerald-500 to-cyan-400'
+                    : 'bg-gradient-to-r from-blue-600 to-sky-500'
+                }`}
+              >
+                {theme === 'dark' ? (
+                  <div className="absolute inset-0 w-full h-full laser-beam-dark" />
+                ) : (
+                  <div className="absolute inset-0 w-full h-full shimmer-wave-light" />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Persona Switcher Tabs */}
         <PersonaSwitcher
           currentRole={currentRole}
           setRole={setRole}
+          data={analysisData}
         />
 
-        {/* Diagram Canvas Section */}
-        {analysisData && (
+        {/* Diagram Canvas Section - Exclusively for Developer View */}
+        {analysisData && currentRole === 'DEVELOPER' && (
           <div className="mb-8">
-            <DiagramCanvas diagrams={analysisData.diagrams} theme={theme} />
+            <DiagramCanvas 
+              diagrams={analysisData.diagrams} 
+              schemaData={analysisData.schema} 
+              theme={theme} 
+              onSelectForImpact={handleSelectForImpact}
+            />
           </div>
         )}
 
@@ -216,13 +295,14 @@ export default function LensDashboard() {
                 codeData={analysisData.code}
                 currentPath={currentPath}
                 initialImpact={analysisData.sampleImpact}
+                initialSelection={selectedSimulatorTarget}
               />
             )}
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-16 text-center text-slate-500">
-            <div className="h-10 w-10 border-2 border-blue-900 dark:border-blue-400 border-t-transparent rounded-full animate-spin mb-4" />
-            <p className="text-sm font-bold text-blue-950 dark:text-blue-300">Loading BendLens Studio...</p>
+          <div className="flex-1 flex flex-col items-center justify-center p-16 text-center text-muted">
+            <div className="h-10 w-10 border-2 border-brand border-t-transparent rounded-full animate-spin mb-4" />
+            <p className="text-sm font-bold text-foreground">Loading BendLens Studio...</p>
           </div>
         )}
       </div>
