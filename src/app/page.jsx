@@ -40,6 +40,7 @@ CREATE TABLE orders (
 );`
   );
   const [selectedFile, setSelectedFile] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Shared Execution State
   const [isScanning, setIsScanning] = useState(false);
@@ -189,6 +190,12 @@ CREATE TABLE orders (
     await executeScanWithStages(fetchPromise, (data) => {
       setAnalysisResult(data);
       fetchLocalHistory();
+      setTimeout(() => {
+        const resultElem = document.getElementById('analysis-summary-card');
+        if (resultElem) {
+          resultElem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 250);
     });
   };
 
@@ -462,7 +469,35 @@ CREATE TABLE orders (
               </label>
               <div
                 onClick={() => fileInputRef.current?.click()}
-                className="border border-dashed border-border hover:border-brand rounded-xl p-8 text-center bg-surface-subtle/50 cursor-pointer transition-colors mb-3"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragging(true);
+                }}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragging(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragging(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragging(false);
+                  const droppedFile = e.dataTransfer?.files?.[0];
+                  if (droppedFile) {
+                    setSelectedFile(droppedFile);
+                  }
+                }}
+                className={`border border-dashed rounded-xl p-8 text-center cursor-pointer transition-all mb-3 ${
+                  isDragging
+                    ? 'border-brand bg-brand/10 ring-2 ring-brand/30 scale-[1.01]'
+                    : 'border-border hover:border-brand bg-surface-subtle/50'
+                }`}
               >
                 <input
                   type="file"
@@ -471,21 +506,58 @@ CREATE TABLE orders (
                   accept=".zip,.sql,.prisma,.py,.ts,.js,.json"
                   className="hidden"
                 />
-                <UploadCloud className="h-7 w-7 text-muted mx-auto mb-2" />
+                <UploadCloud className={`h-7 w-7 mx-auto mb-2 transition-colors ${isDragging ? 'text-brand' : 'text-muted'}`} />
                 <div className="text-xs font-semibold text-foreground">
-                  {selectedFile ? `Selected: ${selectedFile.name}` : 'Click or drop .ZIP or schema files here'}
+                  {selectedFile ? `Selected: ${selectedFile.name}` : isDragging ? 'Drop archive file here' : 'Click or drop .ZIP or schema files here'}
                 </div>
                 <p className="text-[11px] text-muted mt-1">
                   Supports backend repository ZIPs, .sql DDL scripts, Prisma schemas, and Python model definitions.
                 </p>
               </div>
 
+              {/* Direct Result Confirmation & Console Launch Banner */}
+              {analysisResult && (
+                <div className="p-3.5 rounded-lg border border-emerald-500/30 bg-emerald-950/20 text-foreground animate-fadeIn mb-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                      <span className="text-xs font-bold text-foreground">Archive Extracted & Analyzed!</span>
+                    </div>
+                    <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/20">
+                      {analysisResult.projectName}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 py-2 border-y border-border/40 text-center text-xs my-2 font-mono">
+                    <div>
+                      <div className="font-bold text-foreground">{analysisResult.scannedFilesCount || 0}</div>
+                      <div className="text-[10px] text-muted font-sans">Files</div>
+                    </div>
+                    <div>
+                      <div className="font-bold text-violet-400">{analysisResult.schema?.tables?.length || 0}</div>
+                      <div className="text-[10px] text-muted font-sans">Tables</div>
+                    </div>
+                    <div>
+                      <div className="font-bold text-rose-400">{analysisResult.code?.endpoints?.length || 0}</div>
+                      <div className="text-[10px] text-muted font-sans">Endpoints</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenLens('DEVELOPER')}
+                    className="w-full py-2 px-3 text-xs font-bold rounded-md bg-brand hover:bg-brand-hover text-white flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm mt-1"
+                  >
+                    <span>Open Lens Studio Console</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
               <button
                 onClick={handleScanUpload}
                 disabled={isScanning || !selectedFile}
                 className={`w-full py-2.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center cursor-pointer shadow-xs ${
                   analysisResult
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-1 ring-emerald-500/50'
+                    ? 'bg-surface-raised hover:bg-surface-subtle text-foreground border border-border'
                     : 'btn-primary'
                 }`}
               >
@@ -496,8 +568,8 @@ CREATE TABLE orders (
                   </>
                 ) : analysisResult ? (
                   <>
-                    <CheckCircle2 className="h-3.5 w-3.5 mr-2 text-white" />
-                    <span>Analysis Complete (Re-upload)</span>
+                    <RefreshCw className="h-3.5 w-3.5 mr-2 text-muted" />
+                    <span>Upload & Analyze Another Archive</span>
                   </>
                 ) : (
                   <>
@@ -931,7 +1003,7 @@ CREATE TABLE audit_logs (
 
         {/* Live Analysis Summary Card */}
         {analysisResult && (
-          <div className="p-5 sm:p-6 rounded-xl border border-border bg-surface-card shadow-card mb-8 animate-fadeIn">
+          <div id="analysis-summary-card" className="p-5 sm:p-6 rounded-xl border border-border bg-surface-card shadow-card mb-8 animate-fadeIn">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-border mb-4">
               <div>
                 <div className="flex items-center gap-2 mb-1">

@@ -455,7 +455,7 @@ class SchemaParser {
    * Python ORMs: SQLAlchemy, Django, Tortoise, SQLModel, Pydantic
    */
   parsePythonORM(content, filePath) {
-    const classRegex = /class\s+([a-zA-Z0-9_]+)\s*\((?:Base|models\.Model|db\.Model|DeclarativeBase|SQLModel|BaseModel)\):\s*([\s\S]*?)(?=\nclass|\n\w|\Z)/g;
+    const classRegex = /class\s+([a-zA-Z0-9_]+)\s*\((?:Base|models\.Model|db\.Model|DeclarativeBase|SQLModel|BaseModel)\):\s*([\s\S]*?)(?=\nclass|\n\w|$)/g;
     let match;
 
     while ((match = classRegex.exec(content)) !== null) {
@@ -519,6 +519,29 @@ class SchemaParser {
           columns,
           foreignKeys,
           primaryKey: columns.find(c => c.isPrimaryKey)?.name || 'id',
+          sampleRows: []
+        };
+      }
+    }
+
+    // PyMongo Collections (e.g. db["users"], db.orders.find(), init_mongodb)
+    const mongoCollRegex = /(?:db|database|client\[['"][^'"]+['"]\]|default_db)\[['"]([a-zA-Z0-9_]+)['"]\]|(?:db|database|default_db)\.([a-zA-Z0-9_]+)\.(?:insert|find|update|delete|create_index|aggregate)/g;
+    let mongoMatch;
+    while ((mongoMatch = mongoCollRegex.exec(content)) !== null) {
+      const collName = mongoMatch[1] || mongoMatch[2];
+      if (collName && !['collection', 'command', 'admin', 'test'].includes(collName.toLowerCase()) && !this.tables[collName]) {
+        this.tables[collName] = {
+          name: collName,
+          modelName: collName.charAt(0).toUpperCase() + collName.slice(1),
+          databaseType: 'MongoDB Collection (PyMongo)',
+          sourceFile: filePath,
+          sourceType: 'PyMongo Document Model',
+          columns: [
+            { name: '_id', type: 'ObjectId', isPrimaryKey: true, isNullable: false, isUnique: true, defaultValue: 'ObjectId()', sampleValue: '65e89a01f92e4c001a4b', description: 'Document unique ID' },
+            { name: 'document', type: 'BSON / Document', isPrimaryKey: false, isNullable: true, isUnique: false, defaultValue: null, sampleValue: '{"status": "active"}', description: 'JSON Document Schema' }
+          ],
+          foreignKeys: [],
+          primaryKey: '_id',
           sampleRows: []
         };
       }

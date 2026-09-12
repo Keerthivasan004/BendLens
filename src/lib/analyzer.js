@@ -18,7 +18,8 @@ class ProjectAnalyzer {
     const IGNORED_DIRS = new Set([
       'node_modules', '.git', '.next', 'dist', 'build', '.idea', '.vscode',
       '__pycache__', 'venv', '.venv', 'env', '.env', 'coverage', '.turbo', 
-      'target', 'bin', 'obj', 'vendor', '.terraform', '.cache', 'tmp', 'temp', 'logs', 'out'
+      'target', 'bin', 'obj', 'vendor', '.terraform', '.cache', 'tmp', 'temp', 'logs', 'out',
+      '__MACOSX', '.DS_Store', 'Thumbs.db', 'PaxHeaders'
     ]);
 
     const MAX_FILES = 10000;

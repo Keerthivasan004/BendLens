@@ -182,14 +182,48 @@ class PolyglotParser {
       this.functions.push(fn);
     }
 
-    // 4. FastAPI / Flask Endpoints
+    // 4. FastAPI / Flask / Django Endpoints
     const apiRegex = /@(?:app|router|api)\.(get|post|put|delete|patch)\s*\(\s*['"]([^'"]+)['"]/gi;
     while ((match = apiRegex.exec(content)) !== null) {
       const ep = {
         method: match[1].toUpperCase(),
         path: match[2],
         module: moduleInfo.relativePath,
-        source: 'FastAPI/Flask route'
+        source: 'FastAPI route'
+      };
+      moduleInfo.endpoints.push(ep);
+      this.endpoints.push(ep);
+    }
+
+    // Flask @app.route('/path', methods=['GET', 'POST'])
+    const flaskRouteRegex = /@(?:app|blueprint|bp|router|api)\.route\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*methods\s*=\s*\[([^\]]+)\])?/gi;
+    while ((match = flaskRouteRegex.exec(content)) !== null) {
+      const routePath = match[1];
+      const methodsStr = match[2];
+      const methods = methodsStr 
+        ? methodsStr.split(',').map(m => m.replace(/['"\s]/g, '').toUpperCase()).filter(Boolean)
+        : ['GET'];
+
+      for (const m of methods) {
+        const ep = {
+          method: m,
+          path: routePath,
+          module: moduleInfo.relativePath,
+          source: 'Flask route'
+        };
+        moduleInfo.endpoints.push(ep);
+        this.endpoints.push(ep);
+      }
+    }
+
+    // Django path('url', view)
+    const djangoPathRegex = /(?:path|re_path)\s*\(\s*r?['"]([^'"]*)['"]\s*,\s*([A-Za-z0-9_.]+)/g;
+    while ((match = djangoPathRegex.exec(content)) !== null) {
+      const ep = {
+        method: 'ALL',
+        path: '/' + match[1].replace(/^\/|\/$/g, ''),
+        module: moduleInfo.relativePath,
+        source: `Django path (${match[2]})`
       };
       moduleInfo.endpoints.push(ep);
       this.endpoints.push(ep);
