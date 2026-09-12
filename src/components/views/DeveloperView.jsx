@@ -693,9 +693,10 @@ export default function DeveloperView({ data, onSelectForImpact }) {
                               {/* Constraints & Foreign Keys */}
                               <td className="py-2.5 px-4 text-[11px]">
                                 {fk ? (
-                                  <div className="flex items-center gap-1 text-violet-600 dark:text-violet-400 font-mono font-medium">
+                                  <div className="flex items-center gap-1.5 text-violet-600 dark:text-violet-400 font-mono font-medium">
                                     <Link2 className="h-3 w-3 shrink-0" />
-                                    <span>➔ {fk.targetTable}.{fk.targetColumn || 'id'}</span>
+                                    <ArrowRight className="h-2.5 w-2.5 shrink-0 opacity-70" />
+                                    <span>{fk.targetTable}.{fk.targetColumn || 'id'}</span>
                                   </div>
                                 ) : !col.isNullable && !col.isPrimaryKey ? (
                                   <span className="px-1.5 py-0.5 rounded bg-surface-raised text-muted font-medium text-[10px] border border-border">

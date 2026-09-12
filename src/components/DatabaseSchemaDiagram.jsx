@@ -274,17 +274,22 @@ export default function DatabaseSchemaDiagram({
                     stroke="rgba(244, 63, 94, 0.35)" 
                     strokeWidth="1" 
                   />
-                  <text 
-                    x="25" 
-                    y="13" 
-                    fill="#f43f5e" 
-                    fontSize="9" 
-                    fontWeight="800" 
-                    textAnchor="middle" 
-                    fontFamily="system-ui, sans-serif"
-                  >
-                    ⚡ Blast
-                  </text>
+                  <g transform="translate(7, 4)">
+                    <path 
+                      d="M5.5 1.5 L2 6.5 L5 6.5 L4 11 L9 5 L6 5 Z" 
+                      fill="#f43f5e" 
+                    />
+                    <text 
+                      x="14" 
+                      y="9" 
+                      fill="#f43f5e" 
+                      fontSize="9" 
+                      fontWeight="800" 
+                      fontFamily="system-ui, sans-serif"
+                    >
+                      Blast
+                    </text>
+                  </g>
                 </g>
               )}
 

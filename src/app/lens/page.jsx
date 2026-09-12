@@ -18,6 +18,7 @@ export default function LensDashboard() {
   const [analysisData, setAnalysisData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [currentRole, setRole] = useState('DEVELOPER');
+  const [activeDiagramTab, setActiveDiagramTab] = useState('erd');
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [theme, setTheme] = useState('dark');
@@ -41,6 +42,13 @@ export default function LensDashboard() {
       if (initialRole) {
         setRole(initialRole);
         localStorage.removeItem('bendlens-initial-role');
+      }
+      const initialTab = localStorage.getItem('bendlens-initial-tab');
+      if (initialTab) {
+        setActiveDiagramTab(initialTab);
+        localStorage.removeItem('bendlens-initial-tab');
+      } else if (initialRole === 'MANAGER') {
+        setActiveDiagramTab('hld');
       }
     } catch {}
 
@@ -66,8 +74,10 @@ export default function LensDashboard() {
     }
   };
 
-  const toggleTheme = () => {
-    const newTheme = theme === 'dark' ? 'light' : 'dark';
+  const toggleTheme = (explicitTheme) => {
+    const newTheme = (typeof explicitTheme === 'string' && (explicitTheme === 'dark' || explicitTheme === 'light'))
+      ? explicitTheme
+      : (theme === 'dark' ? 'light' : 'dark');
     setTheme(newTheme);
     try {
       localStorage.setItem('bendlens-theme', newTheme);
@@ -143,6 +153,13 @@ export default function LensDashboard() {
       keyName
     });
     setRole('SIMULATOR');
+  };
+
+  const handleRoleChange = (newRole) => {
+    setRole(newRole);
+    if (newRole === 'MANAGER' && activeDiagramTab === 'erd') {
+      setActiveDiagramTab('hld');
+    }
   };
 
   return (
@@ -251,18 +268,20 @@ export default function LensDashboard() {
         {/* Persona Switcher Tabs */}
         <PersonaSwitcher
           currentRole={currentRole}
-          setRole={setRole}
+          setRole={handleRoleChange}
           data={analysisData}
         />
 
-        {/* Diagram Canvas Section - Exclusively for Developer View */}
-        {analysisData && currentRole === 'DEVELOPER' && (
+        {/* Diagram Canvas Section - Available across Developer, Manager, and Business Views */}
+        {analysisData && currentRole !== 'SIMULATOR' && (
           <div className="mb-8">
             <DiagramCanvas 
               diagrams={analysisData.diagrams} 
               schemaData={analysisData.schema} 
               theme={theme} 
               onSelectForImpact={handleSelectForImpact}
+              activeTab={activeDiagramTab}
+              onTabChange={setActiveDiagramTab}
             />
           </div>
         )}

@@ -2,7 +2,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 console.log('====================================================');
-console.log('🚀 Starting BendLens - Backend Architecture & Impact Platform');
+console.log('[*] Starting BendLens - Universal Backend Architecture & Blast Platform');
 console.log('====================================================');
 
 const isWindows = process.platform === 'win32';

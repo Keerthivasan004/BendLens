@@ -3,9 +3,10 @@
 import React from 'react';
 import Logo from '@/components/Logo';
 import UpdateIndicator from '@/components/UpdateIndicator';
+import ThemeToggle from '@/components/ThemeToggle';
 import { 
   FolderSearch, Play, Download, Sparkles, Database, 
-  FileCode, Cpu, CheckCircle2, Sun, Moon, RefreshCw, 
+  FileCode, Cpu, CheckCircle2, RefreshCw, 
   ShieldCheck, Activity
 } from 'lucide-react';
 
@@ -87,18 +88,13 @@ export default function Header({
 
           <UpdateIndicator />
 
-          <button
-            onClick={onToggleTheme}
-            className="p-1.5 rounded-lg hover:bg-surface-raised text-muted hover:text-foreground border border-border transition-colors cursor-pointer"
-            title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-            aria-label="Toggle theme"
-          >
-            {theme === 'dark' ? (
-              <Sun className="h-4 w-4 text-amber-400" />
-            ) : (
-              <Moon className="h-4 w-4 text-slate-700" />
-            )}
-          </button>
+          <ThemeToggle
+            theme={theme}
+            onToggle={onToggleTheme}
+            onChange={(newTheme) => {
+              if (onToggleTheme) onToggleTheme(newTheme);
+            }}
+          />
         </div>
       </div>
 

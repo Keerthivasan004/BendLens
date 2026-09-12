@@ -79,11 +79,14 @@ export async function POST() {
       console.warn('Icon and shortcut refresh warning:', iconErr.message);
     }
 
-    // Read updated version from package.json
-    let newVersion = '1.0.0';
+    // Persist updated version to package.json
+    let newVersion = '1.1.0';
     try {
-      const updatedPkg = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf-8'));
-      newVersion = updatedPkg.version || '1.0.0';
+      const pkgPath = path.join(projectRoot, 'package.json');
+      const updatedPkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      updatedPkg.version = '1.1.0';
+      fs.writeFileSync(pkgPath, JSON.stringify(updatedPkg, null, 2), 'utf-8');
+      newVersion = '1.1.0';
     } catch {}
 
     return NextResponse.json({

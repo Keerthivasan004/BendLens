@@ -54,6 +54,9 @@ class DiagramGenerator {
       if (!rel.targetTable || !rel.sourceTable) continue;
       const safeTarget = rel.targetTable.replace(/[^a-zA-Z0-9_]/g, '_');
       const safeSource = rel.sourceTable.replace(/[^a-zA-Z0-9_]/g, '_');
+      // Prevent self-referencing foreign keys from generating zero-length SVG paths in Mermaid ER
+      if (safeTarget === safeSource) continue;
+
       const safeCol = (rel.sourceColumn || 'references').replace(/[^a-zA-Z0-9_]/g, '_');
       const relKey = `${safeTarget}->${safeSource}:${safeCol}`;
       if (!seenRelations.has(relKey)) {
@@ -73,49 +76,157 @@ class DiagramGenerator {
   }
 
   static generateHLD(infraData, codeData, schemaData) {
+    // Support flexible argument positions: (infraData, schemaData) or (infraData, codeData, schemaData)
+    if (!schemaData && codeData && (codeData.tables || Array.isArray(codeData.tables))) {
+      schemaData = codeData;
+      codeData = {};
+    }
+    const safeInfra = infraData || {};
+    const safeCode = codeData || {};
+    const safeSchema = schemaData || {};
+    const services = safeInfra.services || [];
+
+    // Extract databases declared in infra or graph
+    const extraDatabases = (safeInfra.databases || []).map((d) => ({
+      name: d.name || 'Database',
+      isDatabase: true,
+      image: d.engine || 'postgres',
+      ports: d.port ? [d.port] : []
+    }));
+
     let mermaid = 'flowchart TB\n';
-    mermaid += '    subgraph CLIENTS ["Client Layer"]\n';
-    mermaid += '        WEB["Single Page App / Web UI"]\n';
-    mermaid += '        MOBILE["Mobile App Client"]\n';
+
+    // 1. Client & Ingress Tier
+    mermaid += '    subgraph CLIENTS ["Client and Edge Layer"]\n';
+    mermaid += '        CLI_WEB["Single Page Web App"]\n';
+    mermaid += '        CLI_MOBILE["Mobile App Client"]\n';
+    mermaid += '        CLI_EXTERNAL["External Webhook Services"]\n';
     mermaid += '    end\n\n';
 
-    mermaid += '    subgraph GATEWAY ["API Gateway / Ingress"]\n';
-    mermaid += '        PROXY["Nginx / API Gateway Router"]\n';
+    // 2. Gateway Layer
+    mermaid += '    subgraph GATEWAY ["API Gateway and Ingress"]\n';
+    const gatewayService = services.find((s) => 
+      /gateway|nginx|ingress|proxy|router|traefik|kong|envoy/i.test(s.name || '')
+    );
+    const gwNodeId = gatewayService
+      ? `GW_${(gatewayService.name || 'GATEWAY').toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`
+      : 'GW_API_GATEWAY';
+    const gwPort = (gatewayService && gatewayService.ports && gatewayService.ports[0]) || '80';
+    const cleanGwPort = String(gwPort).replace(/:/g, ' to ').replace(/[^A-Za-z0-9_ -]/g, '');
+    const cleanGwName = gatewayService ? (gatewayService.name || 'nginx').toUpperCase().replace(/[^A-Z0-9_ -]/g, '') : 'API Gateway';
+    const gwLabel = gatewayService
+      ? `API Gateway (${cleanGwName} - Port ${cleanGwPort})`
+      : 'API Gateway Router';
+    mermaid += `        ${gwNodeId}["${gwLabel}"]\n`;
     mermaid += '    end\n\n';
 
+    // 3. Application Services Layer
     mermaid += '    subgraph SERVICES ["Application Services Layer"]\n';
-    const validServices = ((infraData && infraData.services) || []).filter(s => !s.isDatabase);
-    if (validServices.length > 0) {
-      for (const s of validServices) {
-        const nodeId = (s.name || 'SVC').toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-        const portsStr = (s.ports || []).map(p => String(p).replace(/:/g, ' to ')).join(', ') || 'Internal';
-        const cleanName = (s.name || 'Service').toUpperCase().replace(/[^A-Z0-9_ -]/g, '');
-        mermaid += `        ${nodeId}["Service: ${cleanName}\\nPorts: ${portsStr}"]\n`;
+    const serviceNodeIds = [];
+
+    // Filter container services that are actual application backends (not gateway and not db)
+    const backendServices = services.filter((s) => !s.isDatabase && s !== gatewayService);
+
+    // Also extract domain business classes (e.g. AuthService, OrderService, PaymentService)
+    const domainClasses = (safeCode.classes || [])
+      .filter((c) => c && c.name && /Service|Controller|Manager|Worker/i.test(c.name))
+      .slice(0, 4);
+
+    if (backendServices.length > 0) {
+      for (const s of backendServices) {
+        const sId = `SVC_${(s.name || 'SVC').toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`;
+        serviceNodeIds.push(sId);
+        const portStr = (s.ports && s.ports[0]) ? ` - Port ${String(s.ports[0]).replace(/:/g, ' to ').replace(/[^A-Za-z0-9_ -]/g, '')}` : '';
+        const cleanName = (s.name || 'Backend Service').toUpperCase().replace(/[^A-Z0-9_ -]/g, '');
+        mermaid += `        ${sId}["Core Backend API (${cleanName}${portStr})"]\n`;
       }
     } else {
-      mermaid += '        CORE_API["Core Backend Service"]\n';
-      mermaid += '        AUTH_SVC["Auth and Identity Service"]\n';
-      mermaid += '        BIZ_SVC["Business Logic Engine"]\n';
+      serviceNodeIds.push('SVC_BACKEND_API');
+      mermaid += '        SVC_BACKEND_API["Core Backend API (Port 8000)"]\n';
+    }
+
+    const domainNodeIds = [];
+    if (domainClasses.length > 0) {
+      for (const cls of domainClasses) {
+        const dId = `DOM_${cls.name.toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`;
+        domainNodeIds.push(dId);
+        const prettyName = cls.name.replace(/([A-Z])/g, ' $1').replace(/[^a-zA-Z0-9_ ]/g, '').trim();
+        mermaid += `        ${dId}["${prettyName}"]\n`;
+      }
     }
     mermaid += '    end\n\n';
 
+    // 4. Persistence & Storage Layer
     mermaid += '    subgraph DATA_LAYER ["Persistence and Storage Layer"]\n';
-    if (schemaData && schemaData.tables && schemaData.tables.length > 0) {
-      mermaid += `        MAIN_DB[("Primary SQL Database\\n(${schemaData.tables.length} Tables)")]\n`;
-    } else {
-      mermaid += '        MAIN_DB[("Primary Database")]\n';
+    const dbServices = [
+      ...services.filter((s) => s.isDatabase),
+      ...extraDatabases
+    ];
+    const dbNodeIds = [];
+    let cacheNodeId = null;
+
+    if (dbServices.length > 0) {
+      for (const db of dbServices) {
+        const dbId = `DB_${(db.name || 'DB').toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`;
+        const isCache = /redis|memcached/i.test(db.name || '') || /redis/i.test(db.image || '');
+        if (isCache) {
+          if (!cacheNodeId) {
+            cacheNodeId = dbId;
+            mermaid += `        ${dbId}[("Redis In-Memory Cache")]\n`;
+          }
+        } else {
+          if (!dbNodeIds.includes(dbId)) {
+            dbNodeIds.push(dbId);
+            const tableCount = (safeSchema.tables && safeSchema.tables.length) || 0;
+            const tableCountStr = tableCount > 0 ? ` (${tableCount} Tables)` : '';
+            const cleanDbName = (db.name || 'Primary Database').toUpperCase().replace(/[^A-Z0-9_ -]/g, '');
+            mermaid += `        ${dbId}[("${cleanDbName}${tableCountStr}")]\n`;
+          }
+        }
+      }
     }
-    mermaid += '        CACHE[("Redis Cache and Session Store")]\n';
+
+    if (dbNodeIds.length === 0) {
+      const tableCount = (safeSchema.tables && safeSchema.tables.length) || 0;
+      const tableCountStr = tableCount > 0 ? ` (${tableCount} Tables)` : '';
+      const firstTableDb = (safeSchema.tables && safeSchema.tables[0] && safeSchema.tables[0].databaseType) || 'Relational';
+      const cleanEngine = String(firstTableDb).replace(/[^A-Za-z0-9]/g, '');
+      const dbLabel = tableCount > 0 ? `${cleanEngine} Database${tableCountStr}` : 'Primary Database';
+      mermaid += `        DB_PRIMARY[("${dbLabel}")]\n`;
+      dbNodeIds.push('DB_PRIMARY');
+    }
+    if (!cacheNodeId) {
+      mermaid += '        CACHE_REDIS[("Redis Cache and Store")]\n';
+      cacheNodeId = 'CACHE_REDIS';
+    }
     mermaid += '    end\n\n';
 
-    // Edges connecting nodes
-    const primaryServiceNode = validServices.length > 0
-      ? (validServices[0].name || 'SVC').toUpperCase().replace(/[^A-Z0-9_]/g, '_')
-      : 'CORE_API';
+    // 5. Tiered Directed Flows
+    mermaid += `    CLI_WEB --> ${gwNodeId}\n`;
+    mermaid += `    CLI_MOBILE --> ${gwNodeId}\n`;
+    mermaid += `    CLI_EXTERNAL --> ${gwNodeId}\n`;
 
-    mermaid += '    WEB --> PROXY\n';
-    mermaid += `    PROXY --> ${primaryServiceNode}\n`;
-    mermaid += `    ${primaryServiceNode} --> MAIN_DB\n`;
+    const primaryBackend = serviceNodeIds[0] || 'SVC_BACKEND_API';
+    for (const sId of serviceNodeIds) {
+      mermaid += `    ${gwNodeId} --> ${sId}\n`;
+    }
+
+    const primaryDb = dbNodeIds[0] || 'DB_PRIMARY';
+
+    if (domainNodeIds.length > 0) {
+      for (const dId of domainNodeIds) {
+        mermaid += `    ${primaryBackend} --> ${dId}\n`;
+        mermaid += `    ${dId} --> ${primaryDb}\n`;
+      }
+    } else {
+      for (const sId of serviceNodeIds) {
+        mermaid += `    ${sId} --> ${primaryDb}\n`;
+      }
+    }
+
+    if (cacheNodeId) {
+      mermaid += `    ${primaryBackend} -.-> ${cacheNodeId}\n`;
+    }
 
     return {
       type: 'HLD',
@@ -124,55 +235,182 @@ class DiagramGenerator {
     };
   }
 
-  static generateLLD(codeData, schemaData) {
+  static generateLLD(codeData, schemaData, extraData) {
+    // Support flexible argument positions: (graph, schemaData) or (codeData, schemaData) or (graph, {}, schemaData)
+    const hasSchemaTables = schemaData && Array.isArray(schemaData.tables) && schemaData.tables.length > 0;
+    if (!hasSchemaTables && extraData && (extraData.tables || Array.isArray(extraData.tables))) {
+      schemaData = extraData;
+    }
+    const safeCode = codeData || {};
+    const safeSchema = schemaData || {};
+
     let mermaid = 'flowchart LR\n';
-    
-    mermaid += '    subgraph CONTROLLERS ["Controllers & API Endpoints"]\n';
-    const topEndpoints = ((codeData && codeData.endpoints) || []).slice(0, 8);
-    if (topEndpoints.length > 0) {
-      topEndpoints.forEach((ep, idx) => {
-        const cleanPath = (ep.path || '/').replace(/["\[\]]/g, '').replace(/[\{\}]/g, ':');
-        mermaid += `        EP_${idx}["${ep.method} ${cleanPath}"]\n`;
-      });
-    } else {
-      mermaid += '        EP_1["GET /api/users"]\n';
-      mermaid += '        EP_2["POST /api/orders"]\n';
+
+    // Filter and sanitize top endpoints (max 6)
+    let rawEndpoints = safeCode.endpoints || [];
+    if (rawEndpoints.length === 0 && safeCode.apis && Array.isArray(safeCode.apis)) {
+      rawEndpoints = safeCode.apis.map((a) => ({
+        method: a.method || 'GET',
+        path: a.endpoint || a.path || '/api/resource'
+      }));
     }
+    let endpoints = rawEndpoints.slice(0, 6);
+
+    // Filter and sanitize top functions (max 6)
+    let rawFunctions = safeCode.functions || [];
+    if (rawFunctions.length === 0 && safeCode.apis && Array.isArray(safeCode.apis)) {
+      rawFunctions = safeCode.apis
+        .filter((a) => a.handler)
+        .map((a) => ({ name: a.handler }));
+    }
+    let functions = rawFunctions
+      .filter((fn) => fn && fn.name && !fn.name.startsWith('__'))
+      .slice(0, 6);
+
+    // Filter top tables (max 6)
+    const rawTables = safeSchema.tables || [];
+    let tables = rawTables.slice(0, 6);
+
+    // Dynamic synthesis if endpoints or functions are empty but schema exists
+    if (endpoints.length === 0 && tables.length > 0) {
+      endpoints = tables.slice(0, 4).map((t, idx) => {
+        const cleanName = (t.name || 'entity').toLowerCase().replace(/[^a-z0-9_]/g, '');
+        return {
+          method: idx % 2 === 0 ? 'GET' : 'POST',
+          path: `/api/${cleanName}`
+        };
+      });
+    }
+
+    if (functions.length === 0 && tables.length > 0) {
+      functions = tables.slice(0, 4).map((t) => {
+        const baseName = (t.name || 'entity').replace(/[^a-zA-Z0-9_]/g, '_');
+        const pascal = baseName.charAt(0).toUpperCase() + baseName.slice(1);
+        return {
+          name: `${pascal}Service_handle`
+        };
+      });
+    }
+
+    // Default fallbacks if AST scan had no endpoints, functions, or tables
+    const defaultEndpoints = [
+      { method: 'GET', path: '/api/users' },
+      { method: 'POST', path: '/api/orders' },
+      { method: 'POST', path: '/api/checkout' }
+    ];
+    const defaultFunctions = [
+      { name: 'UserService_authenticate' },
+      { name: 'OrderService_processOrder' },
+      { name: 'PaymentService_authorize' }
+    ];
+    const defaultTables = [
+      { name: 'users' },
+      { name: 'orders' },
+      { name: 'payments' }
+    ];
+
+    const activeEndpoints = endpoints.length > 0 ? endpoints : defaultEndpoints;
+    const activeFunctions = functions.length > 0 ? functions : defaultFunctions;
+    const activeTables = tables.length > 0 ? tables : defaultTables;
+
+    // 1. Controllers & Endpoints Subgraph
+    mermaid += '    subgraph CONTROLLERS ["Controllers and API Endpoints"]\n';
+    activeEndpoints.forEach((ep, idx) => {
+      const cleanPath = (ep.path || '/')
+        .replace(/["'\[\]`]/g, '')
+        .replace(/\{([^}]+)\}/g, ':$1')
+        .replace(/[<>]/g, '')
+        .replace(/#/g, '')
+        .replace(/&/g, 'and');
+      const safeMethod = (ep.method || 'GET').toUpperCase().replace(/[^A-Z]/g, '');
+      mermaid += `        EP_${idx}["${safeMethod} ${cleanPath}"]\n`;
+    });
     mermaid += '    end\n\n';
 
-    mermaid += '    subgraph SERVICES ["Services & Business Handlers"]\n';
-    const topFunctions = ((codeData && codeData.functions) || []).slice(0, 8);
-    if (topFunctions.length > 0) {
-      topFunctions.forEach((fn, idx) => {
-        const cleanFn = (fn.name || 'handler').replace(/[^a-zA-Z0-9_]/g, '_');
-        mermaid += `        FN_${idx}["${cleanFn}()"]\n`;
-      });
-    } else {
-      mermaid += '        FN_1["UserService.authenticate()"]\n';
-      mermaid += '        FN_2["OrderService.processOrder()"]\n';
-    }
+    // 2. Services & Handlers Subgraph
+    mermaid += '    subgraph SERVICES ["Services and Business Handlers"]\n';
+    activeFunctions.forEach((fn, idx) => {
+      const cleanFn = (fn.name || 'handler').replace(/[^a-zA-Z0-9_]/g, '_');
+      mermaid += `        FN_${idx}["${cleanFn}()"]\n`;
+    });
     mermaid += '    end\n\n';
 
-    mermaid += '    subgraph REPOSITORIES ["Data Models & Entities"]\n';
-    const topTables = ((schemaData && schemaData.tables) || []).slice(0, 8);
-    if (topTables.length > 0) {
-      topTables.forEach((t, idx) => {
-        const cleanTb = (t.name || 'table').replace(/[^a-zA-Z0-9_]/g, '_');
-        mermaid += `        TB_${idx}[("${cleanTb}")]\n`;
-      });
-    } else {
-      mermaid += '        TB_1[("users")]\n';
-      mermaid += '        TB_2[("orders")]\n';
-    }
+    // 3. Repositories & Data Models Subgraph
+    mermaid += '    subgraph REPOSITORIES ["Data Models and Entities"]\n';
+    activeTables.forEach((t, idx) => {
+      const cleanTb = (t.name || 'table').replace(/[^a-zA-Z0-9_]/g, '_');
+      mermaid += `        TB_${idx}[("${cleanTb}")]\n`;
+    });
     mermaid += '    end\n\n';
 
-    // Wiring
-    mermaid += '    CONTROLLERS --> SERVICES\n';
-    mermaid += '    SERVICES --> REPOSITORIES\n';
+    // 4. Node-to-Node Intelligent Semantic Wiring
+    for (let epIdx = 0; epIdx < activeEndpoints.length; epIdx++) {
+      let matchedFnIdx = -1;
+      const epPath = (activeEndpoints[epIdx].path || '').toLowerCase();
+      const epTokens = epPath.split(/[^a-z0-9]+/).filter((t) => t.length >= 3 && !['api', 'v1', 'v2', 'route'].includes(t));
+      matchedFnIdx = activeFunctions.findIndex((fn) => {
+        const fnLower = (fn.name || '').toLowerCase();
+        return epTokens.some((tok) => fnLower.includes(tok));
+      });
+      if (matchedFnIdx === -1) {
+        matchedFnIdx = epIdx % activeFunctions.length;
+      }
+      mermaid += `    EP_${epIdx} --> FN_${matchedFnIdx}\n`;
+    }
+
+    // Connect each function to its accurately related database table(s)
+    for (let fnIdx = 0; fnIdx < activeFunctions.length; fnIdx++) {
+      const fnName = (activeFunctions[fnIdx].name || '').toLowerCase();
+      const matchedTbIndices = [];
+
+      // Check specific semantic domains
+      if (/auth|login|user|account|credential|jwt/i.test(fnName)) {
+        const uIdx = activeTables.findIndex((t) => /user|account|profile/i.test(t.name || ''));
+        if (uIdx !== -1) matchedTbIndices.push(uIdx);
+      }
+      if (/product|item|catalog|inventory|sku/i.test(fnName)) {
+        const pIdx = activeTables.findIndex((t) => /product|item/i.test(t.name || ''));
+        if (pIdx !== -1 && !matchedTbIndices.includes(pIdx)) matchedTbIndices.push(pIdx);
+      }
+      if (/order|checkout|cart/i.test(fnName)) {
+        activeTables.forEach((t, tIdx) => {
+          if (/order/i.test(t.name || '')) {
+            matchedTbIndices.push(tIdx);
+          }
+        });
+      }
+      if (/payment|stripe|webhook|invoice|charge|bill/i.test(fnName)) {
+        activeTables.forEach((t, tIdx) => {
+          if (/payment|invoice|bill|txn/i.test(t.name || '')) {
+            if (!matchedTbIndices.includes(tIdx)) matchedTbIndices.push(tIdx);
+          }
+        });
+      }
+
+      // If no semantic domain match, look for direct name match with tables
+      if (matchedTbIndices.length === 0) {
+        activeTables.forEach((t, tIdx) => {
+          const tbName = (t.name || '').toLowerCase();
+          const baseName = tbName.replace(/s$/, '');
+          if (fnName.includes(tbName) || fnName.includes(baseName)) {
+            matchedTbIndices.push(tIdx);
+          }
+        });
+      }
+
+      // Guaranteed fallback: connect to modulo table so every function has a repository target
+      if (matchedTbIndices.length === 0) {
+        matchedTbIndices.push(fnIdx % activeTables.length);
+      }
+
+      for (const tIdx of matchedTbIndices) {
+        mermaid += `    FN_${fnIdx} --> TB_${tIdx}\n`;
+      }
+    }
 
     return {
       type: 'LLD',
-      title: 'Low-Level Design: Component & Call Interaction Graph',
+      title: 'Low-Level Design: Component and Call Interaction Graph',
       mermaid: mermaid.trim()
     };
   }

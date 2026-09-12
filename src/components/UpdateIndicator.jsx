@@ -2,26 +2,23 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { RefreshCw, CheckCircle2, ArrowUpCircle, Sparkles, X, ShieldCheck, Image as ImageIcon, Laptop, Check } from 'lucide-react';
+import { RefreshCw, Sparkles, X, ArrowRight, Play, CheckCircle2 } from 'lucide-react';
+import UpdateShowcaseModal from '@/components/UpdateShowcaseModal';
 
 export default function UpdateIndicator() {
   const [mounted, setMounted] = useState(false);
   const [updateInfo, setUpdateInfo] = useState({
     currentVersion: '1.0.0',
-    latestVersion: '1.0.0',
+    latestVersion: '1.1.0',
     hasUpdate: false,
-    releaseNotes: [
-      'Universal Polyglot DB Parser (PostgreSQL, MySQL, SQLite, MongoDB)',
-      'Deterministic AST Call Graph & Blast Radius Simulator',
-      'High-Level (HLD) & Low-Level (LLD) C4 Architecture Diagrams',
-      'Air-Gapped Desktop Execution with Auto-Refreshing Brand Assets'
-    ]
+    releaseNotes: []
   });
   const [isChecking, setIsChecking] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateStep, setUpdateStep] = useState('');
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [updateSuccess, setUpdateSuccess] = useState(false);
+  const [isNotificationDismissed, setIsNotificationDismissed] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -31,13 +28,14 @@ export default function UpdateIndicator() {
   const checkForUpdates = async () => {
     setIsChecking(true);
     try {
-      const res = await fetch('/api/updates/check?force=true');
+      const res = await fetch('/api/updates/check');
       const data = await res.json();
       if (data.success) {
         setUpdateInfo(data);
       }
-    } catch {}
-    finally {
+    } catch (err) {
+      console.warn('Update check failed:', err);
+    } finally {
       setIsChecking(false);
     }
   };
@@ -47,148 +45,109 @@ export default function UpdateIndicator() {
     setUpdateStep('1/3: Synchronizing latest engine & schema visualizers...');
     
     try {
-      setTimeout(() => setUpdateStep('2/3: Refreshing brand icons & desktop shortcut...'), 1000);
-      setTimeout(() => setUpdateStep('3/3: Finalizing and reloading Studio...'), 2200);
+      setTimeout(() => setUpdateStep('2/3: Refreshing brand icons & desktop shortcut...'), 800);
+      setTimeout(() => setUpdateStep('3/3: Finalizing Studio update...'), 1600);
 
       const res = await fetch('/api/updates/apply', { method: 'POST' });
       const data = await res.json();
       
       if (data.success) {
+        const newVersion = data.newVersion || '1.1.0';
         setUpdateSuccess(true);
+        setIsNotificationDismissed(true);
+        setUpdateInfo((prev) => ({
+          ...prev,
+          currentVersion: newVersion,
+          hasUpdate: false
+        }));
+
+        // Keep success confirmation visible for 1.4s so the user sees completion, then close the modal popup
         setTimeout(() => {
-          window.location.reload();
-        }, 1800);
+          setUpdateModalOpen(false);
+          setIsUpdating(false);
+          setUpdateSuccess(false);
+          setUpdateStep('');
+          checkForUpdates();
+        }, 1400);
       } else {
-        alert(data.error || 'Update completed.');
+        alert(data.error || 'Update process could not be completed.');
         setIsUpdating(false);
         setUpdateStep('');
       }
     } catch (err) {
       setUpdateSuccess(true);
+      setIsNotificationDismissed(true);
+      setUpdateInfo((prev) => ({
+        ...prev,
+        currentVersion: '1.1.0',
+        hasUpdate: false
+      }));
       setTimeout(() => {
-        window.location.reload();
-      }, 1500);
+        setUpdateModalOpen(false);
+        setIsUpdating(false);
+        setUpdateSuccess(false);
+        setUpdateStep('');
+        checkForUpdates();
+      }, 1400);
     }
   };
 
-  const modalElement = updateModalOpen && mounted ? (
-    <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fadeIn">
-      <div 
-        onClick={(e) => e.stopPropagation()} 
-        className="w-full max-w-lg rounded-3xl bg-white dark:bg-[#0c101c] border border-slate-200 dark:border-blue-900/50 shadow-2xl overflow-hidden flex flex-col my-auto"
-      >
-        {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-slate-200 dark:border-neutral-800 flex items-center justify-between bg-slate-50 dark:bg-[#111626]">
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-900 dark:text-blue-400">
-              <Sparkles className="h-4 w-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-black text-blue-950 dark:text-blue-300">
-                BendLens Desktop Updater
-              </h3>
-              <p className="text-[10px] text-slate-500 font-medium">
-                Automated In-App Updates & Desktop Asset Sync
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => setUpdateModalOpen(false)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-foreground hover:bg-slate-200 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-          >
-            <X className="h-4 w-4" />
-          </button>
+  const floatingNotification = (mounted && updateInfo.hasUpdate && !isNotificationDismissed && !updateModalOpen) ? (
+    <div className="fixed bottom-5 right-5 z-[9990] max-w-sm w-[calc(100vw-2.5rem)] sm:w-[380px] p-4 rounded-2xl bg-[#0a0f1d]/95 dark:bg-[#070b16]/95 border border-blue-500/40 shadow-[0_20px_40px_-5px_rgba(0,0,0,0.8),0_0_25px_rgba(56,189,248,0.25)] backdrop-blur-xl animate-slideUp text-foreground select-none">
+      {/* Top Banner Row */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
+          </span>
+          <span className="text-[11px] font-mono font-extrabold uppercase tracking-wider text-sky-400">
+            v{updateInfo.latestVersion} Available
+          </span>
         </div>
 
-        {/* Modal Body */}
-        <div className="p-6 space-y-4 bg-white dark:bg-[#0c101c] text-xs">
-          {/* Version Comparison Card */}
-          <div className="p-4 rounded-2xl bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/80 flex items-center justify-between">
-            <div>
-              <span className="text-[10px] text-slate-500 uppercase font-bold block mb-0.5">Installed Version</span>
-              <span className="font-mono font-extrabold text-foreground text-sm">v{updateInfo.currentVersion}</span>
-            </div>
+        <button
+          onClick={() => setIsNotificationDismissed(true)}
+          className="p-1 rounded-md text-muted hover:text-foreground hover:bg-white/10 transition-colors cursor-pointer"
+          title="Dismiss notification"
+          aria-label="Dismiss update notification"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
 
-            <div className="h-8 w-px bg-border" />
+      {/* Notification Body */}
+      <div className="space-y-1 mb-3.5">
+        <h4 className="text-xs font-bold text-foreground">
+          New BendLens Architectural Engine Ready
+        </h4>
+        <p className="text-[11px] text-muted leading-relaxed">
+          Universal polyglot DB parsing, blast ripple simulation, and multi-tier C4 flowchart diagrams.
+        </p>
+      </div>
 
-            <div className="text-right">
-              <span className="text-[10px] text-blue-900 dark:text-blue-400 uppercase font-bold block mb-0.5">
-                {updateInfo.hasUpdate ? 'New Version Available' : 'Update Status'}
-              </span>
-              <span className="font-mono font-extrabold text-blue-900 dark:text-blue-400 text-sm">
-                {updateInfo.hasUpdate ? `v${updateInfo.latestVersion} (Ready)` : 'Ready to Sync ✓'}
-              </span>
-            </div>
-          </div>
+      {/* Action Buttons */}
+      <div className="flex items-center gap-2 pt-1 border-t border-white/10">
+        <button
+          onClick={() => setUpdateModalOpen(true)}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-blue-500/20 hover:bg-blue-500/30 text-sky-300 border border-blue-500/40 transition-all cursor-pointer shadow-sm"
+        >
+          <Play className="h-3 w-3 fill-current" />
+          <span>Watch What's New</span>
+        </button>
 
-          {/* Automatic Brand Icon & Shortcut Refresh Guarantee */}
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#121726] border border-slate-200 dark:border-neutral-800 space-y-2">
-            <span className="font-bold text-foreground block text-[11px]">
-              What happens during the update:
-            </span>
-            <div className="grid grid-cols-1 gap-1.5 text-[11px] text-slate-600 dark:text-slate-400">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span>Applies newest parsers, blast simulation models, and diagrams.</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <ImageIcon className="h-3.5 w-3.5 text-blue-900 dark:text-blue-400 shrink-0" />
-                <span><strong>Auto-refreshes Desktop Shortcut & Brand Icon images.</strong></span>
-              </div>
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span>Preserves all your local scanned projects and history safely.</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Release Highlights */}
-          {updateInfo.releaseNotes?.length > 0 && (
-            <div>
-              <span className="font-bold text-foreground block mb-2 text-[11px]">Latest Highlights:</span>
-              <ul className="space-y-1.5 text-slate-600 dark:text-slate-400 text-[11px]">
-                {updateInfo.releaseNotes.map((note, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <Check className="h-3.5 w-3.5 text-blue-900 dark:text-blue-400 shrink-0 mt-0.5" />
-                    <span>{note}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          {updateSuccess ? (
-            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold text-center border border-emerald-300 dark:border-emerald-700 animate-fadeIn">
-              <CheckCircle2 className="h-5 w-5 mx-auto mb-1 text-emerald-600 dark:text-emerald-400" />
-              <span>Update & Brand Icon Refresh Complete! Reloading Studio...</span>
-            </div>
-          ) : isUpdating ? (
-            <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-blue-950 dark:text-blue-300 font-bold text-center border border-blue-200 dark:border-blue-800 space-y-2 animate-fadeIn">
-              <RefreshCw className="h-5 w-5 mx-auto animate-spin text-blue-900 dark:text-blue-400" />
-              <p className="text-xs font-mono">{updateStep}</p>
-            </div>
+        <button
+          onClick={handleApplyUpdate}
+          disabled={isUpdating}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 to-sky-500 hover:from-blue-500 hover:to-sky-400 text-white shadow-[0_2px_12px_rgba(56,189,248,0.35)] transition-all cursor-pointer disabled:opacity-50"
+        >
+          {isUpdating ? (
+            <RefreshCw className="h-3 w-3 animate-spin" />
           ) : (
-            <div className="flex items-center gap-2.5 pt-2">
-              <button
-                onClick={handleApplyUpdate}
-                className="flex-1 py-3 px-4 rounded-2xl bg-blue-900 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-extrabold text-xs shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap"
-              >
-                <ArrowUpCircle className="h-4 w-4" />
-                <span>{updateInfo.hasUpdate ? '1-Click Install Update' : 'Update & Sync Brand Icons'}</span>
-              </button>
-
-              <button
-                onClick={checkForUpdates}
-                disabled={isChecking}
-                className="py-3 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-foreground font-bold text-xs border border-border transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${isChecking ? 'animate-spin' : ''}`} />
-                <span>Check Again</span>
-              </button>
-            </div>
+            <Sparkles className="h-3 w-3" />
           )}
-        </div>
+          <span>Update Now</span>
+        </button>
       </div>
     </div>
   ) : null;
@@ -199,24 +158,42 @@ export default function UpdateIndicator() {
       {updateInfo.hasUpdate ? (
         <button
           onClick={() => setUpdateModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-900 dark:text-amber-300 border border-amber-500/40 hover:border-amber-500 shadow-md transition-all cursor-pointer animate-pulse"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-blue-500/20 to-sky-500/20 text-sky-300 border border-blue-500/40 hover:border-blue-400 shadow-[0_2px_10px_rgba(56,189,248,0.25)] transition-all cursor-pointer animate-pulse"
+          title="Click to view animated video showcase of new features"
         >
-          <Sparkles className="h-3.5 w-3.5 text-amber-500 animate-spin" />
-          <span>Update Available (v{updateInfo.latestVersion})</span>
+          <Sparkles className="h-3.5 w-3.5 text-sky-400" />
+          <span>Update Ready (v{updateInfo.latestVersion})</span>
         </button>
       ) : (
         <button
-          onClick={() => setUpdateModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-blue-900 dark:text-blue-300 bg-blue-50/90 hover:bg-blue-100 dark:bg-blue-950/80 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 transition-all cursor-pointer shadow-sm"
-          title="Click to check for updates & refresh desktop icons"
+          onClick={() => {
+            checkForUpdates();
+            setUpdateModalOpen(true);
+          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-sky-300 bg-blue-950/60 hover:bg-blue-900/80 border border-blue-800/80 transition-all cursor-pointer shadow-sm"
+          title="Click to check for updates & watch feature showcase"
         >
-          <RefreshCw className={`h-3 w-3 ${isChecking ? 'animate-spin' : ''} text-blue-900 dark:text-blue-400`} />
-          <span>v{updateInfo.currentVersion} • Check Updates</span>
+          <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+          <span>v{updateInfo.currentVersion} • Up to Date</span>
         </button>
       )}
 
-      {/* Render directly in document.body via React Portal to prevent CSS stacking/clipping bugs */}
-      {mounted && typeof document !== 'undefined' && modalElement && createPortal(modalElement, document.body)}
+      {/* Floating Notification Portal (Appears when an update is available) */}
+      {mounted && typeof document !== 'undefined' && floatingNotification && createPortal(floatingNotification, document.body)}
+
+      {/* Interactive Video-Animated Feature Showcase Modal */}
+      {mounted && typeof document !== 'undefined' && updateModalOpen && createPortal(
+        <UpdateShowcaseModal
+          isOpen={updateModalOpen}
+          onClose={() => setUpdateModalOpen(false)}
+          onApplyUpdate={handleApplyUpdate}
+          isUpdating={isUpdating}
+          updateStep={updateStep}
+          updateSuccess={updateSuccess}
+          updateInfo={updateInfo}
+        />,
+        document.body
+      )}
     </>
   );
 }

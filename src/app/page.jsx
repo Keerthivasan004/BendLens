@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import Logo from '@/components/Logo';
 import UpdateIndicator from '@/components/UpdateIndicator';
 import DownloadModal from '@/components/DownloadModal';
+import ThemeToggle from '@/components/ThemeToggle';
 import {
   FolderSearch, Play, Sparkles, Database, FileCode, Cpu, Layers,
   CheckCircle2, ArrowRight, ShieldCheck, HardDrive, Terminal,
-  UploadCloud, GitBranch, Globe, Sun, Moon, Laptop, Lock, AlertTriangle, AlertCircle, Download, Zap, RefreshCw
+  UploadCloud, GitBranch, Globe, Laptop, Lock, AlertTriangle, AlertCircle, Download, Zap, RefreshCw
 } from 'lucide-react';
 
 export default function LandingPage() {
@@ -76,8 +77,10 @@ CREATE TABLE orders (
     fetchLocalHistory();
   }, []);
 
-  const toggleTheme = () => {
-    const newTheme = theme === 'dark' ? 'light' : 'dark';
+  const toggleTheme = (explicitTheme) => {
+    const newTheme = (typeof explicitTheme === 'string' && (explicitTheme === 'dark' || explicitTheme === 'light'))
+      ? explicitTheme
+      : (theme === 'dark' ? 'light' : 'dark');
     setTheme(newTheme);
     try {
       localStorage.setItem('bendlens-theme', newTheme);
@@ -243,9 +246,14 @@ CREATE TABLE orders (
   };
 
   // Navigate to Studio Console
-  const handleOpenLens = (role = 'DEVELOPER') => {
+  const handleOpenLens = (role = 'DEVELOPER', tab = null) => {
     try {
       localStorage.setItem('bendlens-initial-role', role);
+      if (tab) {
+        localStorage.setItem('bendlens-initial-tab', tab);
+      } else {
+        localStorage.removeItem('bendlens-initial-tab');
+      }
     } catch {}
     router.push('/lens');
   };
@@ -278,18 +286,11 @@ CREATE TABLE orders (
               </button>
             )}
 
-            <button
-              onClick={toggleTheme}
-              className="p-1.5 rounded-md hover:bg-surface-raised text-muted hover:text-foreground border border-border transition-colors cursor-pointer"
-              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-              aria-label="Toggle theme"
-            >
-              {theme === 'dark' ? (
-                <Sun className="h-4 w-4 text-amber-400" />
-              ) : (
-                <Moon className="h-4 w-4 text-slate-700" />
-              )}
-            </button>
+            <ThemeToggle
+              theme={theme}
+              onToggle={toggleTheme}
+              onChange={toggleTheme}
+            />
           </div>
         </div>
       </nav>
@@ -519,7 +520,7 @@ CREATE TABLE orders (
                   <span className="text-[11px] text-muted">Presets:</span>
                   <button
                     type="button"
-                    onClick={() => setPastedCode(`-- 🛍️ E-Commerce Architecture (PostgreSQL / Relational)
+                    onClick={() => setPastedCode(`-- E-Commerce Architecture (PostgreSQL / Relational)
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -556,7 +557,7 @@ CREATE TABLE order_items (
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPastedCode(`-- 💳 SaaS Multi-Tenant Billing (PostgreSQL)
+                    onClick={() => setPastedCode(`-- SaaS Multi-Tenant Billing (PostgreSQL)
 CREATE TABLE organizations (
     id UUID PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -592,7 +593,7 @@ CREATE TABLE invoices (
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPastedCode(`-- 🏦 Fintech Double-Entry Ledger (PostgreSQL)
+                    onClick={() => setPastedCode(`-- Fintech Double-Entry Ledger (PostgreSQL)
 CREATE TABLE accounts (
     id UUID PRIMARY KEY,
     account_number VARCHAR(50) UNIQUE NOT NULL,
@@ -916,7 +917,7 @@ CREATE TABLE audit_logs (
               ) : analysisResult ? (
                 <>
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                  <span>Load Interactive E-Commerce Architecture (Ready ✓)</span>
+                  <span>Load Interactive E-Commerce Architecture (Ready)</span>
                 </>
               ) : (
                 <>
@@ -1029,18 +1030,25 @@ CREATE TABLE audit_logs (
                   <span>Blast Radius Simulator</span>
                 </button>
                 <button
-                  onClick={() => handleOpenLens('DEVELOPER')}
+                  onClick={() => handleOpenLens('DEVELOPER', 'erd')}
                   className="px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-xs font-medium text-foreground transition-colors cursor-pointer flex items-center gap-1.5"
                 >
                   <Database className="h-3 w-3 text-blue-500" />
                   <span>Interactive ERD & Schemas</span>
                 </button>
                 <button
-                  onClick={() => handleOpenLens('MANAGER')}
+                  onClick={() => handleOpenLens('MANAGER', 'hld')}
                   className="px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-xs font-medium text-foreground transition-colors cursor-pointer flex items-center gap-1.5"
                 >
                   <Layers className="h-3 w-3 text-violet-500" />
                   <span>Engineering Manager HLD</span>
+                </button>
+                <button
+                  onClick={() => handleOpenLens('DEVELOPER', 'lld')}
+                  className="px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-xs font-medium text-foreground transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Cpu className="h-3 w-3 text-emerald-500" />
+                  <span>Developer Call Graph (LLD)</span>
                 </button>
               </div>
             </div>

@@ -246,12 +246,7 @@ nextjs-portal,
 #__next-build-watcher,
 div[data-nextjs-toast-wrapper],
 [data-next-badge],
-.nextjs-toast-errors-parent,
-body > [id^="dmermaid"],
-body > [id*="mermaid-"][aria-roledescription="error"],
-body > svg[aria-roledescription="error"],
-.error-icon,
-.error-text {
+.nextjs-toast-errors-parent {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;

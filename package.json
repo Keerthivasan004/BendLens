@@ -1,6 +1,6 @@
 {
   "name": "bendlens-platform",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "BendLens - Universal Backend Architecture & Blast Platform",
   "main": "electron/main.js",
   "private": true,
@@ -11,11 +11,7 @@
     "desktop": "electron .",
     "launch": "node scripts/launch-desktop.js",
     "dist": "electron-builder --win",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed",
-    "test:e2e:debug": "playwright test --debug",
-    "test:e2e:report": "playwright show-report"
+    "test": "node --test tests/**/*.test.js"
   },
   "build": {
     "appId": "com.bendlens.studio",
@@ -47,7 +43,6 @@
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
     "autoprefixer": "^10.4.20",
     "electron": "^43.4.1",
     "electron-builder": "^26.7.0",

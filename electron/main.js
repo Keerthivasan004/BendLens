@@ -29,7 +29,9 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: 'BendLens - Universal Backend Architecture & Blast Platform',
-    icon: path.join(__dirname, '../public/icon.svg'),
+    icon: process.platform === 'win32'
+      ? path.join(__dirname, '../public/icon.ico')
+      : path.join(__dirname, '../public/icon.png'),
     backgroundColor: '#020617',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -182,7 +184,7 @@ function checkForDesktopUpdates() {
               new Notification({
                 title: 'BendLens Auto-Update Available',
                 body: `Version v${info.latestVersion} is ready to install with 1-click.`,
-                icon: path.join(__dirname, '../public/icon.svg')
+                icon: path.join(__dirname, '../public/icon.png')
               }).show();
             }
           }

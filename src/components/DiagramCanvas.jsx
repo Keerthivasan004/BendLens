@@ -8,8 +8,17 @@ import {
 } from 'lucide-react';
 import DatabaseSchemaDiagram from './DatabaseSchemaDiagram';
 
-export default function DiagramCanvas({ diagrams, schemaData, theme = 'dark', onSelectForImpact }) {
-  const [activeTab, setActiveTab] = useState('erd');
+export default function DiagramCanvas({ 
+  diagrams, 
+  schemaData, 
+  theme = 'dark', 
+  onSelectForImpact,
+  activeTab: controlledActiveTab,
+  onTabChange,
+  initialTab = 'erd'
+}) {
+  const [internalActiveTab, setInternalActiveTab] = useState(initialTab);
+  const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab;
   const [erdMode, setErdMode] = useState('MERMAID'); // 'MERMAID' | 'INTERACTIVE'
   const [zoom, setZoom] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
@@ -19,23 +28,31 @@ export default function DiagramCanvas({ diagrams, schemaData, theme = 'dark', on
   const [showCode, setShowCode] = useState(false);
   const [filterQuery, setFilterQuery] = useState('');
   const [copied, setCopied] = useState(false);
+  const [isMermaidReady, setIsMermaidReady] = useState(typeof window !== 'undefined' && !!window.mermaid);
 
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
+  const renderReqId = useRef(0);
+  const isRenderingRef = useRef(false);
+  const queuedRenderRef = useRef(false);
+  const lastThemeRef = useRef(null);
 
   const currentDiagram = diagrams ? diagrams[activeTab] : null;
 
   const cleanStrayMermaidErrors = () => {
     if (typeof document !== 'undefined') {
-      document.querySelectorAll('[id^="dmermaid"], body > [id*="mermaid-"][aria-roledescription="error"], body > svg[aria-roledescription="error"], .error-icon, .error-text').forEach((el) => {
+      // Only remove error overlays, never remove active rendering sandboxes
+      document.querySelectorAll('body > [id*="mermaid-"][aria-roledescription="error"], body > svg[aria-roledescription="error"]').forEach((el) => {
         el.remove();
       });
     }
   };
 
   const getFilteredMermaid = () => {
-    if (!currentDiagram || !currentDiagram.mermaid) return '';
-    return currentDiagram.mermaid;
+    if (!currentDiagram) return '';
+    if (typeof currentDiagram === 'string') return currentDiagram;
+    if (typeof currentDiagram === 'object' && currentDiagram.mermaid) return currentDiagram.mermaid;
+    return '';
   };
 
   // Highlight search matches directly in rendered SVG without corrupting diagram syntax
@@ -64,107 +81,196 @@ export default function DiagramCanvas({ diagrams, schemaData, theme = 'dark', on
     });
   }, [filterQuery]);
 
+  // Proactively monitor and detect window.mermaid availability
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (window.mermaid) {
+        setIsMermaidReady(true);
+      } else {
+        const interval = setInterval(() => {
+          if (window.mermaid) {
+            setIsMermaidReady(true);
+            clearInterval(interval);
+          }
+        }, 80);
+        const timer = setTimeout(() => clearInterval(interval), 4000);
+        return () => {
+          clearInterval(interval);
+          clearTimeout(timer);
+        };
+      }
+    }
+  }, []);
+
+  // Initialize Mermaid configuration only once or on theme change
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.mermaid && lastThemeRef.current !== theme) {
+      lastThemeRef.current = theme;
+      cleanStrayMermaidErrors();
+      const isDark = theme === 'dark';
+      
+      try {
+        window.mermaid.initialize({
+          startOnLoad: false,
+          suppressErrorRendering: true,
+          theme: isDark ? 'dark' : 'neutral',
+          securityLevel: 'loose',
+          themeVariables: isDark ? {
+            darkMode: true,
+            background: '#000000',
+            primaryColor: '#12172a',
+            primaryTextColor: '#f8fafc',
+            primaryBorderColor: '#60a5fa',
+            lineColor: '#93c5fd',
+            secondaryColor: '#1e1b4b',
+            tertiaryColor: '#0b0f19',
+            noteBkgColor: '#12172a',
+            noteTextColor: '#f8fafc',
+            noteBorderColor: '#60a5fa',
+            actorBkg: '#161c2d',
+            actorBorder: '#60a5fa',
+            actorTextColor: '#ffffff',
+            signalColor: '#93c5fd',
+            signalTextColor: '#ffffff',
+            clusterBkg: '#070a12',
+            clusterBorder: '#3b82f6',
+            titleColor: '#93c5fd',
+            fontSize: '13px',
+            fontFamily: "'JetBrains Mono', 'Plus Jakarta Sans', sans-serif"
+          } : {
+            darkMode: false,
+            background: '#ffffff',
+            primaryColor: '#ffffff',
+            primaryTextColor: '#000000',
+            primaryBorderColor: '#1e3a8a',
+            lineColor: '#1e3a8a',
+            secondaryColor: '#1e40af',
+            tertiaryColor: '#f8fafc',
+            fontSize: '13px',
+            fontFamily: "'JetBrains Mono', 'Plus Jakarta Sans', sans-serif"
+          },
+          er: {
+            useMaxWidth: false,
+            fill: isDark ? '#12172a' : '#ffffff',
+            stroke: isDark ? '#60a5fa' : '#1e3a8a',
+            fontSize: 13
+          },
+          flowchart: {
+            useMaxWidth: false,
+            htmlLabels: true,
+            curve: 'basis',
+            nodeSpacing: 50,
+            rankSpacing: 60,
+            padding: 20
+          },
+          sequence: {
+            useMaxWidth: false,
+            actorFontSize: 13,
+            messageFontSize: 12,
+            boxMargin: 15
+          }
+        });
+      } catch (e) {}
+    }
+  }, [theme, isMermaidReady]);
+
+  // Diagram rendering effect on tab or diagram change
   useEffect(() => {
     if (activeTab === 'erd' && erdMode === 'INTERACTIVE') {
       setTimeout(handleFitToScreen, 120);
       return;
     }
     if (typeof window !== 'undefined' && window.mermaid) {
-      cleanStrayMermaidErrors();
-      const isDark = theme === 'dark';
-      
-      window.mermaid.initialize({
-        startOnLoad: false,
-        suppressErrorRendering: true,
-        theme: isDark ? 'dark' : 'neutral',
-        securityLevel: 'loose',
-        themeVariables: isDark ? {
-          darkMode: true,
-          background: '#000000',
-          primaryColor: '#12172a',
-          primaryTextColor: '#f8fafc',
-          primaryBorderColor: '#60a5fa',
-          lineColor: '#93c5fd',
-          secondaryColor: '#1e1b4b',
-          tertiaryColor: '#0b0f19',
-          noteBkgColor: '#12172a',
-          noteTextColor: '#f8fafc',
-          noteBorderColor: '#60a5fa',
-          actorBkg: '#161c2d',
-          actorBorder: '#60a5fa',
-          actorTextColor: '#ffffff',
-          signalColor: '#93c5fd',
-          signalTextColor: '#ffffff',
-          clusterBkg: '#070a12',
-          clusterBorder: '#3b82f6',
-          titleColor: '#93c5fd',
-          fontSize: '13px',
-          fontFamily: "'JetBrains Mono', 'Plus Jakarta Sans', sans-serif"
-        } : {
-          darkMode: false,
-          background: '#ffffff',
-          primaryColor: '#ffffff',
-          primaryTextColor: '#000000',
-          primaryBorderColor: '#1e3a8a',
-          lineColor: '#1e3a8a',
-          secondaryColor: '#1e40af',
-          tertiaryColor: '#f8fafc',
-          fontSize: '13px',
-          fontFamily: "'JetBrains Mono', 'Plus Jakarta Sans', sans-serif"
-        },
-        er: {
-          useMaxWidth: false,
-          fill: isDark ? '#12172a' : '#ffffff',
-          stroke: isDark ? '#60a5fa' : '#1e3a8a',
-          fontSize: 13
-        },
-        flowchart: {
-          useMaxWidth: false,
-          htmlLabels: true,
-          curve: 'basis',
-          nodeSpacing: 50,
-          rankSpacing: 60,
-          padding: 20
-        },
-        sequence: {
-          useMaxWidth: false,
-          actorFontSize: 13,
-          messageFontSize: 12,
-          boxMargin: 15
-        }
-      });
-
       renderDiagram();
     }
-  }, [activeTab, erdMode, currentDiagram, showCode, theme]);
+  }, [activeTab, erdMode, currentDiagram, showCode, isMermaidReady]);
 
-  const renderDiagram = () => {
+  const renderDiagram = async () => {
+    if (isRenderingRef.current) {
+      queuedRenderRef.current = true;
+      return;
+    }
+    isRenderingRef.current = true;
+
+    const thisReq = ++renderReqId.current;
     const element = containerRef.current;
     const mermaidCode = getFilteredMermaid();
     cleanStrayMermaidErrors();
-    if (element && mermaidCode) {
-      element.innerHTML = '';
-      const id = `mermaid-${Date.now()}`;
-      window.mermaid
-        .render(id, mermaidCode)
-        .then(({ svg }) => {
-          cleanStrayMermaidErrors();
-          element.innerHTML = svg;
-          const svgEl = element.querySelector('svg');
-          if (svgEl) {
-            svgEl.style.maxWidth = 'none';
-            svgEl.style.height = 'auto';
+
+    if (!element || !mermaidCode) {
+      isRenderingRef.current = false;
+      return;
+    }
+
+    // Ensure custom fonts are loaded to guarantee non-zero text measurement bounding boxes
+    if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
+      try {
+        await document.fonts.ready;
+      } catch {}
+    }
+
+    if (thisReq !== renderReqId.current) {
+      isRenderingRef.current = false;
+      if (queuedRenderRef.current) {
+        queuedRenderRef.current = false;
+        renderDiagram();
+      }
+      return;
+    }
+
+    const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+    try {
+      const { svg } = await window.mermaid.render(id, mermaidCode);
+      if (thisReq === renderReqId.current && element) {
+        cleanStrayMermaidErrors();
+        element.innerHTML = svg;
+        const svgEl = element.querySelector('svg');
+        if (svgEl) {
+          svgEl.style.maxWidth = 'none';
+          svgEl.style.height = 'auto';
+        }
+        setTimeout(handleFitToScreen, 60);
+      }
+    } catch (err) {
+      if (thisReq === renderReqId.current && element) {
+        cleanStrayMermaidErrors();
+        console.warn('Mermaid visual render note:', err);
+
+        // Self-healing fallback: strip flowchart edge labels if needed, sanitize unescaped ampersands
+        try {
+          let sanitizedCode = mermaidCode.replace(/&/g, 'and');
+          if (!sanitizedCode.trim().startsWith('erDiagram')) {
+            sanitizedCode = sanitizedCode.replace(/\|[^|\n]+\|/g, '');
           }
-          setTimeout(handleFitToScreen, 120);
-        })
-        .catch((err) => {
-          cleanStrayMermaidErrors();
-          console.warn('Mermaid visual render note:', err);
-          element.innerHTML = `<div class="p-6 text-xs text-muted font-mono bg-surface-card rounded-xl border border-border flex flex-col items-center justify-center text-center">
-            <p class="font-semibold text-foreground">Diagram Visual Preview</p>
-            <p class="text-[11px] text-muted mt-1">Switch to 'Code' view to inspect schema definitions.</p>
-          </div>`;
-        });
+          const retryId = `mermaid-retry-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          const { svg: retrySvg } = await window.mermaid.render(retryId, sanitizedCode);
+          if (thisReq === renderReqId.current && element) {
+            cleanStrayMermaidErrors();
+            element.innerHTML = retrySvg;
+            const svgEl = element.querySelector('svg');
+            if (svgEl) {
+              svgEl.style.maxWidth = 'none';
+              svgEl.style.height = 'auto';
+            }
+            setTimeout(handleFitToScreen, 60);
+          }
+        } catch (fallbackErr) {
+          if (thisReq === renderReqId.current && element) {
+            cleanStrayMermaidErrors();
+            element.innerHTML = `<div class="p-6 text-xs text-muted font-mono bg-surface-card rounded-xl border border-border flex flex-col items-center justify-center text-center">
+              <p class="font-semibold text-foreground">Diagram Visual Preview</p>
+              <p class="text-[11px] text-muted mt-1">Switch to 'Code' view to inspect schema definitions.</p>
+            </div>`;
+          }
+        }
+      }
+    } finally {
+      isRenderingRef.current = false;
+      if (queuedRenderRef.current) {
+        queuedRenderRef.current = false;
+        renderDiagram();
+      }
     }
   };
 
@@ -263,8 +369,8 @@ export default function DiagramCanvas({ diagrams, schemaData, theme = 'dark', on
 
   const tabs = [
     { id: 'erd', label: 'Database ERD', icon: Database, color: 'text-blue-900 dark:text-cyan-400' },
-    { id: 'hld', label: 'High-Level C4', icon: Box, color: 'text-violet-700 dark:text-violet-400' },
-    { id: 'lld', label: 'Low-Level Call Graph', icon: Cpu, color: 'text-emerald-700 dark:text-emerald-400' },
+    { id: 'hld', label: 'High-Level Design (HLD)', icon: Box, color: 'text-violet-700 dark:text-violet-400' },
+    { id: 'lld', label: 'Low-Level Design (LLD)', icon: Cpu, color: 'text-emerald-700 dark:text-emerald-400' },
     { id: 'sequence', label: 'Execution Sequence', icon: GitCommit, color: 'text-amber-700 dark:text-amber-400' }
   ];
 
@@ -286,7 +392,8 @@ export default function DiagramCanvas({ diagrams, schemaData, theme = 'dark', on
               <button
                 key={tab.id}
                 onClick={() => {
-                  setActiveTab(tab.id);
+                  setInternalActiveTab(tab.id);
+                  if (onTabChange) onTabChange(tab.id);
                   handleResetZoom();
                 }}
                 className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
@@ -436,21 +543,28 @@ export default function DiagramCanvas({ diagrams, schemaData, theme = 'dark', on
         </div>
 
         {/* Visual Mermaid Canvas */}
-        {!showCode ? (activeTab === 'erd' && erdMode === 'INTERACTIVE') ? (
-          <div className="w-full h-full select-none" style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`, transformOrigin: 'center center', transition: isDragging ? 'none' : 'transform 0.1s ease-out' }}>
-            <DatabaseSchemaDiagram schemaData={schemaData} filterQuery={filterQuery} theme={theme} onSelectForImpact={onSelectForImpact} />
-          </div>
-        ) : (
-          <div
-            className="w-full h-full flex items-center justify-center select-none"
-            style={{
-              transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`,
-              transformOrigin: 'center center',
-              transition: isDragging ? 'none' : 'transform 0.1s ease-out'
-            }}
-          >
-            <div ref={containerRef} className="mermaid-container p-12 inline-block min-w-fit min-h-fit" />
-          </div>
+        {!showCode ? (
+          <>
+            {/* Interactive Schema Diagram (Only for ERD interactive mode) */}
+            <div 
+              className={`w-full h-full select-none ${activeTab === 'erd' && erdMode === 'INTERACTIVE' ? 'block' : 'hidden'}`}
+              style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`, transformOrigin: 'center center', transition: isDragging ? 'none' : 'transform 0.1s ease-out' }}
+            >
+              <DatabaseSchemaDiagram schemaData={schemaData} filterQuery={filterQuery} theme={theme} onSelectForImpact={onSelectForImpact} />
+            </div>
+
+            {/* Mermaid Canvas Container (Always mounted so containerRef is NEVER null) */}
+            <div
+              className={`w-full h-full flex items-center justify-center select-none ${activeTab === 'erd' && erdMode === 'INTERACTIVE' ? 'hidden' : 'block'}`}
+              style={{
+                transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`,
+                transformOrigin: 'center center',
+                transition: isDragging ? 'none' : 'transform 0.1s ease-out'
+              }}
+            >
+              <div ref={containerRef} className="mermaid-container p-12 inline-block min-w-fit min-h-fit" />
+            </div>
+          </>
         ) : (
           /* Code View Drawer */
           <div className="w-full h-full p-6 bg-slate-950 text-slate-100 font-mono text-xs overflow-auto flex flex-col">

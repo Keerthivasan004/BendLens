@@ -527,9 +527,13 @@ export default function BlastRadiusSimulator({
                 Blast Radius Shockwave Propagation Map
               </h3>
             </div>
-            <span className="text-[11px] text-muted">
-              Topology: Epicenter → Database Relations → API Routes
-            </span>
+            <div className="flex items-center gap-1.5 text-[11px] text-muted flex-wrap">
+              <span>Topology: Epicenter</span>
+              <ArrowRight className="h-2.5 w-2.5 opacity-60" />
+              <span>Database Relations</span>
+              <ArrowRight className="h-2.5 w-2.5 opacity-60" />
+              <span>API Routes</span>
+            </div>
           </div>
 
           {/* Radial Shockwave Canvas Layout */}
