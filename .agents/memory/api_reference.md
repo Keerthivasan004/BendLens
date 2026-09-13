@@ -114,4 +114,9 @@ Returns recently analyzed project paths and metadata from the OS temp history fi
 ---
 
 ## 8. GET `/api/updates/check`
-Returns current installed version from `package.json` and updates availability.
+Returns installed version from `package.json` vs newest release detected by `src/lib/releaseInfo.js` (newest `dist/BendLens-Setup-*.exe` / `BendLens-Portable-*.exe` artifact, else `BASELINE_LATEST_VERSION`). `?source=desktop` additionally merges the public GitHub release tag (metadata-only, cached, offline-safe fallback) so packaged installs — which have no `dist/` — can discover releases. Air-gapped default: plain calls never touch the network (engine identity probe relies on this). `?simulate=true` forces `hasUpdate: true` for notification testing.
+- **Response**: `{ success, currentVersion, latestVersion, hasUpdate, updateArtifact, updateSource, releaseNotes, featureShowcase, releaseDate }`
+- **POST** `action: 'reset'` (set 1.0.0, for testing) / `'bump'` (adopt detected latest).
+
+## 9. POST `/api/updates/apply`
+Applies the update (git pull in dev repos), refreshes brand assets via `scripts/build_brand_assets.js`, and persists the detected latest version to `package.json`. Returns `{ success, message, newVersion, details }`.

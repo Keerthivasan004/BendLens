@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import AdmZip from 'adm-zip';
 import os from 'os';
+import { getEffectiveLatest } from '@/lib/releaseInfo';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,12 +53,14 @@ export async function POST() {
       }
     }
 
-    // 2. Automatically refresh and update the Icon & Desktop shortcut image on user system
+    // 2. Automatically refresh and update the Icon & Desktop shortcut image on user system.
+    // Uses build_brand_assets.js (SVG -> PNG -> ICO from the current brand)
+    // — never generate-icon.ps1, which redraws legacy artwork.
     try {
       if (process.platform === 'win32') {
-        const iconScriptPath = path.join(projectRoot, 'scripts', 'generate-icon.ps1');
-        if (fs.existsSync(iconScriptPath)) {
-          await execPromise(`powershell -NoProfile -ExecutionPolicy Bypass -File "${iconScriptPath}"`, { cwd: projectRoot });
+        const brandScript = path.join(projectRoot, 'scripts', 'build_brand_assets.js');
+        if (fs.existsSync(brandScript)) {
+          await execPromise(`node "${brandScript}"`, { cwd: projectRoot });
         }
 
         // Refresh Desktop Shortcut icon
@@ -79,14 +82,16 @@ export async function POST() {
       console.warn('Icon and shortcut refresh warning:', iconErr.message);
     }
 
-    // Persist updated version to package.json
-    let newVersion = '1.1.0';
+    // Persist the detected latest version to package.json (was a hardcoded
+    // '1.1.0' that could drift from the actual release being applied).
+    // Remote-aware (cached): a packaged install applying GitHub files must
+    // stamp the release it actually pulled, not the local baseline.
+    let newVersion = (await getEffectiveLatest(projectRoot, { allowRemote: true })).latestVersion;
     try {
       const pkgPath = path.join(projectRoot, 'package.json');
       const updatedPkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-      updatedPkg.version = '1.1.0';
+      updatedPkg.version = newVersion;
       fs.writeFileSync(pkgPath, JSON.stringify(updatedPkg, null, 2), 'utf-8');
-      newVersion = '1.1.0';
     } catch {}
 
     return NextResponse.json({

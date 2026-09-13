@@ -38,7 +38,8 @@ This document maps all directories, modules, and significant files across BendLe
 - **`Header.jsx`**: Main navigation bar with project path display, theme toggle, export trigger, and desktop indicator.
 - **`ThemeToggle.jsx`**: Dark/Light mode switcher persisting preference in `localStorage`.
 - **`ExportModal.jsx`**: Export dialog for downloading architecture reports (JSON, Markdown, Mermaid).
-- **`UpdateIndicator.jsx` / `UpdateShowcaseModal.jsx`**: In-app updater indicators and changelog modal.
+- **`UpdateIndicator.jsx` / `UpdateShowcaseModal.jsx`**: Desktop-only updater UI (gated by `useIsDesktop()` → `window.bendlensDesktop.isDesktop` from `electron/preload.js`; renders null on web since web auto-updates) with navbar pill, floating notification, and changelog modal.
+- **`useIsDesktop.js`** (`src/lib/`): shared hook — true only inside the downloaded Electron app.
 - **`views/`**:
   - `DeveloperView.jsx`: Developer engineering console with AST symbol tree, API endpoint table, breaking change warnings, and schema table inspectors.
   - `ManagerView.jsx`: Engineering Manager view displaying architecture risk score, module coupling index, tech debt hotspots, and sprint risk matrix.
@@ -47,7 +48,7 @@ This document maps all directories, modules, and significant files across BendLe
 ---
 
 ## `src/app/` (Next.js App Router)
-- **`page.jsx`**: Landing page with project selection options (folder path input, drag-and-drop ZIP upload, SQL paste modal, sample project loader).
+- **`page.jsx`**: Landing page with project selection options (folder path input + **Analyze Input** button, disabled until a path is entered, drag-and-drop ZIP upload, SQL paste modal, sample project loader).
 - **`layout.jsx`**: Root HTML layout and font configurations.
 - **`globals.css`**: Global styles, Tailwind base, and diagram canvas animations.
 - **`lens/page.jsx`**: Core dashboard housing the diagram canvas, persona tabs, and blast radius simulator.

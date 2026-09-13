@@ -34,9 +34,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: 'BendLens - Universal Backend Architecture & Blast Platform',
-    icon: process.platform === 'win32'
-      ? path.join(__dirname, '../public/icon.ico')
-      : path.join(__dirname, '../public/icon.png'),
+    icon: resolveWindowIcon(),
     backgroundColor: '#020617',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -65,6 +63,30 @@ function createWindow() {
     mainWindow = null;
     cleanupServer();
   });
+}
+
+/**
+ * Resolve the best window/taskbar icon for this runtime.
+ * Handles: dev workspace, packaged resources/app (asar disabled),
+ * legacy app.asar builds, asar.unpacked icons, and extraResources.
+ * Returns undefined when nothing is found (Electron falls back safely).
+ */
+function resolveWindowIcon() {
+  const iconFile = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+  const candidates = [];
+  if (app.isPackaged) {
+    candidates.push(path.join(process.resourcesPath, 'public', iconFile));
+    candidates.push(path.join(process.resourcesPath, 'app', 'public', iconFile));
+    candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'public', iconFile));
+  }
+  candidates.push(path.join(__dirname, '..', 'public', iconFile));
+  candidates.push(path.join(__dirname, 'public', iconFile));
+  for (const p of candidates) {
+    try {
+      if (p && fs.existsSync(p)) return p;
+    } catch {}
+  }
+  return undefined;
 }
 
 /**
@@ -149,28 +171,70 @@ function resolvePort(done, idx = 0) {
 }
 
 /**
- * Start the embedded Next.js engine. Returns true when a spawn was attempted.
- * Packaged mode uses Electron's own Node runtime + bundled Next — no npm needed.
+ * Start the embedded Next.js engine. Returns true when a start was attempted.
+ * Packaged mode runs Next in-process (Electron's binary is NOT node, so it
+ * cannot spawn `next start` as a child script). Dev mode keeps npm/pnpm spawn.
  */
 function startBackendServer(projectDir, port) {
   if (serverProcess) return true;
 
   if (app.isPackaged) {
-    const nextBin = path.join(projectDir, 'node_modules', 'next', 'dist', 'bin', 'next');
-    if (!fs.existsSync(nextBin)) {
-      console.error('[!] Packaged engine missing bundled Next.js:', nextBin);
+    const buildDir = path.join(projectDir, '.next');
+    if (!fs.existsSync(buildDir)) {
+      console.error('[!] Packaged engine missing production build:', buildDir);
       dialog.showErrorBox(
         'BendLens Engine Missing',
         'The embedded BendLens engine could not be found in this installation.\n\nPlease reinstall BendLens from the official installer.'
       );
       return false;
     }
-    console.log(`[*] Spawning embedded BendLens engine (production) on port ${port}...`);
-    serverProcess = spawn(process.execPath, [nextBin, 'start', '-p', String(port), '-H', HOST], {
-      cwd: projectDir,
-      windowsHide: true,
-      env: { ...process.env, NODE_ENV: 'production', PORT: String(port), HOSTNAME: HOST }
-    });
+    let nextFactory = null;
+    try {
+      nextFactory = require('next');
+    } catch {
+      try {
+        nextFactory = require(path.join(projectDir, 'node_modules', 'next'));
+      } catch (err) {
+        console.error('[!] Packaged engine missing bundled Next.js:', err && err.message);
+        dialog.showErrorBox(
+          'BendLens Engine Missing',
+          'The embedded BendLens engine could not be found in this installation.\n\nPlease reinstall BendLens from the official installer.'
+        );
+        return false;
+      }
+    }
+    try {
+      console.log(`[*] Starting embedded BendLens engine (in-process production) on port ${port}...`);
+      process.env.NODE_ENV = 'production';
+      const nextApp = nextFactory({ dev: false, dir: projectDir, hostname: HOST, port });
+      const handle = nextApp.getRequestHandler();
+      serverProcess = { isEmbedded: true, pid: null };
+      nextApp
+        .prepare()
+        .then(() => {
+          const server = http.createServer((req, res) => handle(req, res));
+          server.listen(port, HOST, () => {
+            console.log(`[*] Embedded engine listening on ${HOST}:${port}.`);
+          });
+          server.on('error', (err) => {
+            console.error('[!] Embedded engine server error:', err);
+            serverProcess = null;
+          });
+          serverProcess.server = server;
+        })
+        .catch((err) => {
+          console.error('[!] Embedded engine failed to start:', err);
+          serverProcess = null;
+          dialog.showErrorBox(
+            'BendLens Engine Failed to Start',
+            'The local BendLens engine did not respond in time.\n\nPlease restart the application. If the problem persists, reinstall BendLens.'
+          );
+        });
+    } catch (err) {
+      console.error('[!] Embedded engine failed to start:', err);
+      serverProcess = null;
+      return false;
+    }
   } else {
     const isWin = process.platform === 'win32';
     const hasPnpm = fs.existsSync(path.join(projectDir, 'pnpm-lock.yaml'));
@@ -188,23 +252,25 @@ function startBackendServer(projectDir, port) {
     });
   }
 
-  serverProcess.stdout?.on('data', (data) => {
-    const text = data.toString();
-    if (text.includes('Ready in') || text.includes('ready started') || text.includes('compiled client and server')) {
-      console.log('[*] Engine ready signal received.');
-    }
-  });
-  serverProcess.stderr?.on('data', (data) => {
-    console.error('[engine]', data.toString().trim());
-  });
-  serverProcess.on('error', (err) => {
-    console.error('[!] Failed to spawn BendLens engine:', err);
-    serverProcess = null;
-  });
-  serverProcess.on('exit', (code) => {
-    console.log(`[*] Engine process exited (code ${code}).`);
-    serverProcess = null;
-  });
+  if (serverProcess && !serverProcess.isEmbedded) {
+    serverProcess.stdout?.on('data', (data) => {
+      const text = data.toString();
+      if (text.includes('Ready in') || text.includes('ready started') || text.includes('compiled client and server')) {
+        console.log('[*] Engine ready signal received.');
+      }
+    });
+    serverProcess.stderr?.on('data', (data) => {
+      console.error('[engine]', data.toString().trim());
+    });
+    serverProcess.on('error', (err) => {
+      console.error('[!] Failed to spawn BendLens engine:', err);
+      serverProcess = null;
+    });
+    serverProcess.on('exit', (code) => {
+      console.log(`[*] Engine process exited (code ${code}).`);
+      serverProcess = null;
+    });
+  }
   return true;
 }
 
@@ -244,12 +310,28 @@ function loadStudio() {
   if (!mainWindow) return;
   mainWindow.loadURL(appUrl()).then(() => {
     checkForDesktopUpdates();
+    // Recurring desktop check while the window stays open (previously
+    // once-only, so releases published mid-session never fired).
+    if (!loadStudio.updateTimer) {
+      loadStudio.updateTimer = setInterval(() => {
+        if (mainWindow) checkForDesktopUpdates();
+      }, 15 * 60 * 1000);
+    }
   }).catch((err) => {
     console.error('[!] Error loading studio URL:', err);
   });
 }
 
 function cleanupServer() {
+  if (!serverProcess) return;
+  if (serverProcess.isEmbedded) {
+    console.log('[*] Closing embedded engine server...');
+    try {
+      serverProcess.server?.close?.();
+    } catch {}
+    serverProcess = null;
+    return;
+  }
   if (serverProcess && serverProcess.pid) {
     console.log('[*] Cleaning up background engine process...');
     if (process.platform === 'win32') {
@@ -265,22 +347,35 @@ function cleanupServer() {
   }
 }
 
-// Background Auto-Update Check
+// Background Auto-Update Check. Notified versions are remembered per session
+// so the user is nagged once per release, not every 15 minutes.
+const notifiedUpdateVersions = new Set();
 function checkForDesktopUpdates() {
+  // Desktop client: include remote release discovery (packaged installs have
+  // no dist/ folder, so local-only detection could never fire here).
   http
-    .get(`${appUrl()}/api/updates/check`, (res) => {
+    .get(`${appUrl()}/api/updates/check?source=desktop`, (res) => {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
         try {
           const info = JSON.parse(data);
-          if (info.hasUpdate) {
+          if (info && info.hasUpdate && info.latestVersion && !notifiedUpdateVersions.has(info.latestVersion)) {
+            notifiedUpdateVersions.add(info.latestVersion);
             if (Notification.isSupported()) {
-              new Notification({
+              const notifIcon = resolveWindowIcon();
+              const note = new Notification({
                 title: 'BendLens Auto-Update Available',
-                body: `Version v${info.latestVersion} is ready to install with 1-click.`,
-                icon: path.join(__dirname, '../public/icon.png')
-              }).show();
+                body: `Version v${info.latestVersion} is ready to install with 1-click.${info.updateArtifact ? ` (${info.updateArtifact})` : ''}`,
+                ...(notifIcon ? { icon: notifIcon } : {})
+              });
+              note.on('click', () => {
+                if (mainWindow) {
+                  if (mainWindow.isMinimized()) mainWindow.restore();
+                  mainWindow.focus();
+                }
+              });
+              note.show();
             }
           }
         } catch {}

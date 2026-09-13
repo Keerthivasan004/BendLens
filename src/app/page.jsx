@@ -6,6 +6,7 @@ import Logo from '@/components/Logo';
 import UpdateIndicator from '@/components/UpdateIndicator';
 import DownloadModal from '@/components/DownloadModal';
 import ThemeToggle from '@/components/ThemeToggle';
+import useIsDesktop from '@/lib/useIsDesktop';
 import {
   FolderSearch, Play, Sparkles, Database, FileCode, Cpu, Layers,
   CheckCircle2, ArrowRight, ShieldCheck, HardDrive, Terminal,
@@ -53,6 +54,9 @@ CREATE TABLE orders (
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [downloadModalReason, setDownloadModalReason] = useState('DEFAULT');
   const [isLocalApp, setIsLocalApp] = useState(true);
+  // Downloaded (Electron) users already have the app: hide all
+  // "Download Desktop App" buttons for them.
+  const isDesktop = useIsDesktop();
 
   // Hero rotating outcome phrases (display only — no logic impact)
   const HERO_PHRASES = [
@@ -299,18 +303,20 @@ CREATE TABLE orders (
               </div>
             )}
 
-            <button
-              onClick={() => {
-                setDownloadModalReason('DEFAULT');
-                setIsDownloadModalOpen(true);
-              }}
-              className="btn-primary text-xs py-2 px-3.5"
-              title="Download the BendLens Desktop App (.exe)"
-            >
+            {!isDesktop && (
+              <button
+                onClick={() => {
+                  setDownloadModalReason('DEFAULT');
+                  setIsDownloadModalOpen(true);
+                }}
+                className="btn-primary text-xs py-2 px-3.5"
+                title="Download the BendLens Desktop App (.exe)"
+              >
               <Download className="h-3.5 w-3.5" />
               <span className="hidden md:inline">Download Desktop App</span>
               <span className="md:hidden">Download</span>
             </button>
+            )}
 
             <ThemeToggle
               theme={theme}
@@ -506,8 +512,9 @@ CREATE TABLE orders (
                 </div>
                 <button
                   onClick={() => handleScanPath()}
-                  disabled={isScanning}
-                  className={`w-full sm:w-auto px-5 py-2.5 text-xs font-semibold rounded-lg transition-all flex items-center justify-center cursor-pointer ${
+                  disabled={isScanning || !folderPath.trim()}
+                  title={!folderPath.trim() ? 'Enter a folder path above to enable analysis' : 'Analyze the provided folder path'}
+                  className={`w-full sm:w-auto px-5 py-2.5 text-xs font-semibold rounded-lg transition-all flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                     analysisResult
                       ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-card ring-1 ring-emerald-500/50'
                       : 'btn-primary shadow-card'
@@ -526,7 +533,7 @@ CREATE TABLE orders (
                   ) : (
                     <>
                       <Play className="h-3.5 w-3.5 fill-current mr-2" />
-                      <span>Analyze Folder</span>
+                      <span>Analyze Input</span>
                     </>
                   )}
                 </button>

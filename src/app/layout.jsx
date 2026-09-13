@@ -22,6 +22,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
+        {/* Apply the saved theme before React hydrates so the toggle state is
+            honored on every load (no dark-flash, no stuck theme) in both the
+            browser and the downloaded Electron app (per-origin localStorage). */}
+        <script dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('bendlens-theme')||'dark';if(t==='light'){document.documentElement.classList.remove('dark')}else{document.documentElement.classList.add('dark')}}catch(e){}` }} />
         {/* Official BendLens Favicon & Icons */}
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <link rel="icon" href="/icon.png" type="image/png" sizes="512x512" />

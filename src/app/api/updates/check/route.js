@@ -1,46 +1,28 @@
 import { NextResponse } from 'next/server';
-import path from 'path';
-import fs from 'fs';
+import {
+  getLocalVersion,
+  setLocalVersion,
+  getLatestRelease,
+  getEffectiveLatest,
+  isNewerVersion
+} from '@/lib/releaseInfo';
 
 export const dynamic = 'force-dynamic';
-
-const LATEST_RELEASE_VERSION = '1.1.0';
-
-function getLocalVersion() {
-  try {
-    const pkgPath = path.join(process.cwd(), 'package.json');
-    if (fs.existsSync(pkgPath)) {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-      if (pkg.version) return pkg.version;
-    }
-  } catch (err) {
-    console.warn('Could not read package.json version:', err.message);
-  }
-  return '1.0.0';
-}
-
-function setLocalVersion(version) {
-  try {
-    const pkgPath = path.join(process.cwd(), 'package.json');
-    if (fs.existsSync(pkgPath)) {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-      pkg.version = version;
-      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2), 'utf-8');
-      return true;
-    }
-  } catch (err) {
-    console.error('Could not write package.json version:', err.message);
-  }
-  return false;
-}
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const simulateUpdate = searchParams.get('simulate') === 'true';
+    // Desktop-only remote discovery: the packaged app has no dist/ folder,
+    // so without this a downloaded install could never learn of a release.
+    // Plain (web/probe) callers stay purely local: fast and offline-safe.
+    const allowRemote = searchParams.get('source') === 'desktop';
 
     const currentVersion = getLocalVersion();
-    const latestVersion = LATEST_RELEASE_VERSION;
+    const { latestVersion, updateArtifact, updateSource } = await getEffectiveLatest(
+      undefined,
+      { allowRemote }
+    );
 
     // Strict semantic version comparison: only true if latestVersion is strictly newer than currentVersion
     let hasUpdate = isNewerVersion(latestVersion, currentVersion);
@@ -109,17 +91,22 @@ export async function GET(request) {
       currentVersion,
       latestVersion,
       hasUpdate,
+      updateArtifact,
+      updateSource,
       releaseNotes: featureShowcase.map(f => f.title),
       featureShowcase,
       releaseDate: new Date().toISOString()
     });
   } catch (error) {
     const currentVersion = getLocalVersion();
+    const { latestVersion, updateArtifact } = getLatestRelease();
     return NextResponse.json({
       success: true,
       currentVersion,
-      latestVersion: LATEST_RELEASE_VERSION,
-      hasUpdate: isNewerVersion(LATEST_RELEASE_VERSION, currentVersion)
+      latestVersion,
+      hasUpdate: isNewerVersion(latestVersion, currentVersion),
+      updateArtifact,
+      updateSource: 'local'
     });
   }
 }
@@ -127,44 +114,37 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
+    const { latestVersion } = getLatestRelease();
     if (body.action === 'reset') {
       setLocalVersion('1.0.0');
       return NextResponse.json({
         success: true,
         action: 'reset',
         currentVersion: '1.0.0',
-        latestVersion: LATEST_RELEASE_VERSION,
-        hasUpdate: true
+        latestVersion,
+        hasUpdate: true,
+        updateArtifact: getLatestRelease().updateArtifact
       });
     }
     if (body.action === 'bump') {
-      setLocalVersion(LATEST_RELEASE_VERSION);
+      setLocalVersion(latestVersion);
       return NextResponse.json({
         success: true,
         action: 'bump',
-        currentVersion: LATEST_RELEASE_VERSION,
-        latestVersion: LATEST_RELEASE_VERSION,
-        hasUpdate: false
+        currentVersion: latestVersion,
+        latestVersion,
+        hasUpdate: false,
+        updateArtifact: null
       });
     }
     return NextResponse.json({
       success: true,
       currentVersion: getLocalVersion(),
-      latestVersion: LATEST_RELEASE_VERSION,
-      hasUpdate: isNewerVersion(LATEST_RELEASE_VERSION, getLocalVersion())
+      latestVersion,
+      hasUpdate: isNewerVersion(latestVersion, getLocalVersion()),
+      updateArtifact: getLatestRelease().updateArtifact
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
-}
-
-function isNewerVersion(remote, local) {
-  if (!remote || !local) return false;
-  const r = remote.split('.').map(n => parseInt(n, 10) || 0);
-  const l = local.split('.').map(n => parseInt(n, 10) || 0);
-  for (let i = 0; i < 3; i++) {
-    if ((r[i] || 0) > (l[i] || 0)) return true;
-    if ((r[i] || 0) < (l[i] || 0)) return false;
-  }
-  return false;
 }

@@ -17,6 +17,10 @@
     "appId": "com.bendlens.studio",
     "productName": "BendLens",
     "asar": false,
+    "asarUnpack": [
+      "public/icon.ico",
+      "public/icon.png"
+    ],
     "files": [
       "package.json",
       "next.config.js",
@@ -26,6 +30,17 @@
       "electron/**/*",
       "sample_project/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "public",
+        "to": "public",
+        "filter": [
+          "icon.ico",
+          "icon.png",
+          "icon.svg"
+        ]
+      }
+    ],
     "directories": {
       "output": "dist"
     },
@@ -34,7 +49,7 @@
         "portable",
         "nsis"
       ],
-      "icon": "public/icon.svg"
+      "icon": "public/icon.ico"
     },
     "portable": {
       "artifactName": "BendLens-Portable-${version}.${ext}"
@@ -44,7 +59,9 @@
       "perMachine": false,
       "createDesktopShortcut": true,
       "shortcutName": "BendLens",
-      "artifactName": "BendLens-Setup-${version}.${ext}"
+      "artifactName": "BendLens-Setup-${version}.${ext}",
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico"
     }
   },
   "dependencies": {

@@ -4,6 +4,7 @@ import React from 'react';
 import Logo from '@/components/Logo';
 import UpdateIndicator from '@/components/UpdateIndicator';
 import ThemeToggle from '@/components/ThemeToggle';
+import useIsDesktop from '@/lib/useIsDesktop';
 import {
   FolderSearch, Play, Download, Sparkles, Database,
   FileCode, Cpu, CheckCircle2, RefreshCw,
@@ -24,6 +25,8 @@ export default function Header({
   onDownloadApp
 }) {
   const hasAnalysis = !!analysisData;
+  // Downloaded (Electron) users already have the app: never offer it again.
+  const isDesktop = useIsDesktop();
 
   return (
     <header className="sticky top-0 z-50 border-b border-border chrome-bar px-4 sm:px-6 py-3 transition-colors">
@@ -100,7 +103,7 @@ export default function Header({
 
           {/* System controls */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            {onDownloadApp && (
+            {onDownloadApp && !isDesktop && (
               <button
                 onClick={onDownloadApp}
                 className="btn-primary text-xs py-2 px-3 whitespace-nowrap hidden sm:flex"
