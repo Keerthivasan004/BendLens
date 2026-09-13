@@ -39,8 +39,8 @@ Welcome to the **BendLens** agent workspace. This folder contains structured kno
 
 | Action | Command | Details |
 |---|---|---|
-| Run Dev Web Server | `npm run dev` | Runs Next.js at `http://localhost:3000` |
-| Launch Desktop App | `npm run desktop` or `node scripts/launch-desktop.js` | Launches native Electron app with instant splash screen |
-| Package Windows App | `npm run dist` | Generates NSIS installer & portable `.exe` in `dist/` |
+| Run Dev Web Server | `pnpm dev` | Runs Next.js at `http://localhost:3000` |
+| Launch Desktop App | `pnpm desktop` or `node scripts/launch-desktop.js` | Launches native Electron app with instant splash screen |
+| Package Windows App | `pnpm dist` | Generates NSIS installer & portable `.exe` in `dist/` |
 
 > **Note**: Automated testing suites are intentionally omitted to maximize speed and efficiency.

@@ -18,9 +18,9 @@ BendLens is a 100% Local-First, Air-Gapped Backend Architecture and Blast-Radius
 - **Skills**: [.agents/skills/](file:///d:/BCBUZZ_Side_Project/data-project/.agents/skills)
 
 ## Primary Commands
-- Run Web Dev Server: `npm run dev` (runs at http://localhost:3000)
-- Launch Desktop App: `npm run desktop` or `node scripts/launch-desktop.js`
-- Package Windows Desktop: `npm run dist`
+- Run Web Dev Server: `pnpm dev` (runs at http://localhost:3000)
+- Launch Desktop App: `pnpm desktop` or `node scripts/launch-desktop.js`
+- Package Windows Desktop: `pnpm dist`
 
 ## Essential Guardrails
 1. **Always Synchronize `.agents/`**: Keep skills and memory in sync with every code update.

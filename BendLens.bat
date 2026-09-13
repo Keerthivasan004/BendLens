@@ -19,20 +19,27 @@ if exist "node_modules\electron\dist\electron.exe" (
 )
 
 :: 3. Web Mode Fallback:
+:: Detect package manager (prefers pnpm)
+set "PM_CMD=pnpm"
+where pnpm >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    set "PM_CMD=npm"
+)
+
 :: Ensure dependencies exist
 if not exist "node_modules" (
-    echo [*] Installing local dependencies (first-time only)...
-    call npm install
+    echo [*] Installing local dependencies with %PM_CMD% (first-time only)...
+    call %PM_CMD% install
 )
 
 :: Auto-detect production build for ultra-fast startup (~300ms) vs dev mode
-set "START_CMD=npm run dev"
+set "START_CMD=%PM_CMD% run dev"
 if exist ".next" (
-    set "START_CMD=npm run start"
+    set "START_CMD=%PM_CMD% run start"
     echo [*] Fast Production Mode active
 )
 
-echo [*] Starting BendLens Local Engine...
+echo [*] Starting BendLens Local Engine via %PM_CMD%...
 start "" %START_CMD%
 
 :: Wait for port 3000 to be responsive before opening browser

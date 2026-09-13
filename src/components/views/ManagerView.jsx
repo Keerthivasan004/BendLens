@@ -71,11 +71,11 @@ export default function ManagerView({ data }) {
             <span className="text-xs font-semibold text-muted">{hotspots.length} Flagged</span>
           </div>
 
-          <div className="divide-y divide-border/60 flex-1 overflow-y-auto pr-0.5">
+          <div className="divide-y divide-border-subtle flex-1 overflow-y-auto pr-0.5">
             {hotspots.map((item, idx) => (
               <div 
                 key={idx} 
-                className="py-3 px-1 border-l-2 border-rose-500/80 pl-3 hover:bg-surface-raised/40 transition-colors flex flex-col gap-1"
+                className="py-3 px-1 border-l-2 border-rose-500/80 pl-3 hover:bg-surface-raised transition-colors flex flex-col gap-1"
               >
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-xs font-bold text-foreground">{item.module}</span>
@@ -109,9 +109,9 @@ export default function ManagerView({ data }) {
             <span className="text-xs font-semibold text-muted">Active Trajectories</span>
           </div>
 
-          <div className="divide-y divide-border/60 flex-1 overflow-y-auto pr-0.5">
+          <div className="divide-y divide-border-subtle flex-1 overflow-y-auto pr-0.5">
             {riskMatrix.map((item, idx) => (
-              <div key={idx} className="py-3 px-1 hover:bg-surface-raised/40 transition-colors flex flex-col gap-1">
+              <div key={idx} className="py-3 px-1 hover:bg-surface-raised transition-colors flex flex-col gap-1">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-foreground">{item.feature}</span>
                   <span
@@ -158,7 +158,7 @@ export default function ManagerView({ data }) {
                   <div className="h-2 w-2 rounded-full bg-emerald-500" />
                   <h4 className="text-xs font-bold text-foreground">{squad.squad}</h4>
                 </div>
-                <ul className="space-y-1 text-xs text-muted divide-y divide-border/40">
+                <ul className="space-y-1 text-xs text-muted divide-y divide-border-subtle">
                   {squad.modules.map((m, mIdx) => (
                     <li key={mIdx} className="py-1.5 flex items-center gap-1.5 font-mono text-[11px]">
                       <CheckCircle2 className="h-3 w-3 text-brand shrink-0" />

@@ -1,8 +1,12 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'BendLens - Universal Backend Architecture & Impact Platform',
-  description: 'Automated database schema extraction, ERD, HLD, LLD diagrams and modification blast-radius analysis for Developers, Managers, and Business Owners.',
+  title: 'BendLens — Backend Architecture & Blast-Radius Studio',
+  description: 'Local-first backend architecture studio: schema ERD, HLD, LLD, execution sequences and what-if blast-radius analysis for Developers, Managers, and Business Owners.',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f6f8fc' },
+    { media: '(prefers-color-scheme: dark)', color: '#070b14' },
+  ],
   icons: {
     icon: [
       { url: '/icon.svg', type: 'image/svg+xml' },
@@ -24,11 +28,11 @@ export default function RootLayout({ children }) {
         <link rel="shortcut icon" href="/icon.ico" />
         <link rel="apple-touch-icon" href="/icon.png" />
 
-        {/* Google Fonts: Plus Jakarta Sans & JetBrains Mono */}
+        {/* Google Fonts: Inter (UI) + Plus Jakarta Sans (display) + JetBrains Mono (data) */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
-          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"
           rel="stylesheet"
         />
         <script src="/mermaid.min.js"></script>

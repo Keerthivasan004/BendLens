@@ -390,9 +390,28 @@ export default function BlastRadiusSimulator({
                     ? 'e.g. CASCADE'
                     : 'e.g. customer_orders'
                 }
-                className="w-full px-2.5 py-1.5 text-xs rounded-md bg-surface border border-border text-foreground font-mono outline-none focus:border-brand placeholder:text-muted/60"
+                className="w-full px-2.5 py-1.5 text-xs rounded-md bg-surface border border-border text-foreground font-mono outline-none focus:border-brand placeholder:text-muted"
               />
             </div>
+          </div>
+
+          {/* Generated statement preview — what the simulated change looks like as SQL */}
+          <div className="mt-3 rounded-xl border border-border overflow-hidden">
+            <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-surface-subtle border-b border-border">
+              <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-muted">
+                Generated statement · preview only, nothing is executed
+              </span>
+              <button
+                onClick={handleCopySql}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-raised hover:bg-surface text-[11px] font-semibold text-foreground border border-border transition-colors cursor-pointer shrink-0"
+              >
+                {copiedSql ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3 text-muted" />}
+                <span>{copiedSql ? 'Copied' : 'Copy SQL'}</span>
+              </button>
+            </div>
+            <pre className="px-3 py-2.5 text-xs font-mono text-foreground bg-surface overflow-x-auto whitespace-pre">
+              {simulatedSQL}
+            </pre>
           </div>
         </div>
       </div>
@@ -510,7 +529,7 @@ export default function BlastRadiusSimulator({
                 placeholder="Search affected items..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1 text-xs rounded-md bg-surface border border-border text-foreground outline-none focus:border-brand placeholder:text-muted/60"
+                className="w-full pl-8 pr-3 py-1 text-xs rounded-md bg-surface border border-border text-foreground outline-none focus:border-brand placeholder:text-muted"
               />
             </div>
           </div>
@@ -679,7 +698,7 @@ export default function BlastRadiusSimulator({
                 </span>
               </div>
 
-              <div className="divide-y divide-border/60 max-h-[500px] overflow-y-auto pr-1">
+              <div className="divide-y divide-border-subtle max-h-[500px] overflow-y-auto pr-1">
                 {filteredTables.map((tbl) => {
                   const isCritical = tbl.impactPercentage >= 85;
                   const isHigh = tbl.impactPercentage >= 70 && tbl.impactPercentage < 85;
@@ -692,7 +711,7 @@ export default function BlastRadiusSimulator({
                   return (
                     <div
                       key={tbl.name}
-                      className="py-3 px-1 hover:bg-surface-raised/40 transition-colors flex flex-col gap-1.5"
+                      className="py-3 px-1 hover:bg-surface-raised transition-colors flex flex-col gap-1.5"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
@@ -767,7 +786,7 @@ export default function BlastRadiusSimulator({
                 </span>
               </div>
 
-              <div className="divide-y divide-border/60 max-h-[500px] overflow-y-auto pr-1">
+              <div className="divide-y divide-border-subtle max-h-[500px] overflow-y-auto pr-1">
                 {filteredCode.map((codeItem, idx) => {
                   const isCritical = codeItem.impactPercentage >= 85;
                   const isHigh = codeItem.impactPercentage >= 70 && codeItem.impactPercentage < 85;
@@ -780,7 +799,7 @@ export default function BlastRadiusSimulator({
                   return (
                     <div
                       key={idx}
-                      className="py-3 px-1 hover:bg-surface-raised/40 transition-colors flex flex-col gap-1.5"
+                      className="py-3 px-1 hover:bg-surface-raised transition-colors flex flex-col gap-1.5"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">

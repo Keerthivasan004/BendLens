@@ -66,7 +66,7 @@ export default function ThemeToggle({
       <div
         className={`absolute left-1 top-1 w-6 h-6 rounded-full transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] pointer-events-none ${
           isDark
-            ? 'translate-x-7 bg-[#162035] border border-sky-400/40 shadow-[0_2px_8px_-1px_rgba(56,189,248,0.35),0_1px_2px_rgba(0,0,0,0.5)]'
+            ? 'translate-x-6 bg-[#162035] border border-sky-400/40 shadow-[0_2px_8px_-1px_rgba(56,189,248,0.35),0_1px_2px_rgba(0,0,0,0.5)]'
             : 'translate-x-0 bg-white border border-amber-300/70 shadow-[0_2px_8px_-1px_rgba(245,158,11,0.28),0_1px_2px_rgba(0,0,0,0.06)]'
         }`}
       />

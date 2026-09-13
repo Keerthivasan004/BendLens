@@ -10,11 +10,22 @@
     "start": "next start -p 3000",
     "desktop": "electron .",
     "launch": "node scripts/launch-desktop.js",
+    "predist": "next build",
     "dist": "electron-builder --win"
   },
   "build": {
     "appId": "com.bendlens.studio",
     "productName": "BendLens",
+    "asar": false,
+    "files": [
+      "package.json",
+      "next.config.js",
+      ".next/**/*",
+      "!**/.next/cache/**",
+      "public/**/*",
+      "electron/**/*",
+      "sample_project/**/*"
+    ],
     "directories": {
       "output": "dist"
     },
@@ -25,11 +36,15 @@
       ],
       "icon": "public/icon.svg"
     },
+    "portable": {
+      "artifactName": "BendLens-Portable-${version}.${ext}"
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
       "createDesktopShortcut": true,
-      "shortcutName": "BendLens"
+      "shortcutName": "BendLens",
+      "artifactName": "BendLens-Setup-${version}.${ext}"
     }
   },
   "dependencies": {

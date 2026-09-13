@@ -93,7 +93,7 @@ export default function UpdateIndicator() {
   };
 
   const floatingNotification = (mounted && updateInfo.hasUpdate && !isNotificationDismissed && !updateModalOpen) ? (
-    <div className="fixed bottom-5 right-5 z-[9990] max-w-sm w-[calc(100vw-2.5rem)] sm:w-[380px] p-4 rounded-2xl bg-[#0a0f1d]/95 dark:bg-[#070b16]/95 border border-blue-500/40 shadow-[0_20px_40px_-5px_rgba(0,0,0,0.8),0_0_25px_rgba(56,189,248,0.25)] backdrop-blur-xl animate-slideUp text-foreground select-none">
+    <div className="fixed bottom-5 right-5 z-[9990] max-w-sm w-[calc(100vw-2.5rem)] sm:w-[380px] p-4 rounded-2xl bg-white/95 dark:bg-[#070b16]/95 border border-blue-200 dark:border-blue-500/40 shadow-modal dark:shadow-[0_20px_40px_-5px_rgba(0,0,0,0.8),0_0_25px_rgba(56,189,248,0.25)] backdrop-blur-xl animate-rise text-foreground select-none">
       {/* Top Banner Row */}
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
@@ -101,14 +101,14 @@ export default function UpdateIndicator() {
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
           </span>
-          <span className="text-[11px] font-mono font-extrabold uppercase tracking-wider text-sky-400">
+          <span className="text-[11px] font-mono font-extrabold uppercase tracking-wider text-blue-700 dark:text-sky-400">
             v{updateInfo.latestVersion} Available
           </span>
         </div>
 
         <button
           onClick={() => setIsNotificationDismissed(true)}
-          className="p-1 rounded-md text-muted hover:text-foreground hover:bg-white/10 transition-colors cursor-pointer"
+          className="p-1 rounded-md text-muted hover:text-foreground hover:bg-surface-raised dark:hover:bg-white/10 transition-colors cursor-pointer"
           title="Dismiss notification"
           aria-label="Dismiss update notification"
         >
@@ -127,10 +127,10 @@ export default function UpdateIndicator() {
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center gap-2 pt-1 border-t border-white/10">
+      <div className="flex items-center gap-2 pt-1 border-t border-border dark:border-white/10">
         <button
           onClick={() => setUpdateModalOpen(true)}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-blue-500/20 hover:bg-blue-500/30 text-sky-300 border border-blue-500/40 transition-all cursor-pointer shadow-sm"
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-blue-600/10 hover:bg-blue-600/15 text-blue-700 border border-blue-500/30 dark:bg-blue-500/20 dark:hover:bg-blue-500/30 dark:text-sky-300 dark:border-blue-500/40 transition-all cursor-pointer shadow-sm"
         >
           <Play className="h-3 w-3 fill-current" />
           <span>Watch What's New</span>
@@ -158,7 +158,7 @@ export default function UpdateIndicator() {
       {updateInfo.hasUpdate ? (
         <button
           onClick={() => setUpdateModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-blue-500/20 to-sky-500/20 text-sky-300 border border-blue-500/40 hover:border-blue-400 shadow-[0_2px_10px_rgba(56,189,248,0.25)] transition-all cursor-pointer animate-pulse"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-blue-600/10 text-blue-700 border border-blue-500/30 hover:border-blue-500/60 hover:bg-blue-600/[0.14] dark:from-blue-500/20 dark:to-sky-500/20 dark:bg-gradient-to-r dark:text-sky-300 dark:border-blue-500/40 dark:hover:border-blue-400 shadow-sm dark:shadow-[0_2px_10px_rgba(56,189,248,0.25)] transition-all cursor-pointer animate-pulse"
           title="Click to view animated video showcase of new features"
         >
           <Sparkles className="h-3.5 w-3.5 text-sky-400" />
@@ -170,10 +170,10 @@ export default function UpdateIndicator() {
             checkForUpdates();
             setUpdateModalOpen(true);
           }}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-sky-300 bg-blue-950/60 hover:bg-blue-900/80 border border-blue-800/80 transition-all cursor-pointer shadow-sm"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-sky-300 dark:border-blue-800/80 dark:hover:bg-blue-900/80 transition-all cursor-pointer shadow-sm"
           title="Click to check for updates & watch feature showcase"
         >
-          <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+          <CheckCircle2 className="h-3 w-3 text-emerald-500 dark:text-emerald-400" />
           <span>v{updateInfo.currentVersion} • Up to Date</span>
         </button>
       )}

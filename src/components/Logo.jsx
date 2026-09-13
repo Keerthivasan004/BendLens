@@ -3,11 +3,9 @@
 import React from 'react';
 
 /**
- * BendLens Brand Logo
- * Core Design Language:
- * 1. Database Architecture: Layered 3D relational database disk stack.
- * 2. Data Science & Knowledge Graph: Interconnected neural graph nodes and analytics flow vectors.
- * 3. Optical Lens: Magnifying inspection ring analyzing schema topology.
+ * BendLens Brand Logo — Enterprise refinement.
+ * Same props API (size, withText, className). Visual-only upgrade:
+ * quiet squircle, single premium gradient, crisp lens reticle.
  */
 export default function Logo({ size = 'md', withText = true, className = '' }) {
   const iconSizes = {
@@ -25,143 +23,74 @@ export default function Logo({ size = 'md', withText = true, className = '' }) {
   };
 
   return (
-    <div className={`flex items-center gap-3 select-none ${className}`}>
-      {/* Custom Database & Data Science Vector Emblem */}
+    <div className={`flex items-center gap-2.5 select-none ${className}`}>
       <div className={`relative ${iconSizes[size] || iconSizes.md} shrink-0`}>
         <svg
           viewBox="0 0 64 64"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
-          className="w-full h-full filter drop-shadow-md transition-transform hover:scale-105"
+          className="w-full h-full transition-transform duration-200 hover:scale-[1.04]"
+          role="img"
+          aria-label="BendLens logo"
         >
-          {/* Definitions for Gradients & Filters */}
           <defs>
-            {/* Database Stack Gradient */}
-            <linearGradient id="db-grad-top" x1="16" y1="12" x2="48" y2="24" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#38bdf8" />
-              <stop offset="0.5" stopColor="#0284c7" />
-              <stop offset="1" stopColor="#1e3a8a" />
+            <linearGradient id="bl-squircle" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#5b80ff" />
+              <stop offset="0.55" stopColor="#2547eb" />
+              <stop offset="1" stopColor="#0f1e5e" />
             </linearGradient>
-            <linearGradient id="db-grad-mid" x1="16" y1="24" x2="48" y2="36" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#60a5fa" />
-              <stop offset="0.5" stopColor="#2563eb" />
-              <stop offset="1" stopColor="#1e293b" />
+            <linearGradient id="bl-disc" x1="18" y1="14" x2="46" y2="46" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#93b4fd" />
+              <stop offset="0.5" stopColor="#3b63f6" />
+              <stop offset="1" stopColor="#1e30af" />
             </linearGradient>
-            <linearGradient id="db-grad-bot" x1="16" y1="36" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#818cf8" />
-              <stop offset="0.5" stopColor="#4f46e5" />
-              <stop offset="1" stopColor="#0f172a" />
+            <linearGradient id="bl-ring" x1="10" y1="10" x2="54" y2="54" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#7dd3fc" />
+              <stop offset="0.5" stopColor="#818cf8" />
+              <stop offset="1" stopColor="#22d3ee" />
             </linearGradient>
-
-            {/* Optical Lens Ring Gradient */}
-            <linearGradient id="lens-ring-grad" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#38bdf8" />
-              <stop offset="0.3" stopColor="#818cf8" />
-              <stop offset="0.7" stopColor="#c084fc" />
-              <stop offset="1" stopColor="#38bdf8" />
-            </linearGradient>
-
-            {/* Neural Data Node Glow */}
-            <radialGradient id="node-glow" cx="0.5" cy="0.5" r="0.5" fx="0.3" fy="0.3">
-              <stop offset="0%" stopColor="#ffffff" />
-              <stop offset="60%" stopColor="#38bdf8" />
-              <stop offset="100%" stopColor="#0284c7" />
+            <radialGradient id="bl-glow" cx="0.5" cy="0.42" r="0.65">
+              <stop offset="0%" stopColor="#ffffff" stopOpacity="0.9" />
+              <stop offset="45%" stopColor="#93b4fd" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="#2547eb" stopOpacity="0" />
             </radialGradient>
           </defs>
 
-          {/* Outer Rounded Container */}
-          <rect
-            x="2"
-            y="2"
-            width="60"
-            height="60"
-            rx="16"
-            className="fill-slate-900 dark:fill-black stroke-slate-700/60 dark:stroke-slate-800"
-            strokeWidth="1.5"
-          />
+          <rect x="2" y="2" width="60" height="60" rx="17" fill="url(#bl-squircle)" />
+          <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="16" stroke="#ffffff" strokeOpacity="0.22" strokeWidth="1.5" />
+          <rect x="2" y="2" width="60" height="60" rx="17" fill="url(#bl-glow)" />
 
-          {/* Data Science Graph Connecting Lines (Background Network) */}
-          <g opacity="0.6">
-            <line x1="12" y1="18" x2="32" y2="18" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="3 3" />
-            <line x1="52" y1="18" x2="32" y2="18" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="3 3" />
-            <line x1="12" y1="46" x2="32" y2="46" stroke="#818cf8" strokeWidth="1.5" strokeDasharray="3 3" />
-            <line x1="52" y1="46" x2="32" y2="46" stroke="#818cf8" strokeWidth="1.5" strokeDasharray="3 3" />
-            <line x1="12" y1="18" x2="12" y2="46" stroke="#38bdf8" strokeWidth="1.5" />
-            <line x1="52" y1="18" x2="52" y2="46" stroke="#818cf8" strokeWidth="1.5" />
+          {/* Stacked schema discs */}
+          <g>
+            <path d="M21 37.5 C21 34.8 43 34.8 43 37.5 L43 42.5 C43 45.2 21 45.2 21 42.5 Z" fill="#16265e" fillOpacity="0.85" stroke="#818cf8" strokeWidth="1" />
+            <ellipse cx="32" cy="37.5" rx="11" ry="3.2" fill="#2b3fa8" stroke="#a5b4fc" strokeWidth="1" />
+            <path d="M21 28.5 C21 25.8 43 25.8 43 28.5 L43 33.5 C43 36.2 21 36.2 21 33.5 Z" fill="url(#bl-disc)" stroke="#93b4fd" strokeWidth="1" />
+            <ellipse cx="32" cy="28.5" rx="11" ry="3.2" fill="#1d37d8" stroke="#bfdbfe" strokeWidth="1" />
+            <path d="M21 19.5 C21 16.8 43 16.8 43 19.5 L43 24.5 C43 27.2 21 27.2 21 24.5 Z" fill="#dbe7ff" stroke="#ffffff" strokeWidth="1" />
+            <ellipse cx="32" cy="19.5" rx="11" ry="3.2" fill="#f2f6ff" stroke="#ffffff" strokeWidth="1.2" />
           </g>
 
-          {/* 3D Relational Database Stack (3 Tier Cylinders) */}
-          {/* Bottom Cylinder Disc */}
-          <path
-            d="M20 38 C20 35 44 35 44 38 L44 44 C44 47 20 47 20 44 Z"
-            fill="url(#db-grad-bot)"
-            stroke="#6366f1"
-            strokeWidth="1"
-          />
-          <ellipse cx="32" cy="38" rx="12" ry="3.5" fill="#312e81" stroke="#818cf8" strokeWidth="1" />
-
-          {/* Middle Cylinder Disc */}
-          <path
-            d="M20 28 C20 25 44 25 44 28 L44 34 C44 37 20 37 20 34 Z"
-            fill="url(#db-grad-mid)"
-            stroke="#3b82f6"
-            strokeWidth="1"
-          />
-          <ellipse cx="32" cy="28" rx="12" ry="3.5" fill="#1e3a8a" stroke="#60a5fa" strokeWidth="1" />
-
-          {/* Top Cylinder Disc */}
-          <path
-            d="M20 18 C20 15 44 15 44 18 L44 24 C44 27 20 27 20 24 Z"
-            fill="url(#db-grad-top)"
-            stroke="#0284c7"
-            strokeWidth="1"
-          />
-          <ellipse cx="32" cy="18" rx="12" ry="3.5" fill="#0369a1" stroke="#38bdf8" strokeWidth="1.2" />
-
-          {/* Optical Architecture Inspection Lens (Scanning Reticle) */}
-          <circle
-            cx="32"
-            cy="31"
-            r="19"
-            stroke="url(#lens-ring-grad)"
-            strokeWidth="2"
-            strokeDasharray="14 4"
-            className="origin-center"
-          />
-
-          {/* Data Science Neural & Feature Nodes (Orbiting Points) */}
-          {/* Top-Left Cluster Node */}
-          <circle cx="12" cy="18" r="3.5" fill="url(#node-glow)" stroke="#ffffff" strokeWidth="1" />
-          {/* Top-Right Cluster Node */}
-          <circle cx="52" cy="18" r="3.5" fill="url(#node-glow)" stroke="#ffffff" strokeWidth="1" />
-          {/* Bottom-Left Cluster Node */}
-          <circle cx="12" cy="46" r="3.5" fill="url(#node-glow)" stroke="#ffffff" strokeWidth="1" />
-          {/* Bottom-Right Cluster Node */}
-          <circle cx="52" cy="46" r="3.5" fill="url(#node-glow)" stroke="#ffffff" strokeWidth="1" />
-
-          {/* Center Optical Focal Sparkle */}
-          <circle cx="32" cy="31" r="3" fill="#38bdf8" />
-          <circle cx="32" cy="31" r="1.5" fill="#ffffff" />
+          {/* Lens reticle */}
+          <circle cx="32" cy="31" r="18.5" stroke="url(#bl-ring)" strokeWidth="2" strokeDasharray="13 5" strokeLinecap="round" opacity="0.95" />
+          <circle cx="50.5" cy="17.5" r="2.6" fill="#22d3ee" stroke="#ffffff" strokeWidth="1" />
+          <circle cx="13.5" cy="46.5" r="2.6" fill="#818cf8" stroke="#ffffff" strokeWidth="1" />
+          <circle cx="32" cy="31" r="2.6" fill="#ffffff" />
+          <circle cx="32" cy="31" r="1.1" fill="#2547eb" />
         </svg>
       </div>
 
-      {/* Brand Typography */}
       {withText && (
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2">
-            <span
-              className={`${
-                textSizes[size] || textSizes.md
-              } font-extrabold tracking-tight text-foreground leading-none`}
-            >
-              Bend<span className="text-brand">Lens</span>
+        <div className="flex flex-col leading-none">
+          <div className="flex items-center gap-1.5">
+            <span className={`${textSizes[size] || textSizes.md} font-extrabold tracking-tight text-foreground`}>
+              Bend<span className="bg-gradient-to-r from-[#4c71f7] to-[#22d3ee] bg-clip-text text-transparent">Lens</span>
             </span>
-            <span className="text-[10px] uppercase font-mono tracking-wider font-semibold px-1.5 py-0.2 rounded bg-surface-raised text-muted border border-border">
-              Data Studio
+            <span className="text-[9px] uppercase font-mono tracking-[0.08em] font-semibold px-1.5 py-0.5 rounded-md bg-surface-raised text-muted border border-border">
+              Studio
             </span>
           </div>
-          <span className="text-[10px] text-muted font-medium tracking-tight mt-0.5">
-            Database Architecture & Blast Platform
+          <span className="text-[10px] text-muted font-medium tracking-tight mt-1">
+            Architecture & Blast-Radius
           </span>
         </div>
       )}

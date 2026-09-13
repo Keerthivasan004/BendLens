@@ -20,7 +20,8 @@ namespace BendLensDesktop
                 string exeDir = AppDomain.CurrentDomain.BaseDirectory;
                 string projectDir = exeDir;
 
-                // Resolve project root
+                // Resolve installed project root (portable dir -> LocalAppData -> Program Files).
+                // NOTE: never fall back to a developer machine path — this binary ships to users.
                 if (!File.Exists(Path.Combine(projectDir, "package.json")))
                 {
                     string localAppDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BendLens");
@@ -28,9 +29,13 @@ namespace BendLensDesktop
                     {
                         projectDir = localAppDataDir;
                     }
-                    else if (Directory.Exists(@"D:\BCBUZZ_Side_Project\data-project"))
+                    else
                     {
-                        projectDir = @"D:\BCBUZZ_Side_Project\data-project";
+                        string programFilesDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "BendLens");
+                        if (File.Exists(Path.Combine(programFilesDir, "package.json")))
+                        {
+                            projectDir = programFilesDir;
+                        }
                     }
                 }
 
@@ -57,19 +62,34 @@ namespace BendLensDesktop
                 }
 
                 // 2. Fallback Web Mode (if Electron is not installed):
-                // Ensure desktop shortcut
+                // Requires the installed runtime (package.json + node_modules + production
+                // build) and Node.js on PATH. Never opens a dead localhost tab.
                 EnsureShortcutInBackground(exeDir, projectDir);
 
-                // Smart launch: use production 'start' if build exists, otherwise 'dev'
-                bool hasBuild = Directory.Exists(Path.Combine(projectDir, ".next"));
-                string scriptCmd = hasBuild ? "npm run start" : "npm run dev";
+                bool hasRuntime = File.Exists(Path.Combine(projectDir, "package.json"))
+                    && Directory.Exists(Path.Combine(projectDir, "node_modules"));
+                bool hasBuild = hasRuntime && Directory.Exists(Path.Combine(projectDir, ".next"));
+                bool hasNode = IsCommandAvailable("node");
+
+                if (!hasRuntime || !hasNode || !hasBuild)
+                {
+                    MessageBox.Show(
+                        "BendLens Desktop runtime was not found on this machine.\n\n" +
+                        "To scan local folders as a native app, install the full Desktop App:\n" +
+                        "1. Download BendLens-Setup.exe from the BendLens website\n" +
+                        "2. Run it once (installs the native studio + Desktop shortcut)\n" +
+                        "3. Launch BendLens from your Desktop — no browser needed.",
+                        "BendLens - Desktop Runtime Missing",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
 
                 if (!IsServerRunning(AppUrl))
                 {
                     ProcessStartInfo serverPsi = new ProcessStartInfo
                     {
                         FileName = "cmd.exe",
-                        Arguments = "/c " + scriptCmd,
+                        Arguments = "/c npm run start",
                         WorkingDirectory = projectDir,
                         CreateNoWindow = true,
                         WindowStyle = ProcessWindowStyle.Hidden,
@@ -87,13 +107,50 @@ namespace BendLensDesktop
                     attempts++;
                 }
 
-                // Open default browser
-                Process.Start(new ProcessStartInfo(AppUrl) { UseShellExecute = true });
+                if (IsServerRunning(AppUrl))
+                {
+                    // Engine is live — open it for the user
+                    Process.Start(new ProcessStartInfo(AppUrl) { UseShellExecute = true });
+                }
+                else
+                {
+                    MessageBox.Show(
+                        "The BendLens local engine did not start.\n\n" +
+                        "Please make sure Node.js is installed, then try again. " +
+                        "For a zero-setup experience, install BendLens-Setup.exe from the website.",
+                        "BendLens - Engine Failed to Start",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                try { Process.Start(new ProcessStartInfo(AppUrl) { UseShellExecute = true }); } catch { }
+                MessageBox.Show(
+                    "BendLens could not start.\n\n" + ex.Message,
+                    "BendLens - Startup Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private static bool IsCommandAvailable(string command)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = "/c where " + command,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true
+                };
+                using (Process p = Process.Start(psi))
+                {
+                    p.WaitForExit(3000);
+                    return p.ExitCode == 0;
+                }
+            }
+            catch { return false; }
         }
 
         private static bool IsServerRunning(string url)

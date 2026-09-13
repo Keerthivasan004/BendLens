@@ -8,9 +8,15 @@ console.log('========================================================');
 // Launch Electron Native Window immediately.
 // Electron's main process displays the instant splash screen (<50ms)
 // and handles background server initialization concurrently.
-console.log('[*] Launching BendLens Native Desktop Window...');
-const electronProcess = spawn('npx', ['electron', '.'], {
-  cwd: path.join(__dirname, '..'),
+const fs = require('fs');
+const projectRoot = path.join(__dirname, '..');
+const hasPnpm = fs.existsSync(path.join(projectRoot, 'pnpm-lock.yaml'));
+const runner = hasPnpm ? 'pnpm' : 'npx';
+const runnerArgs = hasPnpm ? ['exec', 'electron', '.'] : ['electron', '.'];
+
+console.log(`[*] Launching BendLens Native Desktop Window via ${runner}...`);
+const electronProcess = spawn(runner, runnerArgs, {
+  cwd: projectRoot,
   shell: true,
   stdio: 'inherit'
 });

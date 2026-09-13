@@ -46,10 +46,10 @@ Double-click **`run.bat`** in the project directory. It will install dependencie
 cd data-project
 
 # 2. Install dependencies (first time only)
-npm install
+pnpm install
 
 # 3. Start BendLens Studio
-npm run dev
+pnpm dev
 ```
 
 Open your browser at:

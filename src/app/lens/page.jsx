@@ -22,6 +22,7 @@ export default function LensDashboard() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [theme, setTheme] = useState('dark');
+  const [isLocalApp, setIsLocalApp] = useState(true);
 
   // Load theme and fetch analysis from server memory cache
   useEffect(() => {
@@ -35,6 +36,13 @@ export default function LensDashboard() {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
+    }
+
+    if (typeof window !== 'undefined') {
+      const isLocal = window.location.hostname === 'localhost' || 
+                      window.location.hostname === '127.0.0.1' || 
+                      window.location.hostname.endsWith('.local');
+      setIsLocalApp(isLocal);
     }
 
     try {
@@ -86,6 +94,12 @@ export default function LensDashboard() {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
+    }
+  };
+
+  const handleDownloadApp = () => {
+    if (typeof window !== 'undefined') {
+      window.location.href = '/api/download-app';
     }
   };
 
@@ -175,25 +189,27 @@ export default function LensDashboard() {
         setCurrentPath={setCurrentPath}
         theme={theme}
         onToggleTheme={toggleTheme}
+        isLocalApp={isLocalApp}
+        onDownloadApp={handleDownloadApp}
       />
 
       {/* Breadcrumb & Navigation Strip */}
-      <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 pt-3.5 flex items-center justify-between">
+      <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 pt-4 flex items-center justify-between gap-3">
         <button
           onClick={() => {
             if (typeof window !== 'undefined') window.location.href = '/';
             else router.push('/');
           }}
-          className="btn-secondary text-xs py-1.5 px-3 group cursor-pointer"
+          className="btn-secondary text-xs py-2 px-3.5 group"
         >
-          <ArrowLeft className="h-3.5 w-3.5 mr-1.5 transition-transform group-hover:-translate-x-0.5" />
-          <span>Ingestion Portal / New Scan</span>
+          <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+          <span>Ingestion Portal · New Scan</span>
         </button>
 
         {analysisData && (
-          <div className="flex items-center gap-2 text-xs text-muted">
-            <span>Repository:</span>
-            <span className="px-2 py-0.5 rounded-md bg-surface-raised border border-border text-foreground font-mono font-semibold">
+          <div className="hidden sm:flex items-center gap-2 text-xs text-muted">
+            <span className="section-label !text-[10px]">Repository</span>
+            <span className="chip !font-mono">
               {analysisData.projectName}
             </span>
           </div>
@@ -288,7 +304,7 @@ export default function LensDashboard() {
 
         {/* Role-Specific View Switcher */}
         {analysisData ? (
-          <div className="flex-1">
+          <div className="flex-1 cv-auto">
             {currentRole === 'DEVELOPER' && (
               <DeveloperView
                 data={analysisData.personas?.developer}
@@ -319,9 +335,12 @@ export default function LensDashboard() {
             )}
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-16 text-center text-muted">
-            <div className="h-10 w-10 border-2 border-brand border-t-transparent rounded-full animate-spin mb-4" />
-            <p className="text-sm font-bold text-foreground">Loading BendLens Studio...</p>
+          <div className="flex-1 flex flex-col items-center justify-center p-16 text-center">
+            <div className="h-11 w-11 rounded-2xl bg-surface border border-border shadow-card flex items-center justify-center mb-4">
+              <div className="h-5 w-5 border-2 border-brand border-t-transparent rounded-full animate-spin" />
+            </div>
+            <p className="text-sm font-bold text-foreground tracking-tight">Loading BendLens Studio…</p>
+            <p className="text-xs text-muted mt-1">Restoring architecture model from local engine</p>
           </div>
         )}
       </div>

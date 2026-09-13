@@ -30,3 +30,11 @@ Mermaid.js parses diagram syntax strictly. Violating syntax crashes client-side 
   ```javascript
   const cleanPath = (rawPath || '').toString().trim().replace(/^["'`]+|["'`]+$/g, '').trim();
   ```
+
+## 4. Enterprise Design System (UI-only changes)
+- **Tokens first**: change look via `src/app/globals.css` vars and `tailwind.config.js` — never hardcode hex in components. Use `bg-background/surface/surface-raised/surface-card/surface-subtle`, `border` / `border-subtle`, `text-foreground/muted`, `bg-brand` / `text-brand` / `border-brand`.
+- **Buttons**: use `.btn-primary` (bright indigo gradient, white text, glow hover — never flat `bg-brand` for buttons), `.btn-secondary` (secondary actions), `.btn-ghost` (quiet), `.btn-danger` (destructive). Do not invent new button classes.
+- **Translucency**: never use opacity modifiers on `var()` colors (`bg-surface/80`, `hover:bg-surface-raised/40`, `border-border/40`) — they compile to invalid CSS and are silently dropped. Use `.chrome-bar` / `.overlay-card` or solid tokens.
+- **Hierarchy**: one gradient headline per page, `.section-label` for micro-labels, `.chip` for status pills, `.glass-card`/`.glass-panel`/`.ingestion-shell` for elevations, `.canvas-viewport` + `.canvas-grid` for diagram surfaces.
+- **Motion**: entrance via `.animate-rise` + `.stagger-1..4`; keep `animate-fadeIn` for inline updates. Scrolling stays native for wheel/trackpad (`html { scroll-behavior: auto }`); smooth applies only to keyboard/anchor jumps via `html:focus-within` (never hijack the wheel — canvas uses Ctrl+wheel to zoom). Stable gutter, 88px anchor margin under sticky headers. Heavy below-fold blocks use `.cv-auto` (content-visibility) to keep scroll repaints cheap. `overflow-x: clip` (not hidden) so the document stays the scroller. If live behavior ever stops matching the code, restart the dev server first (a wedged Turbopack/HMR state serves stale bundles). Respect `prefers-reduced-motion` (already global).
+- **Functionality freeze**: UI passes must not rename props, state, handlers, route contracts, or Mermaid sanitization logic.

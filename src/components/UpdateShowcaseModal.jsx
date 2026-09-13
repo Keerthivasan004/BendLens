@@ -215,7 +215,7 @@ export default function UpdateShowcaseModal({
                       <span className="text-emerald-400">6 Dialects Active</span>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-muted/80">{'>'} Parsing PostgreSQL, MySQL & MongoDB schemas...</p>
+                      <p className="text-muted">{'>'} Parsing PostgreSQL, MySQL & MongoDB schemas...</p>
                       <p className="text-sky-400">{'>'} Synthesizing schema graph AST nodes: 18 tables, 42 relations</p>
                     </div>
                   </div>

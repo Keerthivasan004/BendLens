@@ -53,7 +53,7 @@ export default function BusinessView({ data }) {
 
       {/* Executive Brief - Clean Editorial Callout (No Heavy Border Box) */}
       <div className="p-4 rounded-xl bg-surface border border-border border-l-4 border-l-emerald-500 relative">
-        <div className="flex items-center justify-between pb-2 mb-2 border-b border-border/50">
+        <div className="flex items-center justify-between pb-2 mb-2 border-b border-border-subtle">
           <div className="flex items-center gap-2">
             <Award className="h-4 w-4 text-emerald-500" />
             <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
@@ -87,11 +87,11 @@ export default function BusinessView({ data }) {
           </span>
         </div>
 
-        <div className="divide-y divide-border/60">
+        <div className="divide-y divide-border-subtle">
           {capabilities.map((cap, idx) => (
             <div 
               key={idx} 
-              className="py-3 px-1 hover:bg-surface-raised/40 transition-colors flex flex-col justify-between gap-1.5"
+              className="py-3 px-1 hover:bg-surface-raised transition-colors flex flex-col justify-between gap-1.5"
             >
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -132,9 +132,9 @@ export default function BusinessView({ data }) {
           <span className="text-[11px] font-semibold text-muted">{customerJourneys.length} Mapped Workflows</span>
         </div>
 
-        <div className="divide-y divide-border/60">
+        <div className="divide-y divide-border-subtle">
           {customerJourneys.map((journey, idx) => (
-            <div key={idx} className="py-3 px-1 hover:bg-surface-raised/40 transition-colors">
+            <div key={idx} className="py-3 px-1 hover:bg-surface-raised transition-colors">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold text-foreground">{journey.journeyName}</span>
                 <span className="text-[10px] font-semibold px-2 py-0.2 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">

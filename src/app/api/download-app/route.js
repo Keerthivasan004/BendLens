@@ -8,6 +8,32 @@ export const dynamic = 'force-dynamic';
 export async function GET(request) {
   try {
     const projectRoot = process.cwd();
+    const distDir = path.join(projectRoot, 'dist');
+
+    // 0. Prefer a real packaged installer (produced by `npm run dist`):
+    //    NSIS setup first, then portable exe. This is the true native app —
+    //    embedded server, no browser or localhost tab required.
+    if (fs.existsSync(distDir)) {
+      const distFiles = fs.readdirSync(distDir).filter((f) => f.toLowerCase().endsWith('.exe'));
+      const installerPick =
+        distFiles.find((f) => /setup/i.test(f)) ||
+        distFiles.find((f) => /portable/i.test(f)) ||
+        distFiles.find((f) => /^bendlens.*\.exe$/i.test(f));
+      if (installerPick) {
+        const installerPath = path.join(distDir, installerPick);
+        const fileBuffer = fs.readFileSync(installerPath);
+        return new NextResponse(fileBuffer, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/vnd.microsoft.portable-executable',
+            'Content-Disposition': `attachment; filename="${installerPick}"`,
+            'Content-Length': fileBuffer.length.toString(),
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
+          }
+        });
+      }
+    }
+
     const exePath = path.join(projectRoot, 'public', 'downloads', 'BendLens.exe');
     const rootExePath = path.join(projectRoot, 'BendLens.exe');
 

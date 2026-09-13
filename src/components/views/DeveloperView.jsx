@@ -227,7 +227,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
       {/* WHOLE SECTION: Database Schemas & Developer Architecture                   */}
       {/* ========================================================================= */}
       {!showExplanation ? (
-        <section className="p-8 sm:p-14 rounded-2xl border border-border bg-surface-card shadow-card text-center space-y-4 animate-fadeIn">
+        <section className="p-8 sm:p-12 rounded-2xl border border-border bg-surface-card shadow-card text-center space-y-4 animate-fadeIn">
           <div className="h-14 w-14 rounded-2xl bg-brand/15 border border-brand/30 flex items-center justify-center text-brand mx-auto shadow-sm">
             <Sparkles className="h-7 w-7" />
           </div>
@@ -242,7 +242,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
           <div className="pt-2 flex items-center justify-center gap-3">
             <button
               onClick={() => setShowExplanation(true)}
-              className="flex items-center gap-2.5 px-6 py-3 rounded-xl text-xs font-bold bg-brand text-brand-foreground shadow-md hover:shadow-brand/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+              className="flex items-center gap-2.5 px-6 py-3 rounded-xl text-xs font-bold btn-primary"
             >
               <Sparkles className="h-4 w-4" />
               <span>Explain Schema Architecture</span>
@@ -271,7 +271,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
                 {/* The Dedicated Explain Button */}
                 <button
                   onClick={() => setShowExplanation(false)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm bg-brand text-brand-foreground ring-2 ring-brand/40 shadow-brand/20"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold btn-primary"
                   title="Hide Explanation and return to summary"
                 >
                   <Sparkles className="h-4 w-4" />
@@ -312,7 +312,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
                 placeholder="Search tables or attributes..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 pr-3 py-1.5 text-xs rounded-lg bg-surface-raised border border-border text-foreground outline-none focus:border-brand placeholder:text-muted/60 w-44 sm:w-52"
+                className="pl-8 pr-3 py-1.5 text-xs rounded-lg bg-surface-raised border border-border text-foreground outline-none focus:border-brand placeholder:text-muted w-44 sm:w-52"
               />
               {searchQuery && (
                 <button
@@ -330,7 +330,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
         {/* EXPLANATION PANEL: Only shown if Explain button is clicked                */}
         {/* ========================================================================= */}
         {showExplanation && (
-          <div className="p-5 sm:p-6 border-b border-brand/25 bg-surface-raised/40 space-y-4 animate-fadeIn">
+          <div className="p-5 sm:p-6 border-b border-brand/25 bg-surface-raised space-y-4 animate-fadeIn">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <div className="h-8 w-8 rounded-lg bg-brand/15 border border-brand/30 flex items-center justify-center text-brand shrink-0">
@@ -446,7 +446,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
                 </div>
                 <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
                   {architecture.relations.map((rel, idx) => (
-                    <div key={idx} className="flex items-center justify-between text-[11px] font-mono p-1.5 rounded bg-surface border border-border/70">
+                    <div key={idx} className="flex items-center justify-between text-[11px] font-mono p-1.5 rounded bg-surface border border-border">
                       <div className="flex items-center gap-1.5 text-foreground">
                         <span className="font-semibold text-brand">{rel.from}</span>
                         <span className="text-muted">.{rel.fromCol}</span>
@@ -518,7 +518,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
         {/* TABLE SELECTOR NAVIGATION: Clear Table Pills & Total Counter              */}
         {/* ========================================================================= */}
         {tables.length > 1 && (
-          <div className="px-4 sm:px-5 py-3 border-b border-border bg-surface-subtle/50 flex items-center gap-2 overflow-x-auto select-none">
+          <div className="px-4 sm:px-5 py-3 border-b border-border bg-surface-subtle flex items-center gap-2 overflow-x-auto select-none">
             <span className="text-[11px] font-bold text-muted uppercase tracking-wider shrink-0 flex items-center gap-1 mr-1">
               <Database className="h-3 w-3 text-brand" />
               <span>Select Table:</span>
@@ -528,7 +528,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
               onClick={() => setSelectedTableFilter('ALL')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
                 selectedTableFilter === 'ALL'
-                  ? 'bg-brand text-brand-foreground shadow-xs font-bold'
+                  ? 'btn-primary font-bold'
                   : 'bg-surface hover:bg-surface-raised text-muted hover:text-foreground border border-border'
               }`}
             >
@@ -633,7 +633,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse text-xs font-mono">
                       <thead>
-                        <tr className="border-b border-border bg-surface-subtle/70 text-[10px] uppercase text-muted tracking-wider select-none">
+                        <tr className="border-b border-border bg-surface-subtle text-[10px] uppercase text-muted tracking-wider select-none">
                           <th className="py-2.5 px-3 w-10 text-center font-bold">#</th>
                           <th className="py-2.5 px-4 font-bold text-foreground">Attribute / Field Name</th>
                           <th className="py-2.5 px-4 font-bold text-foreground">Data Type</th>
@@ -643,16 +643,16 @@ export default function DeveloperView({ data, onSelectForImpact }) {
                           <th className="py-2.5 px-4 font-bold text-right text-foreground">Blast Simulation</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-border/40">
+                      <tbody className="divide-y divide-border-subtle">
                         {table.columns?.map((col, cIdx) => {
                           const fk = table.foreignKeys?.find((f) => f.column === col.name);
                           return (
                             <tr 
                               key={col.name} 
-                              className="hover:bg-surface-raised/50 transition-colors group"
+                              className="hover:bg-surface-raised transition-colors group"
                             >
                               {/* Row Index */}
-                              <td className="py-2.5 px-3 text-center text-muted/60 text-[11px] font-mono">
+                              <td className="py-2.5 px-3 text-center text-muted text-[11px] font-mono">
                                 {cIdx + 1}
                               </td>
 
@@ -685,7 +685,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
 
                               {/* Data Type */}
                               <td className="py-2.5 px-4">
-                                <span className="inline-block px-2 py-0.5 rounded bg-surface-raised text-foreground font-mono text-[11px] border border-border/80">
+                                <span className="inline-block px-2 py-0.5 rounded bg-surface-raised text-foreground font-mono text-[11px] border border-border">
                                   {col.type}
                                 </span>
                               </td>
@@ -707,7 +707,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
                                     PRIMARY KEY
                                   </span>
                                 ) : (
-                                  <span className="text-muted/40">NULLABLE</span>
+                                  <span className="text-muted">NULLABLE</span>
                                 )}
                               </td>
 
@@ -761,7 +761,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
           })}
 
           {filteredTables.length === 0 && (
-            <div className="text-center py-14 px-4 rounded-xl border border-dashed border-border bg-surface-raised/20">
+            <div className="text-center py-14 px-4 rounded-xl border border-dashed border-border bg-surface-raised">
               <Database className="h-8 w-8 text-muted mx-auto mb-2 opacity-60" />
               <p className="text-xs font-semibold text-foreground">No matching database tables found</p>
               <p className="text-[11px] text-muted mt-1">
@@ -818,7 +818,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
           </div>
         </div>
 
-        <div className="divide-y divide-border/50 max-h-[500px] overflow-y-auto pr-1">
+        <div className="divide-y divide-border-subtle max-h-[500px] overflow-y-auto pr-1">
           {filteredEndpoints.map((ep, idx) => {
             const isGet = ep.method === 'GET';
             const isPost = ep.method === 'POST';
@@ -835,7 +835,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
             return (
               <div
                 key={idx}
-                className="py-3 px-2 flex items-center justify-between hover:bg-surface-raised/40 transition-colors rounded-lg"
+                className="py-3 px-2 flex items-center justify-between hover:bg-surface-raised transition-colors rounded-lg"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <span className={`text-[10px] font-semibold px-2.5 py-1 rounded border font-mono shrink-0 ${badgeColor}`}>
@@ -945,7 +945,7 @@ export default function DeveloperView({ data, onSelectForImpact }) {
                 </thead>
                 <tbody>
                   {(previewTable.sampleRows || []).map((row, rIdx) => (
-                    <tr key={rIdx} className="border-b border-border hover:bg-surface-raised/40">
+                    <tr key={rIdx} className="border-b border-border hover:bg-surface-raised">
                       {(previewTable.columns || []).map((col) => {
                         const cellVal = row[col.name] !== undefined && row[col.name] !== null
                           ? String(row[col.name])

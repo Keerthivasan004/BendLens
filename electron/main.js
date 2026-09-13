@@ -1,13 +1,18 @@
-const { app, BrowserWindow, shell, Notification } = require('electron');
+const { app, BrowserWindow, shell, Notification, dialog } = require('electron');
 const path = require('path');
 const http = require('http');
+const net = require('net');
 const { spawn, exec } = require('child_process');
 const fs = require('fs');
 
 let mainWindow = null;
 let serverProcess = null;
-const PORT = 3000;
-const APP_URL = `http://127.0.0.1:${PORT}`;
+let activePort = 3000;
+const HOST = '127.0.0.1';
+const PORT_CANDIDATES = [3000, 3001, 3030, 8000, 5000];
+const appUrl = () => `http://${HOST}:${activePort}`;
+
+app.setAppUserModelId('com.bendlens.studio');
 
 // Enforce single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -62,92 +67,182 @@ function createWindow() {
   });
 }
 
-function checkServerReady(callback) {
-  const req = http.get(APP_URL, (res) => {
-    if (res.statusCode >= 200 && res.statusCode < 400) {
-      callback(true);
-    } else {
-      callback(false);
-    }
-  });
+/**
+ * Resolve the directory that hosts the Next.js engine.
+ * Packaged app  -> <resources>/app (asar disabled for reliable fs/cwd behavior).
+ * Dev workspace -> repository root (parent of electron/).
+ */
+function resolveAppDir() {
+  if (app.isPackaged) {
+    const resApp = path.join(process.resourcesPath, 'app');
+    if (fs.existsSync(path.join(resApp, 'package.json'))) return resApp;
+    const asarApp = path.join(process.resourcesPath, 'app.asar');
+    if (fs.existsSync(asarApp)) return asarApp;
+    return resApp;
+  }
+  return path.join(__dirname, '..');
+}
 
-  req.on('error', () => {
-    callback(false);
+/**
+ * Identity probe: is the server on this port actually BendLens?
+ * Prevents attaching to an unrelated service squatting on port 3000.
+ */
+function isBendLensServer(port, callback) {
+  const req = http.get({ host: HOST, port, path: '/api/updates/check', timeout: 800 }, (res) => {
+    let data = '';
+    res.on('data', (c) => {
+      data += c;
+      if (data.length > 65536) req.destroy();
+    });
+    res.on('end', () => {
+      try {
+        const info = JSON.parse(data);
+        callback(info && info.success === true && typeof info.currentVersion === 'string');
+      } catch {
+        callback(false);
+      }
+    });
   });
-
-  req.setTimeout(600, () => {
+  req.on('error', () => callback(false));
+  req.on('timeout', () => {
     req.destroy();
     callback(false);
   });
 }
 
-function startBackendServer(projectDir) {
-  if (serverProcess) return;
+function isPortFree(port, callback) {
+  const socket = net.connect(port, HOST);
+  let done = false;
+  const finish = (free) => {
+    if (!done) {
+      done = true;
+      socket.destroy();
+      callback(free);
+    }
+  };
+  socket.on('connect', () => finish(false));
+  socket.on('error', () => finish(true));
+  socket.setTimeout(500, () => finish(true));
+}
 
-  const isWin = process.platform === 'win32';
-  const npmCmd = isWin ? 'npm.cmd' : 'npm';
-  
-  // Smart detection: Use ultra-fast production mode ('next start') if build exists
-  const nextBuildPath = path.join(projectDir, '.next');
-  const hasBuild = fs.existsSync(nextBuildPath);
-  const startScript = hasBuild ? 'start' : 'dev';
-
-  console.log(`[*] Spawning BendLens local engine (${hasBuild ? 'PRODUCTION fast-mode' : 'DEV mode'})...`);
-
-  serverProcess = spawn(npmCmd, ['run', startScript], {
-    cwd: projectDir,
-    shell: true,
-    stdio: 'pipe',
-    env: { ...process.env, PORT: String(PORT) }
+/**
+ * Pick a port: reuse a live BendLens server, else first free candidate.
+ * done(port, shouldSpawn)
+ */
+function resolvePort(done, idx = 0) {
+  if (idx >= PORT_CANDIDATES.length) {
+    done(3000, true);
+    return;
+  }
+  const port = PORT_CANDIDATES[idx];
+  isBendLensServer(port, (isOurs) => {
+    if (isOurs) {
+      console.log(`[*] Reusing live BendLens engine on port ${port}.`);
+      done(port, false);
+      return;
+    }
+    isPortFree(port, (free) => {
+      if (free) done(port, true);
+      else resolvePort(done, idx + 1);
+    });
   });
+}
 
-  serverProcess.stdout.on('data', (data) => {
+/**
+ * Start the embedded Next.js engine. Returns true when a spawn was attempted.
+ * Packaged mode uses Electron's own Node runtime + bundled Next — no npm needed.
+ */
+function startBackendServer(projectDir, port) {
+  if (serverProcess) return true;
+
+  if (app.isPackaged) {
+    const nextBin = path.join(projectDir, 'node_modules', 'next', 'dist', 'bin', 'next');
+    if (!fs.existsSync(nextBin)) {
+      console.error('[!] Packaged engine missing bundled Next.js:', nextBin);
+      dialog.showErrorBox(
+        'BendLens Engine Missing',
+        'The embedded BendLens engine could not be found in this installation.\n\nPlease reinstall BendLens from the official installer.'
+      );
+      return false;
+    }
+    console.log(`[*] Spawning embedded BendLens engine (production) on port ${port}...`);
+    serverProcess = spawn(process.execPath, [nextBin, 'start', '-p', String(port), '-H', HOST], {
+      cwd: projectDir,
+      windowsHide: true,
+      env: { ...process.env, NODE_ENV: 'production', PORT: String(port), HOSTNAME: HOST }
+    });
+  } else {
+    const isWin = process.platform === 'win32';
+    const hasPnpm = fs.existsSync(path.join(projectDir, 'pnpm-lock.yaml'));
+    const pmCmd = hasPnpm ? (isWin ? 'pnpm.cmd' : 'pnpm') : (isWin ? 'npm.cmd' : 'npm');
+
+    const hasBuild = fs.existsSync(path.join(projectDir, '.next'));
+    const startScript = hasBuild ? 'start' : 'dev';
+    console.log(`[*] Spawning BendLens local engine via ${hasPnpm ? 'pnpm' : 'npm'} (${hasBuild ? 'PRODUCTION fast-mode' : 'DEV mode'}) on port ${port}...`);
+
+    serverProcess = spawn(pmCmd, ['run', startScript], {
+      cwd: projectDir,
+      shell: true,
+      stdio: 'pipe',
+      env: { ...process.env, PORT: String(port) }
+    });
+  }
+
+  serverProcess.stdout?.on('data', (data) => {
     const text = data.toString();
     if (text.includes('Ready in') || text.includes('ready started') || text.includes('compiled client and server')) {
       console.log('[*] Engine ready signal received.');
     }
   });
-
+  serverProcess.stderr?.on('data', (data) => {
+    console.error('[engine]', data.toString().trim());
+  });
   serverProcess.on('error', (err) => {
     console.error('[!] Failed to spawn BendLens engine:', err);
+    serverProcess = null;
   });
+  serverProcess.on('exit', (code) => {
+    console.log(`[*] Engine process exited (code ${code}).`);
+    serverProcess = null;
+  });
+  return true;
 }
 
 function initBackendAndConnect() {
-  const projectDir = path.join(__dirname, '..');
+  const projectDir = resolveAppDir();
 
-  // Check if server is already running
-  checkServerReady((isAlive) => {
-    if (isAlive) {
-      // Server is already live - immediate transition!
+  resolvePort((port, shouldSpawn) => {
+    activePort = port;
+    if (!shouldSpawn) {
       loadStudio();
-    } else {
-      // Start backend engine
-      startBackendServer(projectDir);
-
-      // Fast-poll readiness at 120ms intervals
-      let attempts = 0;
-      const pollInterval = setInterval(() => {
-        attempts++;
-        checkServerReady((ready) => {
-          if (ready) {
-            clearInterval(pollInterval);
-            loadStudio();
-          } else if (attempts > 120) { // ~15s timeout
-            clearInterval(pollInterval);
-            if (mainWindow) {
-              mainWindow.loadURL(APP_URL).catch(() => {});
-            }
-          }
-        });
-      }, 120);
+      return;
     }
+    if (!startBackendServer(projectDir, port)) return;
+
+    // Poll BendLens identity (not just TCP) before leaving the splash screen
+    let attempts = 0;
+    const pollInterval = setInterval(() => {
+      attempts++;
+      isBendLensServer(activePort, (ready) => {
+        if (ready) {
+          clearInterval(pollInterval);
+          loadStudio();
+        } else if (attempts > 130) { // ~20s timeout
+          clearInterval(pollInterval);
+          console.error('[!] Engine did not become ready in time.');
+          dialog.showErrorBox(
+            'BendLens Engine Failed to Start',
+            'The local BendLens engine did not respond in time.\n\nPlease restart the application. If the problem persists, reinstall BendLens.'
+          );
+        }
+      });
+    }, 150);
   });
 }
 
 function loadStudio() {
   if (!mainWindow) return;
-  mainWindow.loadURL(APP_URL).then(() => {
+  mainWindow.loadURL(appUrl()).then(() => {
     checkForDesktopUpdates();
   }).catch((err) => {
     console.error('[!] Error loading studio URL:', err);
@@ -173,7 +268,7 @@ function cleanupServer() {
 // Background Auto-Update Check
 function checkForDesktopUpdates() {
   http
-    .get(`${APP_URL}/api/updates/check`, (res) => {
+    .get(`${appUrl()}/api/updates/check`, (res) => {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {

@@ -32,6 +32,7 @@ export default function DiagramCanvas({
 
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
+  const viewportRef = useRef(null);
   const renderReqId = useRef(0);
   const isRenderingRef = useRef(false);
   const queuedRenderRef = useRef(false);
@@ -117,7 +118,7 @@ export default function DiagramCanvas({
           securityLevel: 'loose',
           themeVariables: isDark ? {
             darkMode: true,
-            background: '#000000',
+            background: '#0b1120',
             primaryColor: '#12172a',
             primaryTextColor: '#f8fafc',
             primaryBorderColor: '#60a5fa',
@@ -132,7 +133,7 @@ export default function DiagramCanvas({
             actorTextColor: '#ffffff',
             signalColor: '#93c5fd',
             signalTextColor: '#ffffff',
-            clusterBkg: '#070a12',
+            clusterBkg: '#0a0f1e',
             clusterBorder: '#3b82f6',
             titleColor: '#93c5fd',
             fontSize: '13px',
@@ -329,14 +330,23 @@ export default function DiagramCanvas({
     setIsDragging(false);
   };
 
-  const handleWheel = (e) => {
-    e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-    setZoom((prevZoom) => {
-      const newZoom = prevZoom * zoomFactor;
-      return Math.min(Math.max(newZoom, 0.1), 4.0);
-    });
-  };
+  // Wheel behavior (Figma convention): plain wheel scrolls the page,
+  // Ctrl/Cmd + wheel zooms the canvas. Native non-passive listener so
+  // preventDefault works without console warnings.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheelNative = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+        setZoom((prevZoom) => Math.min(Math.max(prevZoom * zoomFactor, 0.1), 4.0));
+      }
+      // otherwise: let the event propagate so the page scrolls naturally
+    };
+    el.addEventListener('wheel', onWheelNative, { passive: false });
+    return () => el.removeEventListener('wheel', onWheelNative);
+  }, []);
 
   const handleZoomIn = () => setZoom((z) => Math.min(z + 0.15, 4.0));
   const handleZoomOut = () => setZoom((z) => Math.max(z - 0.15, 0.1));
@@ -377,14 +387,14 @@ export default function DiagramCanvas({
   return (
     <div
       ref={wrapperRef}
-      className={`overflow-hidden flex flex-col border border-border transition-all bg-surface-card ${
-        isFullscreen ? 'fixed inset-0 z-50 rounded-none w-screen h-screen' : 'h-[600px] rounded-xl shadow-card'
+      className={`overflow-hidden flex flex-col border border-border transition-all bg-surface-card shadow-card ${
+        isFullscreen ? 'fixed inset-0 z-50 rounded-none w-screen h-screen' : 'h-[600px] rounded-2xl'
       }`}
     >
       {/* Top Floating Controls Header */}
-      <div className="bg-surface px-4 py-2.5 border-b border-border flex flex-wrap items-center justify-between gap-2.5 select-none">
+      <div className="chrome-bar px-4 py-2.5 border-b border-border-subtle flex flex-wrap items-center justify-between gap-2.5 select-none">
         {/* Diagram Type Tabs */}
-        <div className="flex items-center gap-1 p-0.5 bg-surface-raised rounded-lg border border-border flex-wrap">
+        <div className="flex items-center gap-1 p-1 bg-surface-raised rounded-xl border border-border-subtle shadow-subtle flex-wrap">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -396,10 +406,10 @@ export default function DiagramCanvas({
                   if (onTabChange) onTabChange(tab.id);
                   handleResetZoom();
                 }}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
                   isActive
-                    ? 'bg-surface-card text-foreground shadow-xs border border-border'
-                    : 'text-muted hover:text-foreground'
+                    ? 'bg-surface text-foreground shadow-card border-border'
+                    : 'text-muted hover:text-foreground border-transparent hover:bg-surface-subtle'
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" />
@@ -451,7 +461,7 @@ export default function DiagramCanvas({
               placeholder="Search nodes or tables..."
               value={filterQuery}
               onChange={(e) => setFilterQuery(e.target.value)}
-              className="pl-7 pr-2.5 py-1 text-xs rounded-md bg-surface border border-border focus:border-brand outline-none text-foreground w-36 sm:w-44 placeholder:text-muted/60"
+              className="pl-7 pr-2.5 py-1 text-xs rounded-md bg-surface border border-border focus:border-brand outline-none text-foreground w-36 sm:w-44 placeholder:text-muted"
             />
           </div>
 
@@ -476,7 +486,7 @@ export default function DiagramCanvas({
             </button>
             <button
               onClick={handleFitToScreen}
-              className="p-1 px-1.5 rounded hover:bg-surface-subtle text-brand hover:text-brand-foreground hover:bg-brand font-semibold transition-colors cursor-pointer ml-0.5 border-l border-border flex items-center gap-1 text-[10px]"
+              className="p-1 px-1.5 rounded hover:bg-brand hover:text-white font-semibold transition-colors cursor-pointer ml-0.5 border-l border-border flex items-center gap-1 text-[10px]"
               title="Fit to Screen (Show Whole Schema)"
             >
               <Maximize2 className="h-3 w-3" />
@@ -527,6 +537,7 @@ export default function DiagramCanvas({
 
       {/* Main Interactive Canvas Area */}
       <div
+        ref={viewportRef}
         className={`flex-1 relative overflow-hidden bg-surface canvas-grid canvas-viewport ${
           isDragging ? 'cursor-grabbing' : 'cursor-grab'
         }`}
@@ -534,12 +545,11 @@ export default function DiagramCanvas({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
       >
         {/* Navigation / Pan Hint Floating Overlay */}
-        <div className="absolute top-3 left-3 z-10 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-card/90 backdrop-blur-sm border border-border text-[10px] text-slate-500 font-medium shadow-sm">
+        <div className="absolute top-3 left-3 z-10 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-lg overlay-card border border-border text-[10px] text-muted font-medium shadow-sm">
           <Move className="h-3 w-3 text-blue-500" />
-          <span>Click & Drag to Pan • Wheel to Zoom • Click "Fit" to see all</span>
+          <span>Drag to pan • Scroll page normally • Ctrl + scroll to zoom</span>
         </div>
 
         {/* Visual Mermaid Canvas */}
@@ -586,7 +596,7 @@ export default function DiagramCanvas({
       </div>
 
       {/* Footer Info Strip */}
-      <div className="bg-surface px-4 py-2 border-t border-border flex items-center justify-between text-[11px] text-muted">
+      <div className="chrome-bar px-4 py-2 border-t border-border-subtle flex items-center justify-between text-[11px] text-muted">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-foreground">{currentDiagram?.title || 'System Diagram'}</span>
           {filterQuery && (
