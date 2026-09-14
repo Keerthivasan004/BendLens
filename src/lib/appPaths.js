@@ -35,7 +35,15 @@ function getAppRoot() {
   // process.resourcesPath exists only inside Electron; guard for plain Node.
   if (process.resourcesPath) {
     candidates.push(path.join(process.resourcesPath, 'app'));
+    candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked'));
     candidates.push(process.resourcesPath);
+  }
+
+  // Extracted app directory (when electron-builder creates app.asar despite asar:false)
+  // On Windows: %APPDATA%/BendLens/extracted-app, on Linux/Mac: ~/.config/BendLens/extracted-app
+  const userData = process.env.APPDATA || (process.env.HOME ? path.join(process.env.HOME, '.config') : '');
+  if (userData) {
+    candidates.push(path.join(userData, 'BendLens', 'extracted-app'));
   }
 
   candidates.push(process.cwd());

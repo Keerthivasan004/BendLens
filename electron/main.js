@@ -93,13 +93,45 @@ function resolveWindowIcon() {
  * Resolve the directory that hosts the Next.js engine.
  * Packaged app  -> <resources>/app (asar disabled for reliable fs/cwd behavior).
  * Dev workspace -> repository root (parent of electron/).
+ * Handles the case where electron-builder creates app.asar despite asar:false config.
  */
 function resolveAppDir() {
   if (app.isPackaged) {
+    // 1. First priority: unpacked app directory (expected when asar: false)
     const resApp = path.join(process.resourcesPath, 'app');
     if (fs.existsSync(path.join(resApp, 'package.json'))) return resApp;
+
+    // 2. Second priority: app.asar.unpacked directory (created by electron-builder for asarUnpack)
+    const asarUnpacked = path.join(process.resourcesPath, 'app.asar.unpacked');
+    if (fs.existsSync(path.join(asarUnpacked, 'package.json'))) return asarUnpacked;
+
+    // 3. Third priority: if only app.asar exists, we need to extract it to a temp location
+    //    because fs operations don't work directly on asar files
     const asarApp = path.join(process.resourcesPath, 'app.asar');
-    if (fs.existsSync(asarApp)) return asarApp;
+    if (fs.existsSync(asarApp)) {
+      // Extract asar to a temporary directory for runtime access
+      const tempAppDir = path.join(app.getPath('userData'), 'extracted-app');
+      if (!fs.existsSync(path.join(tempAppDir, 'package.json'))) {
+        try {
+          const { execSync } = require('child_process');
+          const asar = require('asar');
+          if (fs.existsSync(tempAppDir)) {
+            fs.rmSync(tempAppDir, { recursive: true, force: true });
+          }
+          fs.mkdirSync(tempAppDir, { recursive: true });
+          asar.extractAll(asarApp, tempAppDir);
+          console.log('[*] Extracted app.asar to:', tempAppDir);
+        } catch (err) {
+          console.error('[!] Failed to extract app.asar:', err.message);
+        }
+      }
+      if (fs.existsSync(path.join(tempAppDir, 'package.json'))) {
+        return tempAppDir;
+      }
+      // Fallback: return asar path anyway (will cause errors but lets caller handle it)
+      return asarApp;
+    }
+
     return resApp;
   }
   return path.join(__dirname, '..');
