@@ -14,6 +14,8 @@ BendLens ships as a true native Windows application: double-click → splash →
   - Displays native animated CSS pulsating logo and status text while the backend server initializes.
 - **Backend Server Coordination**:
   - `resolveAppDir()`: packaged app → `<resources>/app` (asar disabled); dev workspace → repo root.
+  - `process.env.BENDLENS_APP_DIR` + `process.chdir(projectDir)` are set in `startBackendServer()` before boot, so every `process.cwd()`-based lookup in API routes resolves to the real engine dir on downloaded installs. Without this the window opens but all functionalities fail with "Directory not found".
+  - `src/lib/appPaths.js` (`getAppRoot()` / `getSampleProjectPath()`): centralized packaged-aware resolution — `BENDLENS_APP_DIR` → `<resources>/app` (when it holds `package.json`) → `process.cwd()`; sample path probes app-root, resource mirrors, then cwd. All of `analyze`/`sample`/`current`/`impact` fallbacks, `releaseInfo`, `download-app`, and `updates/apply` use it instead of bare `process.cwd()`.
   - `resolveWindowIcon()`: probes `resources/public`, `resources/app/public`, `app.asar.unpacked/public`, then dev `public/` — first existing `icon.ico` (win) / `icon.png` wins; `undefined` fallback is safe. Window + update-notification icons both use it (never a bare `__dirname` path that breaks inside asar).
   - `resolvePort()`: reuses a live BendLens server (verified by identity probe) or picks the first free port from `[3000, 3001, 3030, 8000, 5000]`.
   - `isBendLensServer()`: probes `/api/updates/check` for `{ success: true, currentVersion: string }` — never attaches to a foreign service on port 3000.

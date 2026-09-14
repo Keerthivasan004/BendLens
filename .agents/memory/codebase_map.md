@@ -16,6 +16,7 @@ This document maps all directories, modules, and significant files across BendLe
 
 ## `src/lib/` (Core Analytical Engines)
 - **`analyzer.js`**: `ProjectAnalyzer` coordinator class. Orchestrates folder scanning, parsing, graph creation, and diagram generation.
+- **`appPaths.js`**: Packaged-aware root resolution (`getAppRoot()` via `BENDLENS_APP_DIR` → `<resources>/app` → `process.cwd()`; `getSampleProjectPath()` with resource-mirror probes). Used by all `process.cwd()`-dependent API routes so downloaded Electron installs resolve `sample_project`/`package.json` correctly.
 - **`serverCache.js`**: In-memory server-side storage for the latest analysis payload, bypassing browser storage limitations.
 - **`parsers/`**:
   - `schemaParser.js`: SQL DDL parser (Postgres, MySQL, MariaDB, SQLite, SQL Server, Oracle), SQLite binary files, Prisma, Mongoose, TypeORM, SQLAlchemy, Django ORM, and sample data value extraction.
@@ -67,7 +68,7 @@ This document maps all directories, modules, and significant files across BendLe
 ---
 
 ## `electron/` & `scripts/` (Desktop & Tooling)
-- **`electron/main.js`**: Packaged-aware Electron main process — single instance lock, instant splash, `resolveAppDir()` (resources/app vs repo root), `resolvePort()` with BendLens identity probe (`/api/updates/check`), embedded production server via Electron's Node in packaged mode (no npm needed), native error dialogs instead of dead URLs.
+- **`electron/main.js`**: Packaged-aware Electron main process — single instance lock, instant splash, `resolveAppDir()` (resources/app vs repo root), sets `BENDLENS_APP_DIR` + `chdir(projectDir)` before engine boot, `resolvePort()` with BendLens identity probe (`/api/updates/check`), embedded production server via Electron's Node in packaged mode (no npm needed), native error dialogs instead of dead URLs.
 - **`electron/splash.html`**: Ultra-fast (<50ms) CSS animated splash screen.
 - **`scripts/BendLensLauncher.cs` → `BendLens.exe`**: Native launcher; resolves installed runtime (portable → LocalAppData → Program Files, no dev-path fallback); Electron fast path or verified `npm run start` + browser-on-success; `MessageBox` guidance on failure.
 - **`scripts/launch-desktop.js`**: Starts Electron desktop app natively.

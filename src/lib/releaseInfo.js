@@ -1,6 +1,21 @@
 import path from 'path';
 import fs from 'fs';
 
+function resolveRoot(projectRoot) {
+  if (projectRoot) return projectRoot;
+  if (typeof process !== 'undefined' && process.env && process.env.BENDLENS_APP_DIR) {
+    return process.env.BENDLENS_APP_DIR;
+  }
+  // Electron packaged fallback: resources/app holds package.json + dist metadata.
+  try {
+    if (typeof process !== 'undefined' && process.resourcesPath) {
+      const resApp = path.join(process.resourcesPath, 'app');
+      if (fs.existsSync(path.join(resApp, 'package.json'))) return resApp;
+    }
+  } catch {}
+  return process.cwd();
+}
+
 /**
  * Single source of truth for BendLens release/update detection.
  *
@@ -40,7 +55,7 @@ export function maxVersion(a, b) {
 
 export function getLocalVersion(projectRoot) {
   try {
-    const root = projectRoot || process.cwd();
+    const root = resolveRoot(projectRoot);
     const pkgPath = path.join(root, 'package.json');
     if (fs.existsSync(pkgPath)) {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
@@ -54,7 +69,7 @@ export function getLocalVersion(projectRoot) {
 
 export function setLocalVersion(projectRoot, version) {
   try {
-    const root = projectRoot || process.cwd();
+    const root = resolveRoot(projectRoot);
     const pkgPath = path.join(root, 'package.json');
     if (fs.existsSync(pkgPath)) {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
@@ -76,7 +91,7 @@ export function setLocalVersion(projectRoot, version) {
  * filename carrying the newest version, or null when baseline wins.
  */
 export function getLatestRelease(projectRoot) {
-  const root = projectRoot || process.cwd();
+  const root = resolveRoot(projectRoot);
   let latestVersion = BASELINE_LATEST_VERSION;
   let updateArtifact = null;
   try {

@@ -178,6 +178,15 @@ function resolvePort(done, idx = 0) {
 function startBackendServer(projectDir, port) {
   if (serverProcess) return true;
 
+  // Packaged + dev alike: anchor every process.cwd()-based lookup
+  // (sample_project, package.json, dist/) to the real engine directory.
+  // Without this, the window loads but all API functionalities fail with
+  // "Directory not found" on downloaded installs.
+  try {
+    process.env.BENDLENS_APP_DIR = projectDir;
+    if (fs.existsSync(projectDir)) process.chdir(projectDir);
+  } catch {}
+
   if (app.isPackaged) {
     const buildDir = path.join(projectDir, '.next');
     if (!fs.existsSync(buildDir)) {

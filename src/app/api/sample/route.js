@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import ProjectAnalyzer from '@/lib/analyzer';
 import serverCache from '@/lib/serverCache';
-import path from 'path';
+import { getSampleProjectPath } from '@/lib/appPaths';
 
 export async function GET() {
   try {
-    const samplePath = path.join(process.cwd(), 'sample_project');
+    const samplePath = getSampleProjectPath();
     const result = ProjectAnalyzer.analyze(samplePath);
     
     serverCache.setLatest(result);

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import ProjectAnalyzer from '@/lib/analyzer';
 import serverCache from '@/lib/serverCache';
+import { getSampleProjectPath } from '@/lib/appPaths';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -34,7 +35,7 @@ export async function POST(request) {
     const body = await request.json();
     let targetPath = (body.path || '').toString().trim().replace(/^["'`]+|["'`]+$/g, '').trim();
     if (!targetPath) {
-      targetPath = path.join(process.cwd(), 'sample_project');
+      targetPath = getSampleProjectPath();
     }
 
     const result = ProjectAnalyzer.analyze(targetPath);

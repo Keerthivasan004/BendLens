@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import path from 'path';
 import fs from 'fs';
+const { getSampleProjectPath } = require('@/lib/appPaths');
 const ProjectAnalyzer = require('@/lib/analyzer');
 const ImpactAnalyzer = require('@/lib/generators/impactAnalyzer');
 const KnowledgeGraph = require('@/lib/graph/knowledgeGraph');
@@ -21,7 +21,7 @@ export async function POST(request) {
     }
     // If not in cache or path is specified and exists, analyze directory
     if (!analysis || (targetPath && fs.existsSync(targetPath) && (!analysis.projectPath || analysis.projectPath !== targetPath))) {
-      const pathToAnalyze = (targetPath && fs.existsSync(targetPath)) ? targetPath : path.join(process.cwd(), 'sample_project');
+      const pathToAnalyze = (targetPath && fs.existsSync(targetPath)) ? targetPath : getSampleProjectPath();
       analysis = ProjectAnalyzer.analyze(pathToAnalyze);
     }
 

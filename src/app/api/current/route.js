@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import ProjectAnalyzer from '@/lib/analyzer';
 import serverCache from '@/lib/serverCache';
-import path from 'path';
+import { getSampleProjectPath } from '@/lib/appPaths';
 
 export async function GET(request) {
   try {
@@ -20,7 +20,7 @@ export async function GET(request) {
     } else {
       data = serverCache.getLatest();
       if (!data) {
-        const samplePath = path.join(process.cwd(), 'sample_project');
+        const samplePath = getSampleProjectPath();
         data = ProjectAnalyzer.analyze(samplePath);
         serverCache.setLatest(data);
       }

@@ -6,6 +6,7 @@ import fs from 'fs';
 import AdmZip from 'adm-zip';
 import os from 'os';
 import { getEffectiveLatest } from '@/lib/releaseInfo';
+const { getAppRoot } = require('@/lib/appPaths');
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +14,7 @@ const execPromise = util.promisify(exec);
 
 export async function POST() {
   try {
-    const projectRoot = process.cwd();
+    const projectRoot = getAppRoot();
     const isGitRepo = fs.existsSync(path.join(projectRoot, '.git'));
     let output = '';
 

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import path from 'path';
 import fs from 'fs';
 import AdmZip from 'adm-zip';
+const { getAppRoot } = require('@/lib/appPaths');
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,7 @@ function isValidWindowsExe(filePath) {
 
 export async function GET(request) {
   try {
-    const projectRoot = process.cwd();
+    const projectRoot = getAppRoot();
     const distDir = path.join(projectRoot, 'dist');
 
     // 0. Prefer a real packaged installer (produced by `npm run dist`):
