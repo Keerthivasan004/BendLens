@@ -71,9 +71,17 @@ This document maps all directories, modules, and significant files across BendLe
 - **`electron/main.js`**: Packaged-aware Electron main process — single instance lock (second launch restores/shows/raises the existing window, never a second engine), instant splash, `resolveAppDir()` (resources/app vs repo root, version-guarded asar extraction via `extracted-app.version`), sets `BENDLENS_APP_DIR` + `chdir(projectDir)` before engine boot, version-aware `resolvePort()` (reuses a live engine only on version match) with BendLens identity probe (`/api/updates/check`), `detectDuplicateInstalls()` (NSIS/legacy/portable copies → once-per-version "Already Installed" dialog), embedded production server via Electron's Node in packaged mode (no npm needed), native error dialogs instead of dead URLs.
 - **`electron/splash.html`**: Ultra-fast (<50ms) CSS animated splash screen.
 - **`scripts/BendLensLauncher.cs` → `BendLens.exe`**: Native launcher; single-instance mutex ("Already Installed & Running" notice on double-launch); resolves installed runtime (exe dir → `%LOCALAPPDATA%\Programs\BendLens` NSIS → `%LOCALAPPDATA%\BendLens` legacy → `%ProgramFiles%\BendLens`, no dev-path fallback); Electron fast path or verified `npm run start` + browser-on-success; `MessageBox` guidance on failure.
-- **`scripts/installer.nsh`**: NSIS include (`customInstall` clears legacy payload dir + stale `extracted-app` cache on reinstall; `customUnInstall` wipes `%APPDATA%\BendLens`, legacy dirs, temp history, shortcuts — uninstall deletes all app data). Wired via `package.json` `build.nsis` (`deleteAppDataOnUninstall`, `uninstallDisplayName`, `runAfterFinish`, start-menu shortcut).
+- **`scripts/installer.nsh`**: NSIS include with **full wizard UI** (`MUI_PAGE_COMPONENTS` for Desktop/Start Menu shortcut choices, `MUI_PAGE_DIRECTORY` for install location). `customInstall` clears legacy payload + stale `extracted-app` cache + kills running processes before install. `customUnInstall` wipes `%APPDATA%\BendLens`, legacy dirs, temp history, shortcuts. Wired via `package.json` `build.nsis` (`oneClick: false`, `allowToChangeInstallationDirectory: true`, `createDesktopShortcut: "always"`, `deleteAppDataOnUninstall`, `uninstallDisplayName`, `runAfterFinish`).
 - **`scripts/launch-desktop.js`**: Starts Electron desktop app natively.
-- **`scripts/build-installer.js`**: Generates `public/downloads/BendLens-Setup.cmd` (detects existing installs, stops running BendLens before overwriting, writes a full-cleanup `Uninstall-BendLens.cmd` into the install dir) and `public/downloads/Uninstall-BendLens.cmd` (wipes install dirs + `%APPDATA%\BendLens` + temp history + shortcuts).
+- **`scripts/build-installer.js`**: Generates professional `public/downloads/BendLens-Setup.cmd`:
+  - Detects existing installs (NSIS/legacy/Program Files)
+  - **Upgrade vs Clean Install** choice with user data backup/restore
+  - **Install directory** prompt (default `%LOCALAPPDATA%\Programs\BendLens`)
+  - **Shortcut choices**: Desktop (Y/N), Start Menu (Y/N)
+  - Stops running processes, extracts payload, restores user data on upgrade
+  - Writes full-cleanup `Uninstall-BendLens.cmd` into install dir
+  - First-run and re-run behave identically (same prompts, upgrade preserves data)
+  Also generates standalone `public/downloads/Uninstall-BendLens.cmd` for manual cleanup.
 - **`scripts/generate-icons.js`**: Generates brand icons for Windows (`.ico`) and web (`.png`/`.svg`).
 
 ---

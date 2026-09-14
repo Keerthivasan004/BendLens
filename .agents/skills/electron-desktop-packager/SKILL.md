@@ -30,8 +30,19 @@ Use this skill when you need to:
    - Resolves installed runtime (exe dir → `%LOCALAPPDATA%\Programs\BendLens` → `%LOCALAPPDATA%\BendLens` → `%ProgramFiles%\BendLens`); no developer-path fallback.
    - Electron fast path when present; otherwise verified `npm run start` (requires runtime + Node + `.next`) with browser opened only on success, `MessageBox` guidance on failure.
 2. **Legacy CMD installer (`scripts/build-installer.js` → `public/downloads/`)**:
-   - `BendLens-Setup.cmd` detects an existing install, `taskkill`s running BendLens before overwriting, updates in place, and writes `Uninstall-BendLens.cmd` into the install dir.
-   - `Uninstall-BendLens.cmd` performs the full wipe (install dirs, `%APPDATA%\BendLens` + `com.bendlens.studio`, temp history, shortcuts). Regenerate both via `node scripts/build-installer.js` (both files are committed).
+   - `BendLens-Setup.cmd` is a **professional interactive installer**:
+     - Detects existing installs (NSIS at `%LOCALAPPDATA%\Programs\BendLens`, legacy at `%LOCALAPPDATA%\BendLens`, machine at `%ProgramFiles%\BendLens`)
+     - Prompts: **Upgrade** (backs up/restores `userData`) or **Clean Install**
+     - **Install directory** choice (default `%LOCALAPPDATA%\Programs\BendLens`)
+     - **Shortcut choices**: Desktop (Y/N), Start Menu (Y/N)
+     - Stops running processes before extract, writes `Uninstall-BendLens.cmd` to install dir
+     - First-run and re-run identical: same prompts, upgrade preserves data
+   - `Uninstall-BendLens.cmd` performs full wipe (install dirs, `%APPDATA%\BendLens` + `com.bendlens.studio`, temp history, shortcuts). Regenerate both via `node scripts/build-installer.js` (both files are committed).
+3. **NSIS Installer (`npm run dist` → `dist/BendLens-Setup-<version>.exe`)**:
+   - Full wizard: Welcome → License → **Components** (Desktop shortcut, Start Menu shortcut) → **Directory** (user chooses path) → Install → Finish.
+   - `oneClick: false`, `allowToChangeInstallationDirectory: true`, `createDesktopShortcut: "always"`.
+   - `customInstall` kills running BendLens, clears legacy `%LOCALAPPDATA%\BendLens` and stale `extracted-app` cache.
+   - `customUnInstall` + `deleteAppDataOnUninstall: true` wipes everything.
 2. **Preload Script (`electron/preload.js`)**:
    - Secure IPC bridge between renderer and Electron APIs.
 3. **Packaging Tooling (`electron-builder`)**:
@@ -55,6 +66,7 @@ Use this skill when you need to:
 ## Troubleshooting Checklist
 - **Port 3000 Conflict**: handled automatically — `resolvePort()` verifies server identity AND version (a mismatched-version live engine is skipped, never reused) and falls back to 3001/3030/8000/5000. Never attaches to a foreign service.
 - **Re-downloaded app misbehaving**: caused by stale state — check for duplicate installs (`%LOCALAPPDATA%\Programs\BendLens` vs `%LOCALAPPDATA%\BendLens`), a version-mismatched `extracted-app` cache (`%APPDATA%\BendLens\extracted-app.version`), or an install-over-running-app overwrite. All three are now handled (duplicate dialog, version-guarded extraction/port reuse, pre-install `taskkill` + `customInstall` cleanup).
+- **First run works, second run fails**: fixed — `BendLens-Setup.cmd` now detects existing installs, offers Upgrade (preserves `userData`) or Clean Install, stops running processes before extracting, and writes an uninstaller. NSIS installer has full wizard with Components (shortcut choices) and Directory pages.
 - **Uninstall leftovers**: NSIS Uninstall wipes `%APPDATA%\BendLens` (`deleteAppDataOnUninstall` + `customUnInstall`); legacy-payload users run `Uninstall-BendLens.cmd` from the install dir (or `public/downloads/`). If data survives, the uninstaller was bypassed by manual folder deletion — re-run the matching uninstaller.
 - **Splash Screen Stalling**: a native error dialog now appears if the engine fails; check logs by running the spawned engine command in a standalone terminal.
 - **Window Icon Missing**: Verify `public/icon.ico` exists. Use `scripts/generate-icons.js` to regenerate icons if missing.

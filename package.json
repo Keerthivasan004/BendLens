@@ -57,10 +57,10 @@
       "requestExecutionLevel": "user"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "BendLens",
       "uninstallDisplayName": "BendLens - Uninstall",
@@ -70,7 +70,10 @@
       "warningsAsErrors": false,
       "artifactName": "BendLens-Setup-${version}.${ext}",
       "installerIcon": "public/icon.ico",
-      "uninstallerIcon": "public/icon.ico"
+      "uninstallerIcon": "public/icon.ico",
+      "license": "LICENSE",
+      "installerHeaderIcon": "public/icon.ico",
+      "installerSidebar": "public/icon.ico"
     }
   },
   "dependencies": {
