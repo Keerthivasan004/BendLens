@@ -53,13 +53,21 @@
       "icon": "public/icon.ico"
     },
     "portable": {
-      "artifactName": "BendLens-Portable-${version}.${ext}"
+      "artifactName": "BendLens-Portable-${version}.${ext}",
+      "requestExecutionLevel": "user"
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
       "shortcutName": "BendLens",
+      "uninstallDisplayName": "BendLens - Uninstall",
+      "deleteAppDataOnUninstall": true,
+      "runAfterFinish": true,
+      "include": "scripts/installer.nsh",
+      "warningsAsErrors": false,
       "artifactName": "BendLens-Setup-${version}.${ext}",
       "installerIcon": "public/icon.ico",
       "uninstallerIcon": "public/icon.ico"

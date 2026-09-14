@@ -58,6 +58,21 @@ echo ====================================================================
 echo.
 
 set "INSTALL_DIR=%LOCALAPPDATA%\\BendLens"
+
+REM --- Existing-installation detection ---------------------------------
+REM A re-download installed OVER a running copy used to produce locked /
+REM half-written files, leaving the "reinstalled" app broken. Stop any
+REM running BendLens first, then install cleanly over the old copy.
+if exist "%INSTALL_DIR%\\package.json" (
+  echo [*] Existing BendLens installation detected at %INSTALL_DIR%.
+  echo [*] Stopping any running BendLens processes before updating...
+  taskkill /IM BendLens.exe /F >nul 2>&1
+  taskkill /FI "WINDOWTITLE eq BendLens*" /F >nul 2>&1
+  timeout /t 2 /nobreak >nul
+  echo [*] Updating the existing installation in place...
+) else (
+  echo [*] No previous installation found - performing a fresh install.
+)
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
 echo [*] Extracting BendLens Desktop Engine into %INSTALL_DIR% ...
@@ -84,10 +99,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$Shortcut.Description = 'BendLens - Universal Backend Architecture & Blast Platform'; " ^
   "$Shortcut.Save();"
 
+echo [*] Writing full-cleanup uninstaller into %INSTALL_DIR% ...
+(
+echo @echo off
+echo title BendLens Uninstall - Remove App + All Data
+echo echo [*] Stopping any running BendLens processes...
+echo taskkill /IM BendLens.exe /F ^>nul 2^>^&1
+echo timeout /t 2 /nobreak ^>nul
+echo echo [*] Removing application folders...
+echo if exist "%%LOCALAPPDATA%%\\BendLens" rmdir /s /q "%%LOCALAPPDATA%%\\BendLens"
+echo if exist "%%LOCALAPPDATA%%\\Programs\\BendLens" rmdir /s /q "%%LOCALAPPDATA%%\\Programs\\BendLens"
+echo echo [*] Removing all related BendLens application data...
+echo if exist "%%APPDATA%%\\BendLens" rmdir /s /q "%%APPDATA%%\\BendLens"
+echo if exist "%%APPDATA%%\\com.bendlens.studio" rmdir /s /q "%%APPDATA%%\\com.bendlens.studio"
+echo if exist "%%TEMP%%\\.bendlens_history.json" del /f /q "%%TEMP%%\\.bendlens_history.json"
+echo echo [*] Removing shortcuts...
+echo powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path ^([System.IO.Path]::Combine^([Environment]::GetFolderPath^('Desktop'^), 'BendLens.lnk'^)^) -Force -ErrorAction SilentlyContinue; Remove-Item -Path ^([System.IO.Path]::Combine^([Environment]::GetFolderPath^('StartMenu'^), 'Programs', 'BendLens.lnk'^)^) -Force -ErrorAction SilentlyContinue; "
+echo echo [*] BendLens fully uninstalled - app files and all data removed.
+) > "%INSTALL_DIR%\\Uninstall-BendLens.cmd"
+
 echo.
 echo ====================================================================
 echo   BendLens Installed Successfully!
 echo   A shortcut 'BendLens' has been created on your Desktop.
+echo   To remove BendLens completely later (app + all data), run:
+echo     %INSTALL_DIR%\\Uninstall-BendLens.cmd
 echo ====================================================================
 echo.
 echo [*] Launching BendLens Desktop Application now...
@@ -104,6 +140,50 @@ exit /b 0
 const cmdPath = path.join(downloadsDir, 'BendLens-Setup.cmd');
 
 fs.writeFileSync(cmdPath, installerScript, 'utf-8');
+
+// 3. Generate the full-cleanup Uninstaller (Uninstall-BendLens.cmd).
+// Deleting the app folder alone leaves Electron userData behind
+// (%APPDATA%\BendLens: Cache, GPUCache, extracted-app, Local Storage),
+// the temp analysis history, and desktop shortcuts. This uninstaller wipes
+// ALL BendLens-related data so no stale state survives a reinstall.
+const uninstallerScript = `@echo off
+title BendLens Uninstall - Remove App + All Data
+echo ====================================================================
+echo   Uninstalling BendLens Desktop Application (App + All Data)
+echo ====================================================================
+echo.
+
+echo [*] Stopping any running BendLens processes...
+taskkill /IM BendLens.exe /F >nul 2>&1
+taskkill /FI "WINDOWTITLE eq BendLens*" /F >nul 2>&1
+timeout /t 2 /nobreak >nul
+
+echo [*] Removing application folders...
+if exist "%LOCALAPPDATA%\\BendLens" rmdir /s /q "%LOCALAPPDATA%\\BendLens"
+if exist "%LOCALAPPDATA%\\Programs\\BendLens" rmdir /s /q "%LOCALAPPDATA%\\Programs\\BendLens"
+
+echo [*] Removing all related BendLens application data...
+if exist "%APPDATA%\\BendLens" rmdir /s /q "%APPDATA%\\BendLens"
+if exist "%APPDATA%\\com.bendlens.studio" rmdir /s /q "%APPDATA%\\com.bendlens.studio"
+if exist "%TEMP%\\.bendlens_history.json" del /f /q "%TEMP%\\.bendlens_history.json"
+
+echo [*] Removing shortcuts...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "Remove-Item -Path ([System.IO.Path]::Combine([Environment]::GetFolderPath('Desktop'), 'BendLens.lnk')) -Force -ErrorAction SilentlyContinue; " ^
+  "Remove-Item -Path ([System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs', 'BendLens.lnk')) -Force -ErrorAction SilentlyContinue; "
+
+echo.
+echo ====================================================================
+echo   BendLens has been fully uninstalled.
+echo   App files, cached engine, history and shortcuts were all removed.
+echo ====================================================================
+echo.
+
+exit /b 0
+`;
+
+const uninstallPath = path.join(downloadsDir, 'Uninstall-BendLens.cmd');
+fs.writeFileSync(uninstallPath, uninstallerScript, 'utf-8');
 
 // Remove any legacy fake `BendLens-Setup.exe` (batch text with .exe extension).
 const legacyFakeExe = path.join(downloadsDir, 'BendLens-Setup.exe');
@@ -122,4 +202,5 @@ try {
 
 console.log('Successfully generated:');
 console.log('-> ' + cmdPath);
+console.log('-> ' + uninstallPath);
 console.log('Real Windows installers (.exe) are produced by `npm run dist` into dist/.');

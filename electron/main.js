@@ -20,9 +20,16 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
+    // Re-download / double-launch case: BendLens is already installed and
+    // running — never boot a second engine (it would fight over ports and
+    // look "not working"). Just bring the existing studio window forward.
     if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
+      try {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.moveTop();
+      } catch {}
     }
   });
 }
@@ -109,11 +116,14 @@ function resolveAppDir() {
     //    because fs operations don't work directly on asar files
     const asarApp = path.join(process.resourcesPath, 'app.asar');
     if (fs.existsSync(asarApp)) {
-      // Extract asar to a temporary directory for runtime access
+      // Extract asar to a temporary directory for runtime access.
+      // Version-guarded: a re-downloaded (new-version) install must NEVER
+      // reuse the previous version's extracted files — that mismatch is what
+      // left reinstalled apps "not working properly".
       const tempAppDir = path.join(app.getPath('userData'), 'extracted-app');
+      clearStaleExtractedApp(tempAppDir);
       if (!fs.existsSync(path.join(tempAppDir, 'package.json'))) {
         try {
-          const { execSync } = require('child_process');
           const asar = require('asar');
           if (fs.existsSync(tempAppDir)) {
             fs.rmSync(tempAppDir, { recursive: true, force: true });
@@ -121,6 +131,7 @@ function resolveAppDir() {
           fs.mkdirSync(tempAppDir, { recursive: true });
           asar.extractAll(asarApp, tempAppDir);
           console.log('[*] Extracted app.asar to:', tempAppDir);
+          stampExtractedApp(tempAppDir);
         } catch (err) {
           console.error('[!] Failed to extract app.asar:', err.message);
         }
@@ -138,8 +149,58 @@ function resolveAppDir() {
 }
 
 /**
+ * Current install version (package.json). Used to invalidate stale caches
+ * (extracted-app) and to avoid attaching a re-downloaded build to an old
+ * running engine of a different version.
+ */
+function getRunningVersion() {
+  try {
+    return app.getVersion() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Remove a stale asar-extraction cache from a previous version.
+ * The marker file <userData>/extracted-app.version records which version
+ * was extracted; a mismatch means the files no longer match this install.
+ */
+function clearStaleExtractedApp(tempAppDir) {
+  try {
+    const marker = path.join(path.dirname(tempAppDir), 'extracted-app.version');
+    const current = getRunningVersion();
+    let stamped = null;
+    try {
+      if (fs.existsSync(marker)) stamped = fs.readFileSync(marker, 'utf-8').trim() || null;
+    } catch {}
+    if (stamped && current && stamped !== current) {
+      console.log(`[*] Removing stale extracted engine (v${stamped} -> v${current}).`);
+      try {
+        fs.rmSync(tempAppDir, { recursive: true, force: true });
+      } catch {}
+      try {
+        fs.unlinkSync(marker);
+      } catch {}
+    }
+    return stamped;
+  } catch {
+    return null;
+  }
+}
+
+function stampExtractedApp(tempAppDir) {
+  try {
+    const current = getRunningVersion();
+    if (!current) return;
+    fs.writeFileSync(path.join(path.dirname(tempAppDir), 'extracted-app.version'), current, 'utf-8');
+  } catch {}
+}
+
+/**
  * Identity probe: is the server on this port actually BendLens?
  * Prevents attaching to an unrelated service squatting on port 3000.
+ * callback(isOurs:boolean, serverVersion:string|null).
  */
 function isBendLensServer(port, callback) {
   const req = http.get({ host: HOST, port, path: '/api/updates/check', timeout: 800 }, (res) => {
@@ -151,16 +212,20 @@ function isBendLensServer(port, callback) {
     res.on('end', () => {
       try {
         const info = JSON.parse(data);
-        callback(info && info.success === true && typeof info.currentVersion === 'string');
+        if (info && info.success === true && typeof info.currentVersion === 'string') {
+          callback(true, info.currentVersion);
+        } else {
+          callback(false, null);
+        }
       } catch {
-        callback(false);
+        callback(false, null);
       }
     });
   });
-  req.on('error', () => callback(false));
+  req.on('error', () => callback(false, null));
   req.on('timeout', () => {
     req.destroy();
-    callback(false);
+    callback(false, null);
   });
 }
 
@@ -180,7 +245,10 @@ function isPortFree(port, callback) {
 }
 
 /**
- * Pick a port: reuse a live BendLens server, else first free candidate.
+ * Pick a port: reuse a live BendLens server ONLY when its version matches
+ * this install, else first free candidate. Re-downloaded builds used to
+ * attach to an older running engine (stale code, broken UI); now a version
+ * mismatch is skipped so the new build boots its own engine.
  * done(port, shouldSpawn)
  */
 function resolvePort(done, idx = 0) {
@@ -189,10 +257,16 @@ function resolvePort(done, idx = 0) {
     return;
   }
   const port = PORT_CANDIDATES[idx];
-  isBendLensServer(port, (isOurs) => {
+  isBendLensServer(port, (isOurs, serverVersion) => {
     if (isOurs) {
-      console.log(`[*] Reusing live BendLens engine on port ${port}.`);
-      done(port, false);
+      const mine = getRunningVersion();
+      if (!mine || !serverVersion || serverVersion === mine) {
+        console.log(`[*] Reusing live BendLens engine on port ${port}.`);
+        done(port, false);
+        return;
+      }
+      console.log(`[*] Live engine on port ${port} is v${serverVersion}, this install is v${mine} — starting a fresh engine.`);
+      resolvePort(done, idx + 1);
       return;
     }
     isPortFree(port, (free) => {
@@ -200,6 +274,66 @@ function resolvePort(done, idx = 0) {
       else resolvePort(done, idx + 1);
     });
   });
+}
+
+/**
+ * Detect duplicate BendLens installations on this machine.
+ * Download-again users often end up with two copies: the NSIS install
+ * (%LOCALAPPDATA%\Programs\BendLens) plus the legacy CMD payload
+ * (%LOCALAPPDATA%\BendLens) or a stray portable. Booting the stale copy is
+ * what made re-downloads "not work properly". This logs the situation and —
+ * once per version — tells the user which copy is active so they can remove
+ * the other via its uninstaller (which now wipes all app data).
+ */
+function detectDuplicateInstalls(projectDir) {
+  try {
+    if (!app.isPackaged || process.platform !== 'win32') return;
+    const localAppData = process.env.LOCALAPPDATA || '';
+    const programFiles = process.env.ProgramFiles || '';
+    const candidates = [];
+    if (localAppData) {
+      candidates.push(path.join(localAppData, 'Programs', 'BendLens'));
+      candidates.push(path.join(localAppData, 'BendLens'));
+    }
+    if (programFiles) candidates.push(path.join(programFiles, 'BendLens'));
+    const norm = (p) => {
+      try {
+        return path.resolve(p).toLowerCase();
+      } catch {
+        return String(p).toLowerCase();
+      }
+    };
+    const active = norm(projectDir);
+    const others = candidates.filter((c) => {
+      try {
+        return norm(c) !== active && fs.existsSync(path.join(c, 'package.json'));
+      } catch {
+        return false;
+      }
+    });
+    // A portable copy next to the running exe counts as a duplicate too.
+    try {
+      const exeDir = path.dirname(process.execPath || '');
+      if (exeDir && norm(exeDir) !== active && fs.existsSync(path.join(exeDir, 'package.json'))) {
+        others.push(exeDir);
+      }
+    } catch {}
+    if (others.length === 0) return;
+    const flagFile = path.join(app.getPath('userData'), `duplicate-notified-${getRunningVersion() || 'unknown'}`);
+    console.warn('[!] Existing BendLens installation(s) detected:', others.join('; '), '| active:', projectDir);
+    if (fs.existsSync(flagFile)) return;
+    try {
+      fs.mkdirSync(path.dirname(flagFile), { recursive: true });
+      fs.writeFileSync(flagFile, others.join('\n'), 'utf-8');
+    } catch {}
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'BendLens Already Installed',
+      message: 'An existing BendLens installation was detected.',
+      detail: `Active installation:\n${projectDir}\n\nOther copie(s) found:\n${others.join('\n')}\n\nYou are running the active one above. To avoid conflicts, remove the old copy with its Uninstall option (this also deletes all BendLens app data).`,
+      buttons: ['OK']
+    }).catch(() => {});
+  } catch {}
 }
 
 /**
@@ -317,6 +451,12 @@ function startBackendServer(projectDir, port) {
 
 function initBackendAndConnect() {
   const projectDir = resolveAppDir();
+
+  // Re-download safety net: tell the user when another copy exists instead
+  // of silently running a stale duplicate that "does not work properly".
+  try {
+    detectDuplicateInstalls(projectDir);
+  } catch {}
 
   resolvePort((port, shouldSpawn) => {
     activePort = port;

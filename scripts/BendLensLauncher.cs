@@ -15,27 +15,67 @@ namespace BendLensDesktop
         [STAThread]
         static void Main()
         {
+            // Single-instance guard: a re-downloaded copy launched while
+            // BendLens is already running must NOT boot a second engine
+            // (port fights + half-loaded UI = "not working properly").
+            // Electron's own single-instance lock focuses the existing window
+            // when the runtime is present; this mutex covers the launcher
+            // path before Electron even starts.
+            bool createdNew;
+            System.Threading.Mutex singleInstance = null;
+            try
+            {
+                singleInstance = new System.Threading.Mutex(true, @"Global\BendLens-Studio-SingleInstance", out createdNew);
+            }
+            catch
+            {
+                createdNew = true;
+            }
+            if (!createdNew)
+            {
+                MessageBox.Show(
+                    "BendLens is already installed and running.\n\n" +
+                    "The existing BendLens window has been kept in focus — " +
+                    "a second copy was not started to avoid conflicts.\n\n" +
+                    "If you downloaded BendLens again, simply use the running app. " +
+                    "To remove BendLens completely, use its Uninstall option: " +
+                    "it deletes the app and all related BendLens data.",
+                    "BendLens - Already Installed & Running",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
             try
             {
                 string exeDir = AppDomain.CurrentDomain.BaseDirectory;
                 string projectDir = exeDir;
 
-                // Resolve installed project root (portable dir -> LocalAppData -> Program Files).
+                // Resolve installed project root.
+                // Order matters: NSIS per-user installs land in
+                // %LOCALAPPDATA%\Programs\BendLens, the legacy Setup.cmd
+                // payload lives in %LOCALAPPDATA%\BendLens, and a machine
+                // install would be under %ProgramFiles%\BendLens.
+                // The old order missed Programs\BendLens, so after a fresh
+                // NSIS install the launcher kept booting the stale legacy
+                // copy and the "re-downloaded" app looked broken.
                 // NOTE: never fall back to a developer machine path — this binary ships to users.
                 if (!File.Exists(Path.Combine(projectDir, "package.json")))
                 {
+                    string nsisUserDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "BendLens");
                     string localAppDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BendLens");
-                    if (File.Exists(Path.Combine(localAppDataDir, "package.json")))
+                    string programFilesDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "BendLens");
+
+                    if (File.Exists(Path.Combine(nsisUserDir, "package.json")))
+                    {
+                        projectDir = nsisUserDir;
+                    }
+                    else if (File.Exists(Path.Combine(localAppDataDir, "package.json")))
                     {
                         projectDir = localAppDataDir;
                     }
-                    else
+                    else if (File.Exists(Path.Combine(programFilesDir, "package.json")))
                     {
-                        string programFilesDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "BendLens");
-                        if (File.Exists(Path.Combine(programFilesDir, "package.json")))
-                        {
-                            projectDir = programFilesDir;
-                        }
+                        projectDir = programFilesDir;
                     }
                 }
 
