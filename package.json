@@ -28,6 +28,7 @@
       ".next/**/*",
       "!**/.next/cache/**",
       "public/**/*",
+      "!public/downloads/**",
       "electron/**/*",
       "sample_project/**/*",
       "node_modules/**/*"

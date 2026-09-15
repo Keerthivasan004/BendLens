@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const sharp = require('sharp');
+const { execSync } = require('child_process');
 
 // Generate SVG Icon (must match src/components/Logo.jsx + public/icon.svg)
 const svgIcon = `<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -44,8 +46,75 @@ const svgIcon = `<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2
   <circle cx="32" cy="31" r="1.1" fill="#2547eb"/>
 </svg>`;
 
-const publicDir = path.join(__dirname, 'public');
+const publicDir = path.join(__dirname, '..', 'public');
 if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
 
-fs.writeFileSync(path.join(publicDir, 'icon.svg'), svgIcon, 'utf-8');
+const svgPath = path.join(publicDir, 'icon.svg');
+fs.writeFileSync(svgPath, svgIcon, 'utf-8');
 console.log('Generated public/icon.svg');
+
+async function generateIcons() {
+  try {
+    // Generate 256x256 PNG (required for NSIS installer sidebar/header)
+    const pngPath = path.join(publicDir, 'icon.png');
+    await sharp(Buffer.from(svgIcon))
+      .resize(256, 256)
+      .png()
+      .toFile(pngPath);
+    console.log('Generated public/icon.png (256x256)');
+
+    // Also generate 512x512 for high-DPI
+    const png512Path = path.join(publicDir, 'icon-512.png');
+    await sharp(Buffer.from(svgIcon))
+      .resize(512, 512)
+      .png()
+      .toFile(png512Path);
+    console.log('Generated public/icon-512.png (512x512)');
+
+    // Generate multi-size ICO with 256x256 (required for NSIS)
+    const icoPath = path.join(publicDir, 'icon.ico');
+    const icoSizes = [16, 24, 32, 48, 64, 128, 256];
+    
+    // Generate all PNG sizes first
+    const pngBuffers = await Promise.all(
+      icoSizes.map(size => sharp(Buffer.from(svgIcon)).resize(size, size).png().toBuffer())
+    );
+    
+    // Write PNGs to temp files for ico conversion
+    const tempDir = path.join(publicDir, '..', '.temp-icons');
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    
+    for (let i = 0; i < icoSizes.length; i++) {
+      const size = icoSizes[i];
+      const tempPng = path.join(tempDir, `icon-${size}.png`);
+      fs.writeFileSync(tempPng, pngBuffers[i]);
+    }
+    
+    // Use ImageMagick to create multi-size ICO
+    try {
+      const pngFiles = icoSizes.map(s => `"${path.join(tempDir, `icon-${s}.png`)}"`).join(' ');
+      execSync(`magick convert ${pngFiles} -colors 256 "${icoPath}"`, { stdio: 'ignore' });
+      console.log('Generated public/icon.ico (multi-size: 16,24,32,48,64,128,256 via ImageMagick)');
+    } catch {
+      // Fallback: create ICO using the largest PNG (sharp can't write ICO directly)
+      // Write the 256x256 PNG as .ico (electron-builder may accept it)
+      await sharp(Buffer.from(svgIcon))
+        .resize(256, 256)
+        .png()
+        .toFile(icoPath);
+      console.log('Generated public/icon.ico (as 256x256 PNG, fallback)');
+    }
+    
+    // Clean up temp files
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+
+    console.log('All icons generated successfully!');
+  } catch (err) {
+    console.error('Icon generation failed:', err.message);
+    process.exit(1);
+  }
+}
+
+generateIcons();
