@@ -29,7 +29,8 @@
       "!**/.next/cache/**",
       "public/**/*",
       "electron/**/*",
-      "sample_project/**/*"
+      "sample_project/**/*",
+      "node_modules/**/*"
     ],
     "extraResources": [
       {

@@ -17,7 +17,7 @@ if (fs.existsSync(rootExe) && !fs.existsSync(downloadsExe)) {
   fs.copyFileSync(rootExe, downloadsExe);
 }
 
-// 1. Create the complete embedded payload ZIP
+// 1. Create the complete embedded payload ZIP (source bundle — requires Node.js + `npm install` on user machine)
 const zip = new AdmZip();
 const INCLUDE_DIRS = ['src', 'public', 'electron', 'scripts', 'sample_project'];
 const INCLUDE_FILES = [
