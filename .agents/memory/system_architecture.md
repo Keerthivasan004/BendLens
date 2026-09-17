@@ -30,6 +30,7 @@ flowchart TD
 ### Phase 2: Specialized AST & Schema Parsers
 1. **`SchemaParser` (`src/lib/parsers/schemaParser.js`)**:
    - Parses table definitions, column types, primary keys, foreign keys, unique constraints, and sample data fixtures from SQL files, SQLite databases, and ORM models.
+   - Deduplicates tables via case/underscore/plural-insensitive `tableKey()` + `upsertTable()` merge (e.g. SQL `users` + Prisma `User` + `order_items`/`OrderItem` merge into one entry with a union of columns/FKs) so table counts stay consistent across Header, ERD, HLD, LLD, and persona views. Sample-data and INSERT lookups use the same normalized key.
 2. **`PolyglotParser` (`src/lib/parsers/polyglotParser.js`)**:
    - Regex- and AST-driven pattern scanner extracting classes, functions, imports, REST endpoints (`app.get`, `@app.route`, `@GetMapping`, etc.), and database access calls across JS/TS, Python, Java, Go, and C#.
 3. **`InfraParser` (`src/lib/parsers/infraParser.js`)**:

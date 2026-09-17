@@ -151,6 +151,25 @@ export default function DeveloperView({ data, onSelectForImpact }) {
     return matchesMethod && matchesQuery;
   });
 
+  // Core APIs touch a known table (CRUD on domain models); everything else
+  // (health, auth, webhooks, misc) is grouped as Other APIs so no route hides
+  // in a single flat list.
+  const tableNameTokens = useMemo(
+    () => tables.map((t) => String(t.name || '').toLowerCase()).filter(Boolean),
+    [tables]
+  );
+  const { coreEndpoints, otherEndpoints } = useMemo(() => {
+    const core = [];
+    const other = [];
+    for (const ep of filteredEndpoints) {
+      const p = String(ep.path || '').toLowerCase();
+      const hitsTable = tableNameTokens.some((t) => p.includes(t) || p.includes(t.replace(/s$/, '')));
+      if (hitsTable) core.push(ep);
+      else other.push(ep);
+    }
+    return { coreEndpoints: core, otherEndpoints: other };
+  }, [filteredEndpoints, tableNameTokens]);
+
   const handleCopyTableJSON = (table) => {
     navigator.clipboard.writeText(JSON.stringify(table, null, 2));
     setCopied(true);
@@ -818,43 +837,62 @@ export default function DeveloperView({ data, onSelectForImpact }) {
           </div>
         </div>
 
-        <div className="divide-y divide-border-subtle max-h-[500px] overflow-y-auto pr-1">
-          {filteredEndpoints.map((ep, idx) => {
-            const isGet = ep.method === 'GET';
-            const isPost = ep.method === 'POST';
-            const isPut = ep.method === 'PUT';
-
-            const badgeColor = isGet
-              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
-              : isPost
-              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
-              : isPut
-              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
-              : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20';
-
-            return (
-              <div
-                key={idx}
-                className="py-3 px-2 flex items-center justify-between hover:bg-surface-raised transition-colors rounded-lg"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className={`text-[10px] font-semibold px-2.5 py-1 rounded border font-mono shrink-0 ${badgeColor}`}>
-                    {ep.method}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="font-mono text-xs text-foreground font-semibold truncate">{ep.path}</div>
-                    <div className="text-[11px] text-muted font-mono truncate">{ep.module}</div>
-                  </div>
-                </div>
-                <button
-                  onClick={() => onSelectForImpact && onSelectForImpact(ep.path, 'endpoint')}
-                  className="text-xs px-3 py-1 rounded-md bg-surface-raised hover:bg-surface-subtle text-foreground border border-border cursor-pointer font-medium shrink-0 ml-3"
-                >
-                  Check Blast
-                </button>
+        <div className="max-h-[500px] overflow-y-auto pr-1 space-y-4">
+          {[
+            { title: 'Core API Routes', hint: 'CRUD on detected tables', list: coreEndpoints },
+            { title: 'Other API Routes', hint: 'health, auth, webhooks, misc', list: otherEndpoints }
+          ].map((group) => (
+            <div key={group.title}>
+              <div className="flex items-center gap-2 px-2 pb-1.5">
+                <span className="text-[11px] font-bold text-foreground uppercase tracking-wider">{group.title}</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-raised text-muted border border-border">
+                  {group.list.length} Routes
+                </span>
+                <span className="text-[10px] text-muted hidden sm:inline">· {group.hint}</span>
               </div>
-            );
-          })}
+              <div className="divide-y divide-border-subtle">
+                {group.list.map((ep, idx) => {
+                  const isGet = ep.method === 'GET';
+                  const isPost = ep.method === 'POST';
+                  const isPut = ep.method === 'PUT';
+
+                  const badgeColor = isGet
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                    : isPost
+                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
+                    : isPut
+                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20';
+
+                  return (
+                    <div
+                      key={`${group.title}-${idx}`}
+                      className="py-3 px-2 flex items-center justify-between hover:bg-surface-raised transition-colors rounded-lg"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`text-[10px] font-semibold px-2.5 py-1 rounded border font-mono shrink-0 ${badgeColor}`}>
+                          {ep.method}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-mono text-xs text-foreground font-semibold truncate">{ep.path}</div>
+                          <div className="text-[11px] text-muted font-mono truncate">{ep.module}</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onSelectForImpact && onSelectForImpact(ep.path, 'endpoint')}
+                        className="text-xs px-3 py-1 rounded-md bg-surface-raised hover:bg-surface-subtle text-foreground border border-border cursor-pointer font-medium shrink-0 ml-3"
+                      >
+                        Check Blast
+                      </button>
+                    </div>
+                  );
+                })}
+                {group.list.length === 0 && (
+                  <div className="text-center py-4 text-xs text-muted">No {group.title.toLowerCase()} match the current filter</div>
+                )}
+              </div>
+            </div>
+          ))}
           {filteredEndpoints.length === 0 && (
             <div className="text-center py-10 text-xs text-muted">No API endpoints match the current filter</div>
           )}

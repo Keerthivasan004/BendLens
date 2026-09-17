@@ -35,6 +35,8 @@ BendLens compiles architecture into 4 visual diagrams using Mermaid.js (`src/lib
   - Tier 2: `subgraph GATEWAY ["API Gateway and Ingress"]`
   - Tier 3: `subgraph SERVICES ["Backend Microservices"]`
   - Tier 4: `subgraph DATA_LAYER ["Persistent Data Stores"]`
+- **Core vs Other API rule**: The first backend service is labeled `Core Backend API (NAME - Port X - N Routes)` (with the detected HTTP endpoint count); every further backend service is labeled `Other API Service (NAME - Port X)`. Never label all services as Core.
+- **Database dedupe & count rule**: Dedupe `services(isDatabase)` against `infra.databases` by lowercase name (they mirror each other) and render the schema total exactly once as `(N Tables Total)` on the primary store — never repeat the total on every DB node.
 - **Sanitization Guards**:
   - **NO Raw Ampersands**: Never output `&` in titles or labels. Replace with `and` (e.g., `"Clients and Edge"`).
   - **NO Colons in Port Notation**: Do not use `Postgres:5432`; use `Postgres_Port5432` or `Postgres (5432)`. Colons break Mermaid label lexing.
@@ -43,8 +45,8 @@ BendLens compiles architecture into 4 visual diagrams using Mermaid.js (`src/lib
 
 ## 3. Low-Level Component Call Graph (LLD)
 - **Header**: Starts with `flowchart LR\n`.
-- **Tier Structure**:
-  - `subgraph CONTROLLERS ["Controllers and Handlers"]`
+- **Tier Structure** (max 12 nodes per tier; subgraph titles carry honest counts, e.g. `Controllers and API Endpoints (6)`, `(11 of 14)` when truncated; counts are also returned as `endpointsCount/endpointsShown/functionsCount/...`):
+  - `subgraph CONTROLLERS ["Controllers and API Endpoints"]`
   - `subgraph SERVICES ["Domain Services"]`
   - `subgraph REPOSITORIES ["Data Access and Models"]`
 - **Subgraph Connection Rule**:

@@ -40,7 +40,14 @@ All diagram logic resides in `src/lib/generators/diagramGenerator.js`:
   if (safeTarget === safeSource) continue;
   ```
 
-### 3. Subgraph Direct Connections
+### 3. HLD Service Tier Labels
+- First backend service = `Core Backend API (NAME - Port X - N Routes)`; the rest = `Other API Service (NAME - Port X)`.
+- Dedupe compose `services(isDatabase)` vs `infra.databases` by lowercase name; render the schema total once as `(N Tables Total)` on the primary store.
+
+### 4. LLD Tier Caps and Counts
+- Cap each LLD tier at 12 nodes (`LLD_TIER_LIMIT`) and always show counts in subgraph titles (`(N)` or `(shown of total)`); return `endpointsCount/endpointsShown/functionsCount/functionsShown/tablesCount/tablesShown`.
+
+### 5. Subgraph Direct Connections
 - Older or strict Mermaid parsers fail when connecting a subgraph to another subgraph (e.g., `subgraphA --> subgraphB`).
 - Always connect explicit nodes within subgraphs:
   ```javascript

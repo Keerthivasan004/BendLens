@@ -16,6 +16,83 @@ class SchemaParser {
     this.tables = {};
     this.relations = [];
     this.sampleData = {}; // tableName -> array of sample row objects
+    this._tableKeyIndex = {}; // lowercase name -> canonical key in this.tables
+  }
+
+  /**
+   * Canonical key for a table name (case/underscore/plural-insensitive).
+   * Prevents the same logical table (e.g. SQL `users` + Prisma `User`,
+   * SQL `order_items` + Prisma `OrderItem`) from being counted twice in
+   * table totals, ERD, HLD and persona views.
+   */
+  tableKey(name) {
+    let key = String(name || 'table').toLowerCase().replace(/_/g, '');
+    // Naive singularization so `users` and `User` share one key.
+    if (key.endsWith('ies') && key.length > 4) {
+      key = key.slice(0, -3) + 'y';
+    } else if ((key.endsWith('ses') || key.endsWith('xes') || key.endsWith('zes') || key.endsWith('ches') || key.endsWith('shes')) && key.length > 4) {
+      key = key.slice(0, -2);
+    } else if (key.endsWith('s') && !key.endsWith('ss') && key.length > 2) {
+      key = key.slice(0, -1);
+    }
+    return key;
+  }
+
+  findTableKey(name) {
+    const key = this.tableKey(name);
+    return this._tableKeyIndex[key] || null;
+  }
+
+  /**
+   * Insert or merge a parsed table definition.
+   * Same logical table from SQL + ORM / migrations / case variants is merged
+   * (union of columns by name, union of foreign keys) instead of overwritten
+   * or double-counted.
+   */
+  upsertTable(name, entry) {
+    const key = this.tableKey(name);
+    const existingKey = this._tableKeyIndex[key];
+    if (!existingKey || !this.tables[existingKey]) {
+      this.tables[name] = entry;
+      this._tableKeyIndex[key] = name;
+      return this.tables[name];
+    }
+    const existing = this.tables[existingKey];
+    // Merge columns by lowercase name (existing def wins, missing flags filled)
+    const colIndex = new Map((existing.columns || []).map((c) => [String(c.name || '').toLowerCase(), c]));
+    for (const col of entry.columns || []) {
+      const colKey = String(col.name || '').toLowerCase();
+      if (!colIndex.has(colKey)) {
+        existing.columns.push(col);
+        colIndex.set(colKey, col);
+      } else {
+        const prev = colIndex.get(colKey);
+        prev.isPrimaryKey = prev.isPrimaryKey || col.isPrimaryKey;
+        prev.isNullable = prev.isNullable && col.isNullable;
+        prev.isUnique = prev.isUnique || col.isUnique;
+        if ((prev.defaultValue === null || prev.defaultValue === undefined) && col.defaultValue) {
+          prev.defaultValue = col.defaultValue;
+        }
+        if ((!prev.sampleValue || prev.sampleValue === 'sample_val') && col.sampleValue) {
+          prev.sampleValue = col.sampleValue;
+        }
+      }
+    }
+    // Merge foreign keys (dedupe by column:target:targetColumn)
+    const fkSeen = new Set((existing.foreignKeys || []).map((f) =>
+      `${String(f.column || '').toLowerCase()}:${String(f.targetTable || '').toLowerCase()}:${String(f.targetColumn || 'id').toLowerCase()}`));
+    for (const fk of entry.foreignKeys || []) {
+      const fkKey = `${String(fk.column || '').toLowerCase()}:${String(fk.targetTable || '').toLowerCase()}:${String(fk.targetColumn || 'id').toLowerCase()}`;
+      if (!fkSeen.has(fkKey)) {
+        fkSeen.add(fkKey);
+        existing.foreignKeys.push(fk);
+      }
+    }
+    if (!existing.primaryKey && entry.primaryKey) existing.primaryKey = entry.primaryKey;
+    if (existing.sourceType && entry.sourceType && !existing.sourceType.includes(entry.sourceType)) {
+      existing.sourceType = `${existing.sourceType} + ${entry.sourceType}`;
+    }
+    return existing;
   }
 
   splitClauses(body) {
@@ -121,10 +198,11 @@ class SchemaParser {
       }
     }
 
-    // Attach sample data to tables
+    // Attach sample data to tables (case-insensitive lookup)
     for (const [tableName, rows] of Object.entries(this.sampleData)) {
-      if (this.tables[tableName]) {
-        this.tables[tableName].sampleRows = rows.slice(0, 5);
+      const existingKey = this.findTableKey(tableName);
+      if (existingKey) {
+        this.tables[existingKey].sampleRows = rows.slice(0, 5);
       }
     }
 
@@ -314,8 +392,8 @@ class SchemaParser {
         ).values()
       );
 
-      this.tables[tableName] = {
-        name: tableName,
+      this.upsertTable(tableName, {
+        name: this.findTableKey(tableName) ? this.tables[this.findTableKey(tableName)].name : tableName,
         databaseType: dbType,
         sourceFile: filePath,
         sourceType: 'SQL DDL / Schema',
@@ -323,7 +401,7 @@ class SchemaParser {
         foreignKeys: uniqueForeignKeys,
         primaryKey: primaryKey || (columns.find(c => c.isPrimaryKey)?.name || 'id'),
         sampleRows: []
-      };
+      });
     }
   }
 
@@ -342,18 +420,19 @@ class SchemaParser {
       const values = this.splitValues(valuesPart);
       let colNames = [];
 
+      const existingInsertKey = this.findTableKey(tableName);
       if (colsPart) {
         colNames = colsPart.split(',').map(c => c.trim().replace(/[`"\[\]]/g, ''));
-      } else if (this.tables[tableName]) {
-        colNames = this.tables[tableName].columns.map(c => c.name);
+      } else if (existingInsertKey) {
+        colNames = this.tables[existingInsertKey].columns.map(c => c.name);
       }
 
       const row = {};
       colNames.forEach((col, idx) => {
         if (values[idx] !== undefined) {
           row[col] = values[idx];
-          if (this.tables[tableName]) {
-            const tableCol = this.tables[tableName].columns.find(c => c.name === col);
+          if (existingInsertKey) {
+            const tableCol = this.tables[existingInsertKey].columns.find(c => c.name === col);
             if (tableCol) tableCol.sampleValue = values[idx];
           }
         }
@@ -438,8 +517,8 @@ class SchemaParser {
         }
       }
 
-      this.tables[modelName] = {
-        name: modelName,
+      this.upsertTable(modelName, {
+        name: this.findTableKey(modelName) ? this.tables[this.findTableKey(modelName)].name : modelName,
         databaseType: 'Prisma ORM (Postgres/MySQL/SQLite/Mongo)',
         sourceFile: filePath,
         sourceType: 'Prisma Schema',
@@ -447,7 +526,7 @@ class SchemaParser {
         foreignKeys,
         primaryKey: columns.find(c => c.isPrimaryKey)?.name || 'id',
         sampleRows: []
-      };
+      });
     }
   }
 
@@ -510,8 +589,8 @@ class SchemaParser {
       }
 
       if (columns.length > 0) {
-        this.tables[tableName] = {
-          name: tableName,
+        this.upsertTable(tableName, {
+          name: this.findTableKey(tableName) ? this.tables[this.findTableKey(tableName)].name : tableName,
           modelName,
           databaseType: 'Python ORM (SQLAlchemy/Django/SQLModel)',
           sourceFile: filePath,
@@ -520,7 +599,7 @@ class SchemaParser {
           foreignKeys,
           primaryKey: columns.find(c => c.isPrimaryKey)?.name || 'id',
           sampleRows: []
-        };
+        });
       }
     }
 
@@ -529,8 +608,8 @@ class SchemaParser {
     let mongoMatch;
     while ((mongoMatch = mongoCollRegex.exec(content)) !== null) {
       const collName = mongoMatch[1] || mongoMatch[2];
-      if (collName && !['collection', 'command', 'admin', 'test'].includes(collName.toLowerCase()) && !this.tables[collName]) {
-        this.tables[collName] = {
+      if (collName && !['collection', 'command', 'admin', 'test'].includes(collName.toLowerCase()) && !this.findTableKey(collName)) {
+        this.upsertTable(collName, {
           name: collName,
           modelName: collName.charAt(0).toUpperCase() + collName.slice(1),
           databaseType: 'MongoDB Collection (PyMongo)',
@@ -543,7 +622,7 @@ class SchemaParser {
           foreignKeys: [],
           primaryKey: '_id',
           sampleRows: []
-        };
+        });
       }
     }
   }
@@ -584,8 +663,9 @@ class SchemaParser {
       }
 
       if (columns.length > 0) {
-        this.tables[schemaName.toLowerCase()] = {
-          name: schemaName.toLowerCase(),
+        const canonical = this.findTableKey(schemaName) ? this.tables[this.findTableKey(schemaName)].name : schemaName.toLowerCase();
+        this.upsertTable(schemaName, {
+          name: canonical,
           modelName: schemaName,
           databaseType: 'MongoDB (Mongoose NoSQL)',
           sourceFile: filePath,
@@ -594,7 +674,7 @@ class SchemaParser {
           foreignKeys: [],
           primaryKey: '_id',
           sampleRows: []
-        };
+        });
       }
     }
 
@@ -630,8 +710,8 @@ class SchemaParser {
       }
 
       if (columns.length > 0) {
-        this.tables[tableName] = {
-          name: tableName,
+        this.upsertTable(tableName, {
+          name: this.findTableKey(tableName) ? this.tables[this.findTableKey(tableName)].name : tableName,
           modelName: className,
           databaseType: 'TypeORM Entity (Postgres/MySQL)',
           sourceFile: filePath,
@@ -640,7 +720,7 @@ class SchemaParser {
           foreignKeys,
           primaryKey: columns.find(c => c.isPrimaryKey)?.name || 'id',
           sampleRows: []
-        };
+        });
       }
     }
   }

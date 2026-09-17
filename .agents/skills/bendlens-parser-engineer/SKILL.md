@@ -38,6 +38,7 @@ When adding a new SQL dialect or ORM:
 2. Locate the dialect-specific regex patterns or method (e.g., `parsePostgres`, `parseMySQL`, `parsePrisma`).
 3. Ensure table names, column names, data types, primary keys (`isPrimaryKey: true`), and foreign keys (`isForeignKey: true`, `referencesTable`, `referencesColumn`) are captured accurately.
 4. Normalize data types to lowercase alphanumeric tokens (e.g., `uuid`, `varchar`, `int`, `timestamp`) to prevent Mermaid rendering failures.
+5. Always register tables via `upsertTable(name, entry)` (never `this.tables[name] = ...`) and look them up via `findTableKey(name)` — both are case/underscore/plural-insensitive so SQL + ORM + migration definitions of one table merge instead of double-counting.
 
 ### Step 2: Updating PolyglotParser
 When adding a new language or framework route pattern:

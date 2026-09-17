@@ -132,17 +132,24 @@ class DiagramGenerator {
       .filter((c) => c && c.name && /Service|Controller|Manager|Worker/i.test(c.name))
       .slice(0, 4);
 
+    // First backend service is the Core API; the rest are Other/Supporting APIs.
+    // The detected HTTP endpoint count is annotated on the Core node so the
+    // API surface is visible in HLD instead of hidden.
+    const totalEndpoints = (safeCode.endpoints || []).length;
+    const coreEpSuffix = totalEndpoints > 0 ? ` - ${totalEndpoints} Routes` : '';
     if (backendServices.length > 0) {
-      for (const s of backendServices) {
+      backendServices.forEach((s, idx) => {
         const sId = `SVC_${(s.name || 'SVC').toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`;
         serviceNodeIds.push(sId);
         const portStr = (s.ports && s.ports[0]) ? ` - Port ${String(s.ports[0]).replace(/:/g, ' to ').replace(/[^A-Za-z0-9_ -]/g, '')}` : '';
         const cleanName = (s.name || 'Backend Service').toUpperCase().replace(/[^A-Z0-9_ -]/g, '');
-        mermaid += `        ${sId}["Core Backend API (${cleanName}${portStr})"]\n`;
-      }
+        const role = idx === 0 ? 'Core Backend API' : 'Other API Service';
+        const suffix = idx === 0 ? `${portStr}${coreEpSuffix}` : portStr;
+        mermaid += `        ${sId}["${role} (${cleanName}${suffix})"]\n`;
+      });
     } else {
       serviceNodeIds.push('SVC_BACKEND_API');
-      mermaid += '        SVC_BACKEND_API["Core Backend API (Port 8000)"]\n';
+      mermaid += `        SVC_BACKEND_API["Core Backend API (Port 8000${coreEpSuffix})"]\n`;
     }
 
     const domainNodeIds = [];
@@ -158,14 +165,23 @@ class DiagramGenerator {
 
     // 4. Persistence & Storage Layer
     mermaid += '    subgraph DATA_LAYER ["Persistence and Storage Layer"]\n';
-    const dbServices = [
-      ...services.filter((s) => s.isDatabase),
-      ...extraDatabases
-    ];
+    // Dedupe by name: infra.databases mirrors compose services already flagged
+    // isDatabase, so a naive concat would list every store twice.
+    const dbServices = [];
+    const seenDbNames = new Set();
+    for (const s of [...services.filter((s) => s.isDatabase), ...extraDatabases]) {
+      const dbKey = String(s.name || 'db').toLowerCase();
+      if (!seenDbNames.has(dbKey)) {
+        seenDbNames.add(dbKey);
+        dbServices.push(s);
+      }
+    }
     const dbNodeIds = [];
     let cacheNodeId = null;
 
+    const totalTables = (safeSchema.tables && safeSchema.tables.length) || 0;
     if (dbServices.length > 0) {
+      let primaryLabeled = false;
       for (const db of dbServices) {
         const dbId = `DB_${(db.name || 'DB').toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`;
         const isCache = /redis|memcached/i.test(db.name || '') || /redis/i.test(db.image || '');
@@ -177,8 +193,10 @@ class DiagramGenerator {
         } else {
           if (!dbNodeIds.includes(dbId)) {
             dbNodeIds.push(dbId);
-            const tableCount = (safeSchema.tables && safeSchema.tables.length) || 0;
-            const tableCountStr = tableCount > 0 ? ` (${tableCount} Tables)` : '';
+            // Show the schema total once on the primary store so per-node
+            // labels cannot be misread as per-database counts.
+            const tableCountStr = !primaryLabeled && totalTables > 0 ? ` (${totalTables} Tables Total)` : '';
+            primaryLabeled = true;
             const cleanDbName = (db.name || 'Primary Database').toUpperCase().replace(/[^A-Z0-9_ -]/g, '');
             mermaid += `        ${dbId}[("${cleanDbName}${tableCountStr}")]\n`;
           }
@@ -187,8 +205,8 @@ class DiagramGenerator {
     }
 
     if (dbNodeIds.length === 0) {
-      const tableCount = (safeSchema.tables && safeSchema.tables.length) || 0;
-      const tableCountStr = tableCount > 0 ? ` (${tableCount} Tables)` : '';
+      const tableCount = totalTables;
+      const tableCountStr = tableCount > 0 ? ` (${tableCount} Tables Total)` : '';
       const firstTableDb = (safeSchema.tables && safeSchema.tables[0] && safeSchema.tables[0].databaseType) || 'Relational';
       const cleanEngine = String(firstTableDb).replace(/[^A-Za-z0-9]/g, '');
       const dbLabel = tableCount > 0 ? `${cleanEngine} Database${tableCountStr}` : 'Primary Database';
@@ -231,7 +249,12 @@ class DiagramGenerator {
     return {
       type: 'HLD',
       title: 'High-Level System Architecture (C4 Container View)',
-      mermaid: mermaid.trim()
+      mermaid: mermaid.trim(),
+      servicesCount: serviceNodeIds.length,
+      coreService: backendServices[0]?.name || 'backend-api',
+      otherServicesCount: Math.max(0, serviceNodeIds.length - 1),
+      tablesCount: totalTables,
+      endpointsCount: totalEndpoints
     };
   }
 
@@ -246,7 +269,9 @@ class DiagramGenerator {
 
     let mermaid = 'flowchart LR\n';
 
-    // Filter and sanitize top endpoints (max 6)
+    // Show up to 12 nodes per tier (was 6, which silently hid APIs/tables
+    // and made LLD counts disagree with the DeveloperView totals).
+    const LLD_TIER_LIMIT = 12;
     let rawEndpoints = safeCode.endpoints || [];
     if (rawEndpoints.length === 0 && safeCode.apis && Array.isArray(safeCode.apis)) {
       rawEndpoints = safeCode.apis.map((a) => ({
@@ -254,9 +279,8 @@ class DiagramGenerator {
         path: a.endpoint || a.path || '/api/resource'
       }));
     }
-    let endpoints = rawEndpoints.slice(0, 6);
+    let endpoints = rawEndpoints.slice(0, LLD_TIER_LIMIT);
 
-    // Filter and sanitize top functions (max 6)
     let rawFunctions = safeCode.functions || [];
     if (rawFunctions.length === 0 && safeCode.apis && Array.isArray(safeCode.apis)) {
       rawFunctions = safeCode.apis
@@ -265,11 +289,10 @@ class DiagramGenerator {
     }
     let functions = rawFunctions
       .filter((fn) => fn && fn.name && !fn.name.startsWith('__'))
-      .slice(0, 6);
+      .slice(0, LLD_TIER_LIMIT);
 
-    // Filter top tables (max 6)
     const rawTables = safeSchema.tables || [];
-    let tables = rawTables.slice(0, 6);
+    let tables = rawTables.slice(0, LLD_TIER_LIMIT);
 
     // Dynamic synthesis if endpoints or functions are empty but schema exists
     if (endpoints.length === 0 && tables.length > 0) {
@@ -313,8 +336,11 @@ class DiagramGenerator {
     const activeFunctions = functions.length > 0 ? functions : defaultFunctions;
     const activeTables = tables.length > 0 ? tables : defaultTables;
 
-    // 1. Controllers & Endpoints Subgraph
-    mermaid += '    subgraph CONTROLLERS ["Controllers and API Endpoints"]\n';
+    // 1. Controllers & Endpoints Subgraph (counts keep LLD honest vs totals)
+    const epSuffix = rawEndpoints.length > endpoints.length
+      ? ` (${endpoints.length} of ${rawEndpoints.length})`
+      : (rawEndpoints.length > 0 ? ` (${rawEndpoints.length})` : '');
+    mermaid += `    subgraph CONTROLLERS ["Controllers and API Endpoints${epSuffix}"]\n`;
     activeEndpoints.forEach((ep, idx) => {
       const cleanPath = (ep.path || '/')
         .replace(/["'\[\]`]/g, '')
@@ -328,7 +354,10 @@ class DiagramGenerator {
     mermaid += '    end\n\n';
 
     // 2. Services & Handlers Subgraph
-    mermaid += '    subgraph SERVICES ["Services and Business Handlers"]\n';
+    const fnSuffix = rawFunctions.length > functions.length
+      ? ` (${functions.length} of ${rawFunctions.length})`
+      : (rawFunctions.length > 0 ? ` (${rawFunctions.length})` : '');
+    mermaid += `    subgraph SERVICES ["Services and Business Handlers${fnSuffix}"]\n`;
     activeFunctions.forEach((fn, idx) => {
       const cleanFn = (fn.name || 'handler').replace(/[^a-zA-Z0-9_]/g, '_');
       mermaid += `        FN_${idx}["${cleanFn}()"]\n`;
@@ -336,7 +365,10 @@ class DiagramGenerator {
     mermaid += '    end\n\n';
 
     // 3. Repositories & Data Models Subgraph
-    mermaid += '    subgraph REPOSITORIES ["Data Models and Entities"]\n';
+    const tbSuffix = rawTables.length > tables.length
+      ? ` (${tables.length} of ${rawTables.length})`
+      : (rawTables.length > 0 ? ` (${rawTables.length})` : '');
+    mermaid += `    subgraph REPOSITORIES ["Data Models and Entities${tbSuffix}"]\n`;
     activeTables.forEach((t, idx) => {
       const cleanTb = (t.name || 'table').replace(/[^a-zA-Z0-9_]/g, '_');
       mermaid += `        TB_${idx}[("${cleanTb}")]\n`;
@@ -411,7 +443,13 @@ class DiagramGenerator {
     return {
       type: 'LLD',
       title: 'Low-Level Design: Component and Call Interaction Graph',
-      mermaid: mermaid.trim()
+      mermaid: mermaid.trim(),
+      endpointsCount: rawEndpoints.length,
+      endpointsShown: activeEndpoints.length,
+      functionsCount: rawFunctions.length,
+      functionsShown: activeFunctions.length,
+      tablesCount: rawTables.length,
+      tablesShown: activeTables.length
     };
   }
 
