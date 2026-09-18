@@ -45,6 +45,10 @@ class PolyglotParser {
           this.parseGo(content, moduleInfo);
         } else if (ext === '.cs') {
           this.parseCSharp(content, moduleInfo);
+        } else if (ext === '.php') {
+          this.parsePhp(content, moduleInfo);
+        } else if (ext === '.rb') {
+          this.parseRuby(content, moduleInfo);
         }
 
         this.modules.push(moduleInfo);
@@ -139,6 +143,33 @@ class PolyglotParser {
       }
     }
 
+    // .NET minimal APIs: app.MapGet/MapPost/MapPut/MapDelete/MapPatch('/x', ...)
+    const mapRegex = /\.(?:MapGet|MapPost|MapPut|MapDelete|MapPatch)\s*\(\s*['"]([^'"]+)['"]/gi;
+    while ((match = mapRegex.exec(content)) !== null) {
+      const m = match[0].match(/Map(Get|Post|Put|Delete|Patch)/i);
+      const ep = {
+        method: (m ? m[1] : 'GET').toUpperCase(),
+        path: match[1],
+        module: moduleInfo.relativePath,
+        source: '.NET Minimal API'
+      };
+      moduleInfo.endpoints.push(ep);
+      this.endpoints.push(ep);
+    }
+
+    // Hapi / Koa style: server.route({ method: 'GET', path: '/x' })
+    const hapiRegex = /method\s*:\s*['"](GET|POST|PUT|DELETE|PATCH|ALL)['"]\s*,\s*path\s*:\s*['"]([^'"]+)['"]/gi;
+    while ((match = hapiRegex.exec(content)) !== null) {
+      const ep = {
+        method: match[1].toUpperCase(),
+        path: match[2],
+        module: moduleInfo.relativePath,
+        source: 'Hapi/Koa route'
+      };
+      moduleInfo.endpoints.push(ep);
+      this.endpoints.push(ep);
+    }
+
     // 5. DB Queries & ORM accesses
     const dbRegex = /(?:db|prisma|sequelize|knex|mongoose|model|User|Order|Payment|Product)\.([A-Za-z0-9_]+)\s*\(/gi;
     while ((match = dbRegex.exec(content)) !== null) {
@@ -229,6 +260,41 @@ class PolyglotParser {
       this.endpoints.push(ep);
     }
 
+    // Django REST framework: @api_view(['GET','POST']) / @action(methods=[...])
+    const drfRegex = /@(?:api_view|action)\s*\(\s*\[([^\]]+)\]/gi;
+    while ((match = drfRegex.exec(content)) !== null) {
+      const methods = match[1].split(',').map((s) => s.replace(/['"\s]/g, '').toUpperCase()).filter(Boolean);
+      const fnAfter = content.slice(match.index + match[0].length, match.index + match[0].length + 300).match(/def\s+([A-Za-z0-9_]+)/);
+      for (const m of methods.length ? methods : ['GET']) {
+        const ep = {
+          method: m,
+          path: `/${fnAfter ? fnAfter[1] : 'drf-action'}`,
+          module: moduleInfo.relativePath,
+          source: 'DRF api_view'
+        };
+        moduleInfo.endpoints.push(ep);
+        this.endpoints.push(ep);
+      }
+    }
+
+    // Flask add_url_rule('/x', ..., methods=[...])
+    const urlRuleRegex = /add_url_rule\s*\(\s*['"]([^'"]+)['"](?:[^)]*methods\s*=\s*\[([^\]]+)\])?/gi;
+    while ((match = urlRuleRegex.exec(content)) !== null) {
+      const methods = match[2]
+        ? match[2].split(',').map((s) => s.replace(/['"\s]/g, '').toUpperCase()).filter(Boolean)
+        : ['GET'];
+      for (const m of methods) {
+        const ep = {
+          method: m,
+          path: match[1],
+          module: moduleInfo.relativePath,
+          source: 'Flask add_url_rule'
+        };
+        moduleInfo.endpoints.push(ep);
+        this.endpoints.push(ep);
+      }
+    }
+
     // 5. DB Queries
     const dbRegex = /(?:session|db|models|objects|cursor)\.([A-Za-z0-9_]+)\s*\(/gi;
     while ((match = dbRegex.exec(content)) !== null) {
@@ -251,14 +317,18 @@ class PolyglotParser {
       this.classes.push(cls);
     }
 
-    // Spring Boot Endpoints
-    const springRegex = /@(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping)\s*\(\s*(?:value\s*=\s*)?['"]([^'"]+)['"]/g;
+    // Spring Boot Endpoints (incl. @RequestMapping(method=GET) + PatchMapping)
+    const springRegex = /@(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|RequestMapping)\s*\(\s*([^)]*)\)/g;
     while ((match = springRegex.exec(content)) !== null) {
       let method = match[1].replace('Mapping', '').toUpperCase();
-      if (method === 'REQUEST') method = 'GET/POST';
+      if (method === 'REQUEST') {
+        const mm = match[2].match(/RequestMethod\.([A-Z]+)/);
+        method = mm ? mm[1] : 'GET/POST';
+      }
+      const pathM = match[2].match(/['"]([^'"]+)['"]/) || ['', '/'];
       const ep = {
         method,
-        path: match[2],
+        path: pathM[1],
         module: moduleInfo.relativePath,
         source: 'Spring Boot'
       };
@@ -291,8 +361,8 @@ class PolyglotParser {
       this.functions.push(fn);
     }
 
-    // Gin / Fiber / Echo routes
-    const ginRegex = /(?:r|router|app|engine)\.(GET|POST|PUT|DELETE)\s*\(\s*['"]([^'"]+)['"]/g;
+    // Gin / Fiber / Echo routes (any receiver name, incl. HandleFunc + PATCH)
+    const ginRegex = /(?:\w+)\.(GET|POST|PUT|DELETE|PATCH|HEAD|HandleFunc)\s*\(\s*['"]([^'"]+)['"]/g;
     while ((match = ginRegex.exec(content)) !== null) {
       const ep = {
         method: match[1],
@@ -319,7 +389,7 @@ class PolyglotParser {
       this.classes.push(cls);
     }
 
-    const routeRegex = /\[Http(Get|Post|Put|Delete)\s*(?:\(['"]([^'"]*)['"]\))?\]/g;
+    const routeRegex = /\[Http(Get|Post|Put|Delete|Patch|Head)\s*(?:\(['"]([^'"]*)['"]\))?\]/g;
     while ((match = routeRegex.exec(content)) !== null) {
       const ep = {
         method: match[1].toUpperCase(),
@@ -329,6 +399,95 @@ class PolyglotParser {
       };
       moduleInfo.endpoints.push(ep);
       this.endpoints.push(ep);
+    }
+  }
+
+  parsePhp(content, moduleInfo) {
+    let match;
+    // Classes
+    const classRegex = /class\s+([A-Za-z0-9_]+)(?:\s+extends\s+([A-Za-z0-9_\\]+))?/g;
+    while ((match = classRegex.exec(content)) !== null) {
+      const cls = {
+        name: match[1],
+        extends: match[2] || null,
+        module: moduleInfo.relativePath
+      };
+      moduleInfo.classes.push(cls);
+      this.classes.push(cls);
+    }
+
+    // Functions / methods
+    const funcRegex = /(?:public|protected|private)?\s*function\s+([A-Za-z0-9_]+)\s*\(/g;
+    while ((match = funcRegex.exec(content)) !== null) {
+      const fn = { name: match[1], module: moduleInfo.relativePath };
+      moduleInfo.functions.push(fn);
+      this.functions.push(fn);
+    }
+
+    // Laravel: Route::get/post/put/patch/delete/options/any('/path', ...)
+    const routeRegex = /Route\s*::\s*(get|post|put|patch|delete|options|any)\s*\(\s*['"]([^'"]+)['"]/gi;
+    while ((match = routeRegex.exec(content)) !== null) {
+      const ep = {
+        method: match[1].toUpperCase(),
+        path: match[2],
+        module: moduleInfo.relativePath,
+        source: 'Laravel Route'
+      };
+      moduleInfo.endpoints.push(ep);
+      this.endpoints.push(ep);
+    }
+
+    // Laravel resource routes expand to conventional REST endpoints
+    const resRegex = /Route\s*::\s*(?:apiR|r)esource\s*\(\s*['"]([^'"]+)['"]/gi;
+    while ((match = resRegex.exec(content)) !== null) {
+      const base = '/' + match[1].replace(/^\/|\/$/g, '');
+      for (const [m, p] of [['GET', base], ['POST', base], ['GET', `${base}/{id}`], ['PUT', `${base}/{id}`], ['DELETE', `${base}/{id}`]]) {
+        const ep = { method: m, path: p, module: moduleInfo.relativePath, source: 'Laravel Resource' };
+        moduleInfo.endpoints.push(ep);
+        this.endpoints.push(ep);
+      }
+    }
+  }
+
+  parseRuby(content, moduleInfo) {
+    let match;
+    // Classes and methods (line-anchored to avoid matches inside strings)
+    const classRegex = /^\s*class\s+([A-Za-z0-9_:]+)/gm;
+    while ((match = classRegex.exec(content)) !== null) {
+      const cls = { name: match[1], module: moduleInfo.relativePath };
+      moduleInfo.classes.push(cls);
+      this.classes.push(cls);
+    }
+
+    const funcRegex = /^\s*def\s+([A-Za-z0-9_?!]+)/gm;
+    while ((match = funcRegex.exec(content)) !== null) {
+      const fn = { name: match[1], module: moduleInfo.relativePath };
+      moduleInfo.functions.push(fn);
+      this.functions.push(fn);
+    }
+
+    // Rails routes.rb + Sinatra: get/post/put/patch/delete '/path'
+    const routeRegex = /^\s*(get|post|put|patch|delete)\s+['"]([^'"]+)['"]/gim;
+    while ((match = routeRegex.exec(content)) !== null) {
+      const ep = {
+        method: match[1].toUpperCase(),
+        path: match[2],
+        module: moduleInfo.relativePath,
+        source: 'Rails Route'
+      };
+      moduleInfo.endpoints.push(ep);
+      this.endpoints.push(ep);
+    }
+
+    // Rails `resources :things` expands to conventional REST endpoints
+    const resRegex = /^\s*resources\s+:([a-z_]+)/gm;
+    while ((match = resRegex.exec(content)) !== null) {
+      const base = '/' + match[1];
+      for (const [m, p] of [['GET', base], ['POST', base], ['GET', `${base}/{id}`], ['PUT', `${base}/{id}`], ['DELETE', `${base}/{id}`]]) {
+        const ep = { method: m, path: p, module: moduleInfo.relativePath, source: 'Rails Resources' };
+        moduleInfo.endpoints.push(ep);
+        this.endpoints.push(ep);
+      }
     }
   }
 }

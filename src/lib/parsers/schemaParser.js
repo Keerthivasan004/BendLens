@@ -178,6 +178,24 @@ class SchemaParser {
           continue;
         }
 
+        const SQL_EXTS = new Set(['.sql', '.ddl', '.dump', '.dmp', '.pgsql', '.psql', '.mysql', '.tsql', '.mssql', '.cql', '.hql', '.ora']);
+        const isSqlLike = SQL_EXTS.has(ext) || baseName.endsWith('.sql') || /(^|[.\-])sql$/i.test(baseName);
+
+        // Huge SQL dumps are streamed in chunks — never skipped, no matter
+        // how many tables they hold (140+ tables routinely exceed 25MB).
+        if (isSqlLike) {
+          let statSize = 0;
+          try { statSize = fs.statSync(filePath).size; } catch {}
+          if (statSize > 25 * 1024 * 1024) {
+            try {
+              this.parseLargeSQLFile(filePath);
+              continue;
+            } catch (err) {
+              console.warn(`Streaming parse failed for ${filePath}, falling back to full read:`, err.message);
+            }
+          }
+        }
+
         const content = fs.readFileSync(filePath, 'utf-8');
 
         // 2. Prisma Schema
@@ -185,9 +203,13 @@ class SchemaParser {
           this.parsePrisma(content, filePath);
         }
         // 3. SQL Files (Postgres, MySQL, SQLite, T-SQL, Oracle, DDLs, Migrations)
-        else if (ext === '.sql' || ['.ddl', '.dump'].includes(ext) || baseName.endsWith('.sql')) {
+        else if (isSqlLike) {
           this.parseSQL(content, filePath);
-          this.parseSQLInserts(content);
+          // INSERT parsing on giant dumps is pure overhead for table
+          // counts — cap it so 140-table dumps stay fast.
+          try {
+            if (content.length < 10 * 1024 * 1024) this.parseSQLInserts(content);
+          } catch {}
         }
         // 4. Python Models (SQLAlchemy, Django, Tortoise, SQLModel, Pydantic)
         // + code-defined tables (Alembic / Django migrations, Table(), embedded DDL)
@@ -208,7 +230,19 @@ class SchemaParser {
         // TABLE) so code-created tables reach the schema delivered to the client.
         else if (['.java', '.cs', '.go'].includes(ext)) {
           this.parseCodeDefinedTables(content, filePath, ext);
-          this.indexFileForCrossFile(content, filePath, ext);
+        }
+        // 5c. PHP (Laravel) and Ruby (Rails) models/migrations/routes
+        else if (ext === '.php') {
+          this.parsePhpTables(content, filePath);
+          this.parseCodeDefinedTables(content, filePath, ext);
+        }
+        else if (ext === '.rb') {
+          this.parseRubyTables(content, filePath);
+          this.parseCodeDefinedTables(content, filePath, ext);
+        }
+        // 5d. Liquibase XML changelogs (skip garden-variety XML like pom.xml)
+        else if (ext === '.xml' && /liquibase|createTable|addColumn|addForeignKey/i.test(content.slice(0, 8000))) {
+          this.parseLiquibaseTables(content, filePath);
         }
         // 6. Data seeds and sample fixtures (JSON / CSV)
         else if (ext === '.json' && (baseName.includes('seed') || baseName.includes('fixture') || baseName.includes('mock'))) {
@@ -257,20 +291,86 @@ class SchemaParser {
   }
 
   /**
+   * Shared CREATE TABLE head matcher (fresh instance per call — the /g flag
+   * carries lastIndex state). Covers TEMP/TEMPORARY/UNLOGGED variants,
+   * optional schema qualifiers and quoted odd names (`my-table`).
+   * Groups: [1]=schema?, [2]=backtick, [3]=dquote, [4]=bracket, [5]=plain.
+   */
+  createTableHeadRe() {
+    return /CREATE\s+(?:OR\s+REPLACE\s+)?(?:(?:GLOBAL\s+|LOCAL\s+)?(?:TEMP(?:ORARY)?|UNLOGGED)\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:["`\[]?([a-zA-Z0-9_$-]+)["`\]]?\.)?(?:`([^`]+)`|"([^"]+)"|\[([^\]]+)\]|([a-zA-Z0-9_]+))\s*\(/gi;
+  }
+
+  extractTableHead(match) {
+    return {
+      schema: match[1] || null,
+      table: match[2] || match[3] || match[4] || match[5]
+    };
+  }
+
+  /**
    * Universal SQL Parser: Postgres, MySQL, SQLite, SQL Server, Oracle
    * Uses balanced-parenthesis depth matching to guarantee zero column truncation
    */
+  parseLargeSQLFile(filePath) {
+    // Streaming parser for huge dumps (100MB+ / thousands of tables):
+    // reads in 4MB windows with overlap so CREATE TABLE heads split
+    // across chunk boundaries are still found, then parses each table
+    // body with the shared balanced-paren builder. Never drops tables.
+    const CHUNK = 4 * 1024 * 1024;
+    const OVERLAP = 64 * 1024;
+    let fd;
+    try {
+      fd = fs.openSync(filePath, 'r');
+      const size = fs.fstatSync(fd).size;
+      let carry = '';
+      let pos = 0;
+      const headRe = this.createTableHeadRe();
+      while (pos < size) {
+        const len = Math.min(CHUNK, size - pos);
+        const buf = Buffer.alloc(len);
+        fs.readSync(fd, buf, 0, len, pos);
+        let chunk = carry + buf.toString('utf-8');
+        // Don't split a trailing partial statement: keep the last
+        // OVERLAP bytes as carry for the next window (or parse all at EOF).
+        if (pos + len < size) {
+          const cutAt = chunk.lastIndexOf(';', chunk.length - OVERLAP);
+          const cut = cutAt !== -1 ? cutAt + 1 : chunk.length - OVERLAP;
+          const process = chunk.slice(0, Math.max(0, cut));
+          carry = chunk.slice(Math.max(0, cut));
+          chunk = process;
+        } else {
+          carry = '';
+        }
+        // Reuse the standard parser per window (comment stripping +
+        // balanced-paren body extraction handle the rest).
+        try { this.parseSQL(chunk, `${filePath}#chunk@${pos}`); } catch {}
+        // ALTER TABLE windows merge into the same tables.
+        pos += len;
+        headRe.lastIndex = 0;
+      }
+      fs.closeSync(fd);
+    } catch (err) {
+      try { if (fd !== undefined) fs.closeSync(fd); } catch {}
+      throw err;
+    }
+  }
+
   parseSQL(content, filePath) {
     const cleanContent = content
       .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/--.*$/gm, '')
-      .replace(/#.*$/gm, '');
+      // `--` only starts a comment when followed by whitespace (SQL
+      // standard) — otherwise `i--` / `x---y` code gets corrupted.
+      .replace(/(^|\s)--\s.*$/gm, '$1')
+      // `#` only starts a comment at line start / after whitespace
+      // (MySQL) — otherwise T-SQL `#temp` tables get wiped out.
+      .replace(/(^|\s)#.*$/gm, '$1');
 
-    const createTableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:`|"|\[)?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:`|"|\])?\s*\(/gi;
+    const createTableRegex = this.createTableHeadRe();
     let match;
 
     while ((match = createTableRegex.exec(cleanContent)) !== null) {
-      const tableName = match[1];
+      const { schema, table } = this.extractTableHead(match);
+      const tableName = schema ? `${schema}.${table}` : table;
       const startIndex = createTableRegex.lastIndex;
 
       let depth = 1;
@@ -345,14 +445,14 @@ class SchemaParser {
       if (defaultValue) defaultValue = defaultValue.trim();
     }
 
-    // Inline REFERENCES
+    // Inline REFERENCES (schema-qualified targets preserved)
     let fk = null;
-    const refMatch = modifiers.match(/REFERENCES\s+(?:`|"|\[)?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:`|"|\])?(?:\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\))?/i);
+    const refMatch = modifiers.match(/REFERENCES\s+(?:(?:`|"|\[)?([a-zA-Z0-9_$-]+)(?:`|"|\])?\.)?(?:`|"|\[)?([a-zA-Z0-9_$-]+)(?:`|"|\])?(?:\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\))?/i);
     if (refMatch) {
       fk = {
         column: colName,
-        targetTable: refMatch[1],
-        targetColumn: refMatch[2] || 'id'
+        targetTable: refMatch[1] ? `${refMatch[1]}.${refMatch[2]}` : refMatch[2],
+        targetColumn: refMatch[3] || 'id'
       };
     }
 
@@ -442,10 +542,10 @@ class SchemaParser {
         this.applyPrimaryKey(ensureTable(), cm[1]);
         continue;
       }
-      cm = part.match(/^ADD\s+(?:CONSTRAINT\s+[a-zA-Z0-9_]+\s+)?FOREIGN\s+KEY\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\)\s*REFERENCES\s*(?:`|"|\[)?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:`|"|\])?(?:\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\))?/i);
+      cm = part.match(/^ADD\s+(?:CONSTRAINT\s+[a-zA-Z0-9_]+\s+)?FOREIGN\s+KEY\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\)\s*REFERENCES\s*(?:(?:`|"|\[)?([a-zA-Z0-9_$-]+)(?:`|"|\])?\.)?(?:`|"|\[)?([a-zA-Z0-9_$-]+)(?:`|"|\])?(?:\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\))?/i);
       if (cm) {
         const tbl = ensureTable();
-        const fk = { column: cm[1], targetTable: cm[2], targetColumn: cm[3] || 'id' };
+        const fk = { column: cm[1], targetTable: cm[2] ? `${cm[2]}.${cm[3]}` : cm[3], targetColumn: cm[4] || 'id' };
         if (!tbl.foreignKeys.some((f) => f.column.toLowerCase() === fk.column.toLowerCase() &&
             f.targetTable.toLowerCase() === fk.targetTable.toLowerCase())) {
           tbl.foreignKeys.push(fk);
@@ -499,13 +599,13 @@ class SchemaParser {
           continue;
         }
 
-        // 2. FOREIGN KEY constraint
-        const fkMatch = clause.match(/^(?:CONSTRAINT\s+[a-zA-Z0-9_]+\s+)?FOREIGN\s+KEY\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\)\s*REFERENCES\s*(?:`|"|\[)?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:`|"|\])?(?:\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\))?/i);
+        // 2. FOREIGN KEY constraint (schema-qualified targets preserved)
+        const fkMatch = clause.match(/^(?:CONSTRAINT\s+[a-zA-Z0-9_]+\s+)?FOREIGN\s+KEY\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\)\s*REFERENCES\s*(?:(?:`|"|\[)?([a-zA-Z0-9_$-]+)(?:`|"|\])?\.)?(?:`|"|\[)?([a-zA-Z0-9_$-]+)(?:`|"|\])?(?:\s*\((?:`|"|\[)?([a-zA-Z0-9_]+)(?:`|"|\])?\))?/i);
         if (fkMatch) {
           foreignKeys.push({
             column: fkMatch[1],
-            targetTable: fkMatch[2],
-            targetColumn: fkMatch[3] || 'id'
+            targetTable: fkMatch[2] ? `${fkMatch[2]}.${fkMatch[3]}` : fkMatch[3],
+            targetColumn: fkMatch[4] || 'id'
           });
           continue;
         }
@@ -615,11 +715,12 @@ class SchemaParser {
    * passed directly to a query executor (raw/query/execute/...(` + string).
    */
   parseEmbeddedCreateTables(content, filePath, trust = false) {
-    const createTableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:`|"|\[)?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:`|"|\])?\s*\(/gi;
+    const createTableRegex = this.createTableHeadRe();
     let match;
 
     while ((match = createTableRegex.exec(content)) !== null) {
-      const tableName = match[1];
+      const { schema, table } = this.extractTableHead(match);
+      const tableName = schema ? `${schema}.${table}` : table;
       const startIndex = createTableRegex.lastIndex;
 
       let depth = 1;
@@ -680,7 +781,7 @@ class SchemaParser {
     if (this.isAssignmentRHS(content, matchIndex)) return false;
     if (this.isMigrationLikePath(filePath)) return true;
     const context = content.slice(Math.max(0, matchIndex - 300), matchIndex);
-    return /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql)\w*\s*\(\s*[`'"]{1,3}\s*$/i.test(context);
+    return /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql|\bstatement|\bselect|\binsert|\bupdate|\bdelete)\w*\s*\(\s*[`'"]{1,3}\s*$/i.test(context);
   }
 
   /**
@@ -935,7 +1036,7 @@ class SchemaParser {
     this._dictVarsByFile.set(filePath, dictVars);
     if ((!resolved || resolved.size === 0) && dictVars.size === 0) return;
     // Bare identifiers: db.query(ddl)
-    const execRe = /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql)\w*\s*\(\s*([A-Za-z_$][\w$]*)\s*[,)]/gi;
+    const execRe = /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql|\bstatement|\bselect|\binsert|\bupdate|\bdelete)\w*\s*\(\s*([A-Za-z_$][\w$]*)\s*[,)]/gi;
     let m;
     while ((m = execRe.exec(content)) !== null) {
       if (this.isInComment(content, m.index)) continue;
@@ -944,7 +1045,7 @@ class SchemaParser {
       try { this.parseEmbeddedCreateTables(text, filePath, true); } catch {}
     }
     // In-file dict/member forms: db.query(QUERIES.users), cur.execute(Q['a'])
-    const memberRe = /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql)\w*\s*\(\s*([A-Za-z_$][\w$]*\s*(?:(?:\.\s*[A-Za-z_$][\w$]*|\s*\[\s*['"][^'"]+['"]\s*\])\s*){1,2})[,)]/gi;
+    const memberRe = /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql|\bstatement|\bselect|\binsert|\bupdate|\bdelete)\w*\s*\(\s*([A-Za-z_$][\w$]*\s*(?:(?:\.\s*[A-Za-z_$][\w$]*|\s*\[\s*['"][^'"]+['"]\s*\])\s*){1,2})[,)]/gi;
     while ((m = memberRe.exec(content)) !== null) {
       if (this.isInComment(content, m.index)) continue;
       const text = this.resolveInFileMember(dictVars, m[2]);
@@ -1002,8 +1103,8 @@ class SchemaParser {
         exports: this.collectFileExports(content, filePath, ext),
         imports,
         declared: this.collectDeclaredTypes(content, ext),
-        hasExecutorCall: /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql)\w*\s*\(/i.test(content),
-        hasMemberExecutor: /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql)\w*\s*\(\s*[A-Za-z_$][\w$]*\s*(?:\.\s*[A-Za-z_$][\w$]*|\s*\[\s*['"])/i.test(content)
+        hasExecutorCall: /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql|\bstatement|\bselect|\binsert|\bupdate|\bdelete)\w*\s*\(/i.test(content),
+        hasMemberExecutor: /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql|\bstatement|\bselect|\binsert|\bupdate|\bdelete)\w*\s*\(\s*[A-Za-z_$][\w$]*\s*(?:\.\s*[A-Za-z_$][\w$]*|\s*\[\s*['"])/i.test(content)
       });
     } catch {}
   }
@@ -1314,9 +1415,15 @@ class SchemaParser {
   resolveTableRef(name) {
     const lower = String(name || '').toLowerCase();
     const keys = Object.keys(this.tables);
-    return keys.find((t) => t.toLowerCase() === lower)
-      || keys.find((t) => this.tableKey(t) === this.tableKey(name))
-      || name;
+    const exact = keys.find((t) => t.toLowerCase() === lower);
+    if (exact) return exact;
+    const norm = keys.find((t) => this.tableKey(t) === this.tableKey(name));
+    if (norm) return norm;
+    // Schema-qualified suffix: bare 'orders' resolves to the unique
+    // 'billing.orders' (ambiguous across schemas -> left dangling)
+    const suffixHits = keys.filter((t) => t.toLowerCase().endsWith('.' + lower));
+    if (suffixHits.length === 1) return suffixHits[0];
+    return name;
   }
 
   /**
@@ -1336,6 +1443,7 @@ class SchemaParser {
         this.parseDrizzleTables(content, filePath);
         this.parseMongooseModels(content, filePath);
         this.parseEntitySchemaTables(content, filePath);
+        this.parseTypeOrmTableObjects(content, filePath);
       } else if (ext === '.py') {
         this.parsePythonCodeTables(content, filePath);
       } else if (ext === '.java') {
@@ -1344,6 +1452,10 @@ class SchemaParser {
         this.parseCSharpTables(content, filePath);
       } else if (ext === '.go') {
         this.parseGoStructs(content, filePath);
+      } else if (ext === '.php' || ext === '.rb') {
+        // Laravel DB::statement()/Ruby execute() with inline or variable DDL
+        this.parseEmbeddedCreateTables(content, filePath);
+        this.parseVariableExecutedDDL(content, filePath);
       }
     } catch (err) {
       console.warn(`Code table scan skipped in ${filePath}:`, err.message);
@@ -1418,10 +1530,27 @@ class SchemaParser {
       const ex = this.extractBalanced(content, content.indexOf('{', m.index), '{', '}');
       if (ex) defs.push({ table: m[1], body: ex.body, kind: 'Sequelize Model' });
     }
+    // Sequelize migrations: queryInterface.createTable('x', { ...attrs... })
+    const qiRe = /queryInterface\s*\.\s*createTable\s*\(\s*['"`]([a-zA-Z0-9_]+)['"`]\s*,/gi;
+    while ((m = qiRe.exec(content)) !== null) {
+      if (this.isInComment(content, m.index)) continue;
+      const ex = this.extractBalanced(content, content.indexOf('(', m.index), '(', ')');
+      if (!ex) continue;
+      const braceIdx = ex.body.indexOf('{');
+      if (braceIdx === -1) continue;
+      const objEx = this.extractBalanced(ex.body, braceIdx, '{', '}');
+      if (objEx) defs.push({ table: m[1], body: objEx.body, kind: 'Sequelize Migration' });
+    }
     for (const def of defs) {
+      const { columns, fks } = this.parseSequelizeAttrBody(def.body, def.kind, typeMap);
+      this.registerCodeTable(def.table, columns, fks, filePath, def.kind, 'Sequelize ORM');
+    }
+  }
+
+  parseSequelizeAttrBody(attrBody, kind, typeMap) {
       const columns = [];
       const fks = [];
-      for (const part of this.splitTopLevel(def.body)) {
+      for (const part of this.splitTopLevel(attrBody)) {
         const nameM = part.match(/^\s*([a-zA-Z0-9_]+)\s*:\s*([\s\S]+)$/);
         if (!nameM) continue;
         const colName = nameM[1];
@@ -1450,11 +1579,10 @@ class SchemaParser {
           isNullable: !/allowNull\s*:\s*false/i.test(flags),
           isUnique: /unique\s*:\s*true/i.test(flags),
           defaultValue: defM ? defM[1].trim().replace(/^['"]|['"]$/g, '') : (isPK ? 'AUTO' : null),
-          source: def.kind
+          source: kind
         }));
       }
-      this.registerCodeTable(def.table, columns, fks, filePath, def.kind, 'Sequelize ORM');
-    }
+      return { columns, fks };
   }
 
   /**
@@ -1558,6 +1686,51 @@ class SchemaParser {
         }));
       }
       this.registerCodeTable(nameM[1], columns, [], filePath, 'TypeORM EntitySchema', 'TypeORM Entity');
+    }
+  }
+
+  /**
+   * TypeORM migrations: await queryRunner.createTable(new Table({
+   *   name: 'x', columns: [{ name: 'id', type: 'int', isPrimary: true, ... }]
+   * }))
+   */
+  parseTypeOrmTableObjects(content, filePath) {
+    const re = /new\s+Table\s*\(\s*\{/g;
+    let m;
+    while ((m = re.exec(content)) !== null) {
+      if (this.isInComment(content, m.index)) continue;
+      const ex = this.extractBalanced(content, content.indexOf('{', m.index), '{', '}');
+      if (!ex) continue;
+      re.lastIndex = ex.endIndex + 1;
+      const nameM = ex.body.match(/name\s*:\s*['"`]([a-zA-Z0-9_]+)['"`]/i);
+      if (!nameM) continue;
+      const colsM = ex.body.match(/columns\s*:\s*\[/i);
+      if (!colsM) continue;
+      const arrEx = this.extractBalanced(ex.body, ex.body.indexOf('[', colsM.index), '[', ']');
+      if (!arrEx) continue;
+      const columns = [];
+      const fks = [];
+      for (const part of this.splitTopLevel(arrEx.body)) {
+        const pm = part.match(/name\s*:\s*['"`]([a-zA-Z0-9_]+)['"`]/i);
+        if (!pm) continue;
+        const typeM = part.match(/type\s*:\s*['"`]([a-zA-Z0-9_]+)['"`]/i);
+        const colType = (typeM ? typeM[1] : 'VARCHAR').toUpperCase();
+        const isPK = /isPrimary\s*:\s*true/i.test(part);
+        const refM = part.match(/referencedTableName\s*:\s*['"`]([a-zA-Z0-9_]+)['"`]/i);
+        if (refM) {
+          const rcM = part.match(/referencedColumnNames\s*:\s*\[\s*['"`]([a-zA-Z0-9_]+)['"`]/i);
+          fks.push({ column: pm[1], targetTable: refM[1], targetColumn: rcM ? rcM[1] : 'id' });
+        }
+        const defM = part.match(/default\s*:\s*([^,}]+)/i);
+        columns.push(this.makeCodeColumn(pm[1], colType, {
+          isPrimaryKey: isPK,
+          isNullable: isPK ? false : !/isNullable\s*:\s*false/i.test(part),
+          isUnique: /isUnique\s*:\s*true/i.test(part),
+          defaultValue: defM ? defM[1].trim().replace(/^['"]|['"]$/g, '') : (isPK ? 'AUTO' : null),
+          source: 'TypeORM Migration'
+        }));
+      }
+      this.registerCodeTable(nameM[1], columns, fks, filePath, 'TypeORM Migration', 'TypeORM Migration');
     }
   }
 
@@ -1738,6 +1911,7 @@ class SchemaParser {
   parseCSharpTables(content, filePath) {
     const typeMap = { int: 'INTEGER', long: 'BIGINT', short: 'SMALLINT', string: 'VARCHAR(255)', Guid: 'UUID', bool: 'BOOLEAN', DateTime: 'TIMESTAMP', DateTimeOffset: 'TIMESTAMP', DateOnly: 'DATE', TimeOnly: 'TIME', decimal: 'DECIMAL(18,2)', double: 'DOUBLE', float: 'FLOAT' };
     this.indexCSharpClasses(content, filePath);
+    try { this.parseMigrationBuilder(content, filePath); } catch {}
     const dbSets = [];
     const dsRe = /public\s+(?:virtual\s+)?DbSet\s*<\s*([A-Za-z0-9_]+)\s*>\s+([A-Za-z0-9_]+)\s*\{/g;
     let dm;
@@ -2226,7 +2400,7 @@ class SchemaParser {
    */
   resolveCrossFileDDL() {
     if (!this._xfile || this._xfile.size === 0) return;
-    const execRe = /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql)\w*\s*\(\s*([^,()]+?)\s*[,)]/gi;
+    const execRe = /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql|\bstatement|\bselect|\binsert|\bupdate|\bdelete)\w*\s*\(\s*([^,()]+?)\s*[,)]/gi;
     for (const [filePath, info] of this._xfile) {
       // Prefilter: needs an executor call plus imports or a member-form
       // argument (class/package fallback works without import statements)
@@ -2317,12 +2491,19 @@ class SchemaParser {
    * Prisma Schemas
    */
   parsePrisma(content, filePath) {
-    const modelRegex = /model\s+([a-zA-Z0-9_]+)\s*\{([\s\S]*?)\}/g;
+    // Balanced-brace scan (not non-greedy `*?`) so `Json @default("{}")`
+    // or nested attribute blocks can't truncate the model body and drop
+    // fields — every model in the file is extracted, any count.
+    const modelHeadRe = /model\s+([a-zA-Z0-9_]+)\s*\{/g;
     let match;
 
-    while ((match = modelRegex.exec(content)) !== null) {
+    while ((match = modelHeadRe.exec(content)) !== null) {
       const modelName = match[1];
-      const body = match[2];
+      const openIdx = content.indexOf('{', match.index);
+      const ex = this.extractBalanced(content, openIdx, '{', '}');
+      if (!ex) continue;
+      modelHeadRe.lastIndex = ex.endIndex + 1;
+      const body = ex.body;
       const columns = [];
       const foreignKeys = [];
 
@@ -2382,12 +2563,25 @@ class SchemaParser {
    * Python ORMs: SQLAlchemy, Django, Tortoise, SQLModel, Pydantic
    */
   parsePythonORM(content, filePath) {
-    const classRegex = /class\s+([a-zA-Z0-9_]+)\s*\((?:Base|models\.Model|db\.Model|DeclarativeBase|SQLModel|BaseModel|Model)(?:\s*,[^)]*)?\):\s*([\s\S]*?)(?=\nclass|\n\w|$)/g;
+    // Any base-list order counts (e.g. `class X(Mixin, db.Model)` or
+    // `class X(models.Model, TimestampMixin)`): match the class header,
+    // then accept when ANY base mentions a known ORM base. This keeps
+    // 140-model Django/SQLAlchemy codebases from silently losing tables.
+    const ORM_BASES = ['Base', 'DeclarativeBase', 'SQLModel', 'BaseModel', 'Model', 'models.Model', 'db.Model', 'fields.Model', 'Document', 'EmbeddedDocument'];
+    const classHeadRe = /class\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)\s*:\s*/g;
     let match;
 
-    while ((match = classRegex.exec(content)) !== null) {
+    while ((match = classHeadRe.exec(content)) !== null) {
       const modelName = match[1];
-      const body = match[2];
+      const bases = match[2] || '';
+      const isOrmModel = ORM_BASES.some((b) => bases.includes(b));
+      if (!isOrmModel) continue;
+      const bodyStart = match.index + match[0].length;
+      // Body runs to the next top-level class/def or a dedented statement.
+      const tail = content.slice(bodyStart);
+      const endM = tail.search(/\n(?!\s)(?!\s*$)/);
+      const body = endM === -1 ? tail : tail.slice(0, endM);
+      classHeadRe.lastIndex = bodyStart + body.length;
       const columns = [];
       const foreignKeys = [];
 
@@ -2565,9 +2759,10 @@ class SchemaParser {
       }
     }
 
-    // 2. TypeORM Entity (@Entity('name') or bare @Entity; class body extracted
-    // with balanced braces so @Column({...}) options no longer truncate it)
-    const entityHeadRe = /@Entity\s*(?:\(\s*['"]?([a-zA-Z0-9_]*)['"]?\s*\))?\s*(?:export\s+)?(?:default\s+)?class\s+([a-zA-Z0-9_]+)/g;
+    // 2. TypeORM Entity (@Entity('name') or bare @Entity; any decorators
+    // like @Index/@Unique may sit between @Entity and the class; class body
+    // extracted with balanced braces so @Column({...}) never truncates it)
+    const entityHeadRe = /@Entity\s*(?:\(\s*['"]?([a-zA-Z0-9_]*)['"]?\s*\))?\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:export\s+)?(?:default\s+)?class\s+([a-zA-Z0-9_]+)/g;
     let match;
     while ((match = entityHeadRe.exec(content)) !== null) {
       const explicitName = match[1];
@@ -2620,6 +2815,336 @@ class SchemaParser {
           sampleRows: []
         });
       }
+    }
+  }
+
+  /**
+   * Laravel: Schema::create('x', function (Blueprint $table) { ... }) for
+   * CREATE, Schema::table('x', ...) merged ALTER-style.
+   */
+  parsePhpTables(content, filePath) {
+    const re = /Schema\s*::\s*(create|table)\s*\(\s*['"]([a-zA-Z0-9_]+)['"]/gi;
+    let m;
+    while ((m = re.exec(content)) !== null) {
+      if (this.isInComment(content, m.index)) continue;
+      const isCreate = m[1].toLowerCase() === 'create';
+      const tableName = m[2];
+      const openIdx = content.indexOf('(', m.index);
+      const ex = this.extractBalanced(content, openIdx, '(', ')');
+      if (!ex) continue;
+      re.lastIndex = ex.endIndex + 1;
+      const braceIdx = ex.body.indexOf('{');
+      if (braceIdx === -1) continue;
+      const bodyEx = this.extractBalanced(ex.body, braceIdx, '{', '}');
+      if (!bodyEx) continue;
+      const { columns, fks } = this.parseBlueprintBody(bodyEx.body);
+      if (isCreate) {
+        this.registerCodeTable(tableName, columns, fks, filePath, 'Laravel Migration', 'Laravel (Eloquent)');
+      } else {
+        this.mergeAlterColumns(tableName, columns, fks, filePath, 'Laravel Migration (ALTER)');
+      }
+    }
+  }
+
+  parseBlueprintBody(body) {
+    const typeMap = { string: 'VARCHAR(255)', char: 'VARCHAR(255)', text: 'TEXT', mediumText: 'TEXT', longText: 'TEXT', integer: 'INTEGER', bigInteger: 'BIGINT', tinyInteger: 'SMALLINT', smallInteger: 'SMALLINT', mediumInteger: 'INTEGER', boolean: 'BOOLEAN', float: 'FLOAT', double: 'DOUBLE', decimal: 'DECIMAL(10,2)', date: 'DATE', dateTime: 'TIMESTAMP', timestamp: 'TIMESTAMP', time: 'TIME', json: 'JSON', jsonb: 'JSON', uuid: 'UUID', binary: 'BLOB', enum: 'VARCHAR(50)', foreignId: 'BIGINT' };
+    const columns = [];
+    const fks = [];
+    const ensureCol = (name, type, opts = {}) => {
+      let col = columns.find((c) => c.name === name);
+      if (!col) {
+        col = this.makeCodeColumn(name, type, { isNullable: true, source: 'Laravel Migration', ...opts });
+        columns.push(col);
+      }
+      return col;
+    };
+    for (const stmtRaw of this.splitTopLevel(body, ';')) {
+      const stmt = stmtRaw.trim();
+      if (!stmt || stmt.startsWith('//') || stmt.startsWith('#')) continue;
+      let sm;
+      // Auto-incrementing primary keys
+      if ((sm = stmt.match(/->\s*(id|increments|bigIncrements)\s*\(\s*(?:['"]([a-zA-Z0-9_]+)['"])?\s*\)/))) {
+        const c = ensureCol(sm[2] || 'id', sm[1] === 'increments' ? 'INTEGER' : 'BIGINT');
+        c.isPrimaryKey = true;
+        c.isNullable = false;
+        c.defaultValue = c.defaultValue || 'AUTO';
+        continue;
+      }
+      // Conventional timestamps / soft deletes / tokens / morphs
+      if (/->\s*timestampsT?z?\s*\(/.test(stmt)) {
+        ensureCol('created_at', 'TIMESTAMP');
+        ensureCol('updated_at', 'TIMESTAMP');
+        continue;
+      }
+      if ((sm = stmt.match(/->\s*softDeletesT?z?\s*\(\s*(?:['"]([a-zA-Z0-9_]+)['"])?/))) {
+        ensureCol(sm[1] || 'deleted_at', 'TIMESTAMP');
+        continue;
+      }
+      if (/->\s*rememberToken\s*\(/.test(stmt)) {
+        ensureCol('remember_token', 'VARCHAR(100)');
+        continue;
+      }
+      if ((sm = stmt.match(/->\s*morphs\s*\(\s*['"]([a-zA-Z0-9_]+)['"]/))) {
+        ensureCol(`${sm[1]}_type`, 'VARCHAR(255)');
+        ensureCol(`${sm[1]}_id`, 'BIGINT');
+        continue;
+      }
+      // Standalone foreign-key constraint (column defined separately)
+      const loneFk = stmt.match(/->\s*foreign\s*\(\s*['"]([a-zA-Z0-9_]+)['"]\s*\)([\s\S]*)$/);
+      if (loneFk && !stmt.match(/->\s*(string|text|integer|bigInteger|foreignId|uuid)\s*\(/)) {
+        const refM = loneFk[2].match(/->\s*references\s*\(\s*['"]([a-zA-Z0-9_]+)['"]\s*\)/);
+        const onM = loneFk[2].match(/->\s*on\s*\(\s*['"]([a-zA-Z0-9_]+)['"]\s*\)/);
+        if (onM) {
+          ensureCol(loneFk[1], 'BIGINT');
+          fks.push({ column: loneFk[1], targetTable: onM[1], targetColumn: refM ? refM[1] : 'id' });
+        }
+        continue;
+      }
+      // Generic typed column: $table->string('email', 150)->unique()->default('x')
+      const gm = stmt.match(/->\s*([a-zA-Z0-9_]+)\s*\(\s*['"]([a-zA-Z0-9_]+)['"]([^)]*)\)([\s\S]*)$/);
+      if (!gm) continue;
+      const fn = gm[1];
+      const colName = gm[2];
+      const firstArgs = gm[3] || '';
+      const chain = gm[4] || '';
+      // Table-level primary(): $table->primary('id') / (['a','b'])
+      if (fn === 'primary') {
+        for (const qm of stmt.matchAll(/['"]([a-zA-Z0-9_]+)['"]/g)) {
+          const col = ensureCol(qm[1], 'INTEGER');
+          col.isPrimaryKey = true;
+          col.isNullable = false;
+        }
+        continue;
+      }
+      if (!typeMap[fn]) continue; // dropColumn/renameColumn/index/... skipped
+      let colType = typeMap[fn];
+      if (fn === 'string' || fn === 'char') {
+        const lenM = firstArgs.match(/,\s*(\d+)/);
+        colType = `VARCHAR(${lenM ? lenM[1] : '255'})`;
+      }
+      if (fn === 'decimal') {
+        const dm = firstArgs.match(/,\s*(\d+)\s*,\s*(\d+)/);
+        colType = dm ? `DECIMAL(${dm[1]},${dm[2]})` : 'DECIMAL(10,2)';
+      }
+      const col = ensureCol(colName, colType);
+      if (/->\s*primary\s*\(/.test(chain)) {
+        col.isPrimaryKey = true;
+        col.isNullable = false;
+      }
+      if (/->\s*unique\s*\(/.test(chain)) col.isUnique = true;
+      if (/->\s*nullable\s*\(\s*false\s*\)/.test(chain)) col.isNullable = false;
+      const defM = chain.match(/->\s*default\s*\(\s*([^)]+?)\)/);
+      if (defM) {
+        col.defaultValue = defM[1].trim().replace(/^['"]|['"]$/g, '');
+        col.sampleValue = col.defaultValue;
+      }
+      if (fn === 'foreignId') {
+        const conM = chain.match(/->\s*constrained\s*\(\s*(?:['"]([a-zA-Z0-9_]+)['"])?\s*\)/);
+        if (conM) {
+          fks.push({ column: colName, targetTable: conM[1] || colName.replace(/_id$/, 's'), targetColumn: 'id' });
+        }
+      }
+    }
+    return { columns, fks };
+  }
+
+  /**
+   * ALTER-style merge for code-defined columns (Laravel Schema::table,
+   * Rails add_column/add_reference, ...): appends missing columns and FKs,
+   * or seeds a minimal entry when the CREATE was missed.
+   */
+  mergeAlterColumns(tableName, columns, fks, filePath, sourceType) {
+    const key = this.findTableKey(tableName);
+    const tbl = key ? this.tables[key] : null;
+    if (!tbl) {
+      this.registerCodeTable(tableName, columns, fks, filePath, sourceType);
+      return;
+    }
+    for (const col of columns || []) {
+      if (!tbl.columns.some((c) => c.name.toLowerCase() === col.name.toLowerCase())) {
+        tbl.columns.push(col);
+      }
+    }
+    const seen = new Set((tbl.foreignKeys || []).map((f) =>
+      `${String(f.column).toLowerCase()}:${String(f.targetTable).toLowerCase()}:${String(f.targetColumn || 'id').toLowerCase()}`));
+    for (const fk of fks || []) {
+      const k = `${String(fk.column).toLowerCase()}:${String(fk.targetTable).toLowerCase()}:${String(fk.targetColumn || 'id').toLowerCase()}`;
+      if (!seen.has(k)) {
+        seen.add(k);
+        tbl.foreignKeys.push(fk);
+      }
+    }
+  }
+
+  /**
+   * Rails: create_table :name / "name" do |t| ... end (migrations + schema.rb)
+   * plus add_column / add_reference / add_foreign_key ALTER-style statements.
+   */
+  parseRubyTables(content, filePath) {
+    const re = /create_table\s+:?"?([a-zA-Z0-9_]+)"?/gi;
+    let m;
+    while ((m = re.exec(content)) !== null) {
+      if (this.isInComment(content, m.index)) continue;
+      const tableName = m[1];
+      const rest = content.slice(re.lastIndex);
+      const endM = rest.match(/\n\s*end\b/);
+      const body = endM ? rest.slice(0, endM.index) : rest.slice(0, 2000);
+      re.lastIndex = m.index + m[0].length + (endM ? endM.index : 0);
+      const { columns, fks } = this.parseRailsBlock(body);
+      this.registerCodeTable(tableName, columns, fks, filePath, 'Rails Migration', 'Rails (ActiveRecord)');
+    }
+    // ALTER-style migration helpers
+    const alterRe = /add_column\s+:?"?([a-zA-Z0-9_]+)"?\s*,\s+:?"?([a-zA-Z0-9_]+)"?\s*,\s+:?([a-z_]+)/gi;
+    while ((m = alterRe.exec(content)) !== null) {
+      if (this.isInComment(content, m.index)) continue;
+      const tail = content.slice(m.index, m.index + 200);
+      const col = this.makeCodeColumn(m[2], this.railsType(m[3]), {
+        isNullable: !/null:\s*false/.test(tail),
+        source: 'Rails Migration'
+      });
+      this.mergeAlterColumns(m[1], [col], [], filePath, 'Rails Migration (ALTER)');
+    }
+    const refRe = /add_(?:reference|belongs_to)\s+:?"?([a-zA-Z0-9_]+)"?\s*,\s+:?"?([a-zA-Z0-9_]+)"?/gi;
+    while ((m = refRe.exec(content)) !== null) {
+      if (this.isInComment(content, m.index)) continue;
+      const ref = m[2].replace(/_id$/, '');
+      const colName = `${ref}_id`;
+      this.mergeAlterColumns(m[1], [this.makeCodeColumn(colName, 'BIGINT', { source: 'Rails Migration' })],
+        [{ column: colName, targetTable: `${ref}s`, targetColumn: 'id' }], filePath, 'Rails Migration (ALTER)');
+    }
+    const fkRe = /add_foreign_key\s+:?"?([a-zA-Z0-9_]+)"?\s*,\s+:?"?([a-zA-Z0-9_]+)"?/gi;
+    while ((m = fkRe.exec(content)) !== null) {
+      if (this.isInComment(content, m.index)) continue;
+      const guess = `${m[2].replace(/s$/, '')}_id`;
+      this.mergeAlterColumns(m[1], [], [{ column: guess, targetTable: m[2], targetColumn: 'id' }], filePath, 'Rails Migration (ALTER)');
+    }
+  }
+
+  railsType(rubyType) {
+    const map = { string: 'VARCHAR(255)', text: 'TEXT', integer: 'INTEGER', bigint: 'BIGINT', boolean: 'BOOLEAN', float: 'FLOAT', decimal: 'DECIMAL(10,2)', datetime: 'TIMESTAMP', date: 'DATE', time: 'TIME', json: 'JSON', jsonb: 'JSON', uuid: 'UUID', binary: 'BLOB' };
+    return map[String(rubyType || '').toLowerCase()] || 'VARCHAR';
+  }
+
+  parseRailsBlock(body) {
+    const columns = [];
+    const fks = [];
+    const ensureCol = (name, type, opts = {}) => {
+      let col = columns.find((c) => c.name === name);
+      if (!col) {
+        col = this.makeCodeColumn(name, type, { isNullable: true, source: 'Rails Migration', ...opts });
+        columns.push(col);
+      }
+      return col;
+    };
+    for (const rawLine of String(body || '').split('\n')) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      let sm;
+      if ((sm = line.match(/^\w+\.(string|text|integer|bigint|boolean|float|decimal|datetime|date|time|json|jsonb|uuid|binary)\s+:?"?([a-zA-Z0-9_]+)"?(.*)$/))) {
+        const col = ensureCol(sm[2], this.railsType(sm[1]));
+        if (/null:\s*false/.test(sm[3])) col.isNullable = false;
+        if (/unique:\s*true/.test(sm[3])) col.isUnique = true;
+        if (/primary_key:\s*true/.test(sm[3])) {
+          col.isPrimaryKey = true;
+          col.isNullable = false;
+        }
+        const defM = sm[3].match(/default:\s*([^,}]+)/);
+        if (defM) {
+          col.defaultValue = defM[1].trim().replace(/^['"]|['"]$/g, '').replace(/^:/, '');
+          col.sampleValue = col.defaultValue;
+        }
+        continue;
+      }
+      if (/^\w+\.timestamps\b/.test(line)) {
+        ensureCol('created_at', 'TIMESTAMP');
+        ensureCol('updated_at', 'TIMESTAMP');
+        continue;
+      }
+      if ((sm = line.match(/^\w+\.references\s+:?"?([a-zA-Z0-9_]+)"?(.*)$/))) {
+        const ref = sm[1].replace(/_id$/, '');
+        const colName = `${ref}_id`;
+        ensureCol(colName, 'BIGINT');
+        if (/polymorphic/.test(sm[2])) {
+          ensureCol(`${ref}_type`, 'VARCHAR(255)');
+        } else {
+          const toM = sm[2].match(/to_table:\s*:?"?([a-zA-Z0-9_]+)"?/);
+          fks.push({ column: colName, targetTable: toM ? toM[1] : `${ref}s`, targetColumn: 'id' });
+        }
+        continue;
+      }
+      if ((sm = line.match(/^\w+\.primary_key\s+:?"?([a-zA-Z0-9_]+)/))) {
+        const col = ensureCol(sm[1], 'BIGINT');
+        col.isPrimaryKey = true;
+        col.isNullable = false;
+      }
+    }
+    // Rails implicit id primary key unless disabled
+    if (!columns.some((c) => c.isPrimaryKey) && !/id:\s*false/.test(body)) {
+      columns.unshift(this.makeCodeColumn('id', 'BIGINT', { isPrimaryKey: true, isNullable: false, defaultValue: 'AUTO', source: 'Rails Migration' }));
+    }
+    return { columns, fks };
+  }
+
+  /**
+   * Liquibase changelogs: <createTable tableName="x" schemaName="s"> with
+   * <column> children, plus <addColumn> and <addForeignKeyConstraint>.
+   * Only runs when the file smells like Liquibase (caller gates on it).
+   */
+  parseLiquibaseTables(content, filePath) {
+    const parseLbColumns = (inner) => {
+      const columns = [];
+      const colRe = /<column\b([^>]*?)(?:\/>|>([\s\S]*?)<\/column>)/gi;
+      let cm;
+      while ((cm = colRe.exec(inner)) !== null) {
+        const attrs = cm[1] + ' ' + (cm[2] || '');
+        const nameM = attrs.match(/name\s*=\s*"([^"]+)"/i);
+        if (!nameM) continue;
+        const typeM = attrs.match(/type\s*=\s*"([^"]+)"/i);
+        const rawType = (typeM ? typeM[1].split('(')[0] : 'VARCHAR').toUpperCase();
+        const lbMap = { INT: 'INTEGER', BIGINT: 'BIGINT', SMALLINT: 'SMALLINT', VARCHAR: 'VARCHAR(255)', TEXT: 'TEXT', BOOLEAN: 'BOOLEAN', DATETIME: 'TIMESTAMP', DATE: 'DATE', DECIMAL: 'DECIMAL(10,2)', JSON: 'JSON', UUID: 'UUID' };
+        const isPK = /primaryKey\s*=\s*"true"/i.test(attrs);
+        columns.push(this.makeCodeColumn(nameM[1], lbMap[rawType] || rawType, {
+          isPrimaryKey: isPK,
+          isNullable: isPK ? false : !/nullable\s*=\s*"false"/i.test(attrs),
+          isUnique: /unique\s*=\s*"true"/i.test(attrs),
+          source: 'Liquibase Changelog'
+        }));
+      }
+      return columns;
+    };
+    let m;
+    const createRe = /<createTable\b([^>]*)>([\s\S]*?)<\/createTable>/gi;
+    while ((m = createRe.exec(content)) !== null) {
+      const tableM = m[1].match(/tableName\s*=\s*"([^"]+)"/i);
+      if (!tableM) continue;
+      const schemaM = m[1].match(/schemaName\s*=\s*"([^"]+)"/i);
+      const fullName = schemaM ? `${schemaM[1]}.${tableM[1]}` : tableM[1];
+      this.registerCodeTable(fullName, parseLbColumns(m[2]), [], filePath, 'Liquibase Changelog', 'Liquibase');
+    }
+    const addColRe = /<addColumn\b([^>]*)>([\s\S]*?)<\/addColumn>/gi;
+    while ((m = addColRe.exec(content)) !== null) {
+      const tableM = m[1].match(/tableName\s*=\s*"([^"]+)"/i);
+      if (!tableM) continue;
+      const schemaM = m[1].match(/schemaName\s*=\s*"([^"]+)"/i);
+      const fullName = schemaM ? `${schemaM[1]}.${tableM[1]}` : tableM[1];
+      this.mergeAlterColumns(fullName, parseLbColumns(m[2]), [], filePath, 'Liquibase Changelog (ALTER)');
+    }
+    const fkRe = /<addForeignKeyConstraint\b([^>]*?)\/>/gi;
+    while ((m = fkRe.exec(content)) !== null) {
+      const g = (n) => {
+        const mm = m[1].match(new RegExp(n + '\\s*=\\s*"([^"]+)"', 'i'));
+        return mm ? mm[1] : null;
+      };
+      const baseTable = g('baseTableName');
+      const baseCol = g('baseColumnNames');
+      const refTable = g('referencedTableName');
+      const refCol = g('referencedColumnNames');
+      if (!baseTable || !baseCol || !refTable) continue;
+      const baseSchema = g('baseTableSchemaName');
+      const refSchema = g('referencedTableSchemaName');
+      const from = baseSchema ? `${baseSchema}.${baseTable}` : baseTable;
+      const to = refSchema ? `${refSchema}.${refTable}` : refTable;
+      this.mergeAlterColumns(from, [], [{ column: baseCol, targetTable: to, targetColumn: refCol || 'id' }], filePath, 'Liquibase Changelog (ALTER)');
     }
   }
 
@@ -2694,10 +3219,12 @@ class SchemaParser {
       for (const col of table.columns) {
         if (col.name.endsWith('_id') && !table.foreignKeys.some(f => f.column === col.name)) {
           const prefix = col.name.replace(/_id$/, '');
-          const target = tableKeys.find(t => 
-            t.toLowerCase() === prefix.toLowerCase() ||
-            t.toLowerCase() === `${prefix}s`.toLowerCase() ||
-            t.toLowerCase() === `${prefix}es`.toLowerCase()
+          // Compare against base names so schema-qualified tables match too
+          const baseOf = (t) => t.toLowerCase().split('.').pop();
+          const target = tableKeys.find(t =>
+            baseOf(t) === prefix.toLowerCase() ||
+            baseOf(t) === `${prefix}s`.toLowerCase() ||
+            baseOf(t) === `${prefix}es`.toLowerCase()
           );
 
           if (target && target !== tableName) {

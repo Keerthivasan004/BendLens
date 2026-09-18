@@ -15,7 +15,7 @@ This document maps all directories, modules, and significant files across BendLe
 ---
 
 ## `src/lib/` (Core Analytical Engines)
-- **`analyzer.js`**: `ProjectAnalyzer` coordinator class. Orchestrates folder scanning, parsing, graph creation, and diagram generation.
+- **`analyzer.js`**: `ProjectAnalyzer` coordinator class. Orchestrates folder scanning, parsing, graph creation, and diagram generation. Uncapped scale (100k files, streamed 500MB schema dumps, single-file scan support) + expanded SQL-like extension coverage.
 - **`appPaths.js`**: Packaged-aware root resolution (`getAppRoot()` via `BENDLENS_APP_DIR` → `<resources>/app` → `process.cwd()`; `getSampleProjectPath()` with resource-mirror probes). Used by all `process.cwd()`-dependent API routes so downloaded Electron installs resolve `sample_project`/`package.json` correctly.
 - ~~`serverCache.js` deleted~~: no shared server-side analysis storage (was a cross-user leak + stale re-scan source). All routes analyze fresh per request.
 - **`parsers/`**:
@@ -58,7 +58,7 @@ This document maps all directories, modules, and significant files across BendLe
   - `upload/route.js`: Handles ZIP file uploads, resilient extraction, and immediate analysis.
   - `paste/route.js`: Analyzes raw pasted SQL or code snippets in memory.
   - `impact/route.js`: Calculates real-time blast radius for a specified table, column, or key modification.
-  - `current/route.js`: Requires `?path=` and runs a fresh analysis for it (404 when missing — never serves another session's data).
+  - `current/route.js`: Requires `?path=` and runs a fresh analysis for it (404 when missing — never serves another session's data; force-dynamic + no-store so rescans never return cached counts).
   - `sample/route.js`: Loads and analyzes the built-in sample project.
   - `history/route.js`: Returns recent project analysis history.
   - `updates/check/route.js`: Checks version and update availability.

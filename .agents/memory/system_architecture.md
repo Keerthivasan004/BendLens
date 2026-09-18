@@ -24,7 +24,7 @@ flowchart TD
 
 ### Phase 1: Directory Ingestion & Guards (`scanDirectory`)
 - Filters ignored folders (`node_modules`, `.git`, `.next`, `dist`, `__pycache__`, etc.).
-- Enforces safety ceilings: max 10,000 files, max 2MB per file.
+- No table/API ceilings: up to 100k files / 100k schema files, 5MB per code file, 500MB schema dumps (schema DDL is streamed in 4MB chunks via `parseLargeSQLFile`, never skipped). Single-file paths (e.g. a lone `.sql` dump) analyze directly. SQL-likes covered: `.sql/.ddl/.dump/.dmp/.pgsql/.psql/.mysql/.tsql/.mssql/.cql/.hql/.ora`.
 - Collects an array of absolute file paths.
 
 ### Phase 2: Specialized AST & Schema Parsers
@@ -54,5 +54,5 @@ flowchart TD
    - Projects technical metrics into Developer, Engineering Manager, and Business Owner views.
 
 ### Phase 5: Storage & Presentation
-- **No shared server cache (privacy fix)**: every API route (`analyze`, `current`, `upload`, `paste`, `sample`, `git-clone`, `impact`) runs a fresh `ProjectAnalyzer.analyze()` per request and returns it directly. The former global `serverCache.js` singleton was deleted because it leaked one user's analysis to other users and served stale results on re-scans. The lens page restores the last path from per-browser `localStorage` (`bendlens-path`) and re-analyzes on load.
+- **No shared server cache (privacy fix)**: every API route (`analyze`, `current`, `upload`, `paste`, `sample`, `git-clone`, `impact`) runs a fresh `ProjectAnalyzer.analyze()` per request and returns it directly with `Cache-Control: no-store` (`analyze`/`current`/`sample` are `force-dynamic` + `revalidate: 0`). The former global `serverCache.js` singleton was deleted because it leaked one user's analysis to other users and served stale results on re-scans. The lens page restores the last path from per-browser `localStorage` (`bendlens-path`) and re-analyzes on load; rescan clears the displayed model first and fetches with `cache: no-store` + a timestamp query so the same old table/API counts can never flash back.
 - **Client App (`src/app/lens/page.jsx`)**: Renders interactive diagram canvases with pan/zoom/export, persona views, data tables, and the blast radius simulator.

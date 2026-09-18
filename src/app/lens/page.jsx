@@ -95,12 +95,20 @@ export default function LensDashboard() {
 
   const handleAnalyze = async (folderPath) => {
     const sanitized = cleanInputPath(folderPath);
+    if (!sanitized) {
+      setErrorMessage('Enter a folder path to scan.');
+      return;
+    }
+    // Clear stale model first so a rescan can never flash the same old
+    // table/API counts while the fresh analysis is running.
+    setAnalysisData(null);
     setIsLoading(true);
     setErrorMessage('');
     try {
-      const res = await fetch('/api/analyze', {
+      const res = await fetch(`/api/analyze?t=${Date.now()}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+        cache: 'no-store',
         body: JSON.stringify({ path: sanitized })
       });
       const result = await res.json();
@@ -121,10 +129,11 @@ export default function LensDashboard() {
   };
 
   const loadSampleProject = async () => {
+    setAnalysisData(null);
     setIsLoading(true);
     setErrorMessage('');
     try {
-      const res = await fetch('/api/sample');
+      const res = await fetch(`/api/sample?t=${Date.now()}`, { cache: 'no-store' });
       const result = await res.json();
       if (result.success) {
         setAnalysisData(result.data);

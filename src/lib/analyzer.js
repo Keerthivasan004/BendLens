@@ -13,26 +13,51 @@ const PersonaMapper = require('./generators/personaMapper');
  * Supports analyzing massive multi-gigabyte repositories seamlessly.
  */
 class ProjectAnalyzer {
+  static isSqlLikeFile(fullPath) {
+    const ext = path.extname(fullPath).toLowerCase();
+    return ['.sql', '.ddl', '.dump', '.dmp', '.pgsql', '.psql', '.mysql', '.tsql', '.mssql', '.cql', '.hql', '.ora', '.db.sql', '.sqlite.sql'].includes(ext)
+      || /(^|[/\\])[^/\\]*\.(sql|ddl)(\.(gz|txt))?$/i.test(fullPath);
+  }
+
+  static isSchemaPriorityFile(fullPath) {
+    const ext = path.extname(fullPath).toLowerCase();
+    if (['.sql', '.ddl', '.dump', '.dmp', '.pgsql', '.psql', '.mysql', '.tsql', '.mssql', '.cql', '.hql', '.ora', '.prisma'].includes(ext)) return true;
+    if (ProjectAnalyzer.isSqlLikeFile(fullPath)) return true;
+    if (/(^|[/\\])(schema\.rb|db\.xml|changelog[^/\\]*\.xml)$/i.test(fullPath)) return true;
+    return /migrat|schema|seed|ddl|prisma/i.test(fullPath);
+  }
+
   static scanDirectory(targetDir) {
-    const fileList = [];
+    const schemaFiles = [];
+    const otherFiles = [];
+    const skippedOversize = [];
+    let skippedOversizeCount = 0;
+    let seenTotal = 0;
     const IGNORED_DIRS = new Set([
       'node_modules', '.git', '.next', 'dist', 'build', '.idea', '.vscode',
-      '__pycache__', 'venv', '.venv', 'env', '.env', 'coverage', '.turbo', 
+      '__pycache__', 'venv', '.venv', 'env', '.env', 'coverage', '.turbo',
       'target', 'bin', 'obj', 'vendor', '.terraform', '.cache', 'tmp', 'temp', 'logs', 'out',
       '__MACOSX', '.DS_Store', 'Thumbs.db', 'PaxHeaders'
     ]);
 
-    const MAX_FILES = 10000;
-    const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024; // 2MB per code file max
+    // No arbitrary table/API ceilings: schema files are never dropped for
+    // size or count reasons (140+ table dumps routinely exceed 25MB and
+    // monorepos exceed 10k files). Code-file guard only skips minified
+    // bundles; schema DDL is streamed so any number of tables is extracted.
+    const MAX_FILES = 100000;
+    const MAX_SCHEMA_FILES = 100000;
+    const MAX_CODE_SIZE = 5 * 1024 * 1024; // 5MB per code file (minified/bundle guard)
+    // Schema dumps are streamed (not skipped) — 500MB still parses safely
+    // in chunks. Nothing silently drops tables anymore.
+    const MAX_SCHEMA_SIZE = 500 * 1024 * 1024;
 
     function walk(currentDir) {
-      if (!fs.existsSync(currentDir) || fileList.length >= MAX_FILES) return;
-      
+      if (!fs.existsSync(currentDir)) return;
+
       try {
         const entries = fs.readdirSync(currentDir, { withFileTypes: true });
 
         for (const entry of entries) {
-          if (fileList.length >= MAX_FILES) break;
           const fullPath = path.join(currentDir, entry.name);
 
           if (entry.isDirectory()) {
@@ -40,11 +65,32 @@ class ProjectAnalyzer {
               walk(fullPath);
             }
           } else if (entry.isFile()) {
-            // Check file size to avoid minified / gigantic binary dumps
+            seenTotal++;
             try {
+              const priority = ProjectAnalyzer.isSchemaPriorityFile(fullPath);
               const stat = fs.statSync(fullPath);
-              if (stat.size <= MAX_FILE_SIZE_BYTES) {
-                fileList.push(fullPath);
+              // Schema DDL is streamed by the parser — never skip it for
+              // size, no matter how many tables it holds.
+              if (!priority && stat.size > MAX_CODE_SIZE) {
+                skippedOversizeCount++;
+                if (skippedOversize.length < 25) {
+                  skippedOversize.push(path.relative(targetDir, fullPath).replace(/\\/g, '/'));
+                }
+                continue;
+              }
+              if (priority && stat.size > MAX_SCHEMA_SIZE) {
+                // Still included; parser streams it in chunks (see
+                // SchemaParser.parseLargeSQLFile). Recorded, not dropped.
+                if (skippedOversize.length < 25) {
+                  skippedOversize.push(path.relative(targetDir, fullPath).replace(/\\/g, '/') + ' (streamed)');
+                }
+              }
+              // Schema files always win seats and are never capped by the
+              // generic file budget — any number of tables must be extracted.
+              if (priority) {
+                if (schemaFiles.length < MAX_SCHEMA_FILES) schemaFiles.push(fullPath);
+              } else if (otherFiles.length < MAX_FILES) {
+                otherFiles.push(fullPath);
               }
             } catch {}
           }
@@ -54,8 +100,39 @@ class ProjectAnalyzer {
       }
     }
 
+    // Single-file scans (e.g. user points straight at a big .sql dump)
+    // must analyze that file instead of returning an empty file list.
+    try {
+      const targetStat = fs.statSync(targetDir);
+      if (targetStat.isFile()) {
+        return {
+          fileList: [targetDir],
+          stats: {
+            seenTotal: 1,
+            schemaPriorityCount: 1,
+            truncatedByMaxFiles: false,
+            skippedOversizeCount: 0,
+            skippedOversize: []
+          }
+        };
+      }
+    } catch {}
+
     walk(targetDir);
-    return fileList;
+    // Schema definitions always win seats and are never truncated, so a
+    // 140-table (or 10k-table) dump can never be crowded out by app code.
+    // Code files fill the remaining budget; schema files are all included.
+    const fileList = [...schemaFiles.slice(0, MAX_SCHEMA_FILES), ...otherFiles.slice(0, Math.max(0, MAX_FILES - Math.min(schemaFiles.length, MAX_FILES)))];
+    return {
+      fileList,
+      stats: {
+        seenTotal,
+        schemaPriorityCount: schemaFiles.length,
+        truncatedByMaxFiles: otherFiles.length > Math.max(0, MAX_FILES - Math.min(schemaFiles.length, MAX_FILES)),
+        skippedOversizeCount,
+        skippedOversize
+      }
+    };
   }
 
   static analyze(projectPath) {
@@ -67,7 +144,9 @@ class ProjectAnalyzer {
       throw new Error(`Directory not found: ${absPath}`);
     }
 
-    const fileList = this.scanDirectory(absPath);
+    const scan = this.scanDirectory(absPath);
+    const fileList = scan.fileList;
+    const scanStats = scan.stats;
 
     // 1. Run Parsers
     const schemaParser = new SchemaParser();
@@ -111,6 +190,7 @@ class ProjectAnalyzer {
       projectPath: absPath,
       projectName: path.basename(absPath),
       scannedFilesCount: fileList.length,
+      scanStats,
       schema: schemaData,
       code: codeData,
       infra: infraData,

@@ -6,6 +6,7 @@ import os from 'os';
 import path from 'path';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 const HISTORY_FILE = path.join(os.tmpdir(), '.bendlens_history.json');
 
@@ -41,7 +42,10 @@ export async function POST(request) {
     const result = ProjectAnalyzer.analyze(targetPath);
     saveToHistory(result);
 
-    return NextResponse.json({ success: true, data: result });
+    return NextResponse.json(
+      { success: true, data: result },
+      { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+    );
   } catch (error) {
     console.error('Analysis API Error:', error);
     return NextResponse.json(

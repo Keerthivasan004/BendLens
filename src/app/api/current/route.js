@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import ProjectAnalyzer from '@/lib/analyzer';
 import { getSampleProjectPath } from '@/lib/appPaths';
 
+// Never serve a cached analysis — every rescan must hit the disk fresh,
+// otherwise a changed folder keeps showing the same old table/API counts.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -21,7 +26,10 @@ export async function GET(request) {
     // Always run fresh analysis for the requested path - no caching
     const data = ProjectAnalyzer.analyze(cleanPath);
 
-    return NextResponse.json({ success: true, data });
+    return NextResponse.json(
+      { success: true, data },
+      { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+    );
   } catch (error) {
     console.error('Current Analysis API Error:', error);
     return NextResponse.json(
