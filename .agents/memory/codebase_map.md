@@ -19,7 +19,7 @@ This document maps all directories, modules, and significant files across BendLe
 - **`appPaths.js`**: Packaged-aware root resolution (`getAppRoot()` via `BENDLENS_APP_DIR` → `<resources>/app` → `process.cwd()`; `getSampleProjectPath()` with resource-mirror probes). Used by all `process.cwd()`-dependent API routes so downloaded Electron installs resolve `sample_project`/`package.json` correctly.
 - **`serverCache.js`**: In-memory server-side storage for the latest analysis payload, bypassing browser storage limitations.
 - **`parsers/`**:
-  - `schemaParser.js`: SQL DDL parser (Postgres, MySQL, MariaDB, SQLite, SQL Server, Oracle), SQLite binary files, Prisma, Mongoose, TypeORM, SQLAlchemy, Django ORM, and sample data value extraction.
+   - `schemaParser.js`: SQL DDL parser (Postgres, MySQL, MariaDB, SQLite, SQL Server, Oracle), SQLite binary files, Prisma, Mongoose, TypeORM, SQLAlchemy, Django ORM, and sample data value extraction. Plus whole-codebase table discovery (`parseCodeDefinedTables`): embedded DDL, Knex/Sequelize/Drizzle, Alembic/Django migrations, JPA `@Entity`, EF Core `DbSet`, GORM structs — with comment/demo-string guards and cross-language FK resolution. Plus intra-file DDL data-flow (`collectDDLVariables`/`parseVariableExecutedDDL`) and cross-file DDL data-flow (`indexFileForCrossFile`/`resolveCrossFileDDL`: import/export resolution, barrels, dict member forms, defining-file provenance).
   - `polyglotParser.js`: AST & pattern parser for JavaScript, TypeScript, Python, Java, Go, and C#. Extracts functions, classes, API routes, and DB access points.
   - `infraParser.js`: Dockerfile, Docker Compose, OpenAPI/Swagger, and package manifest parser.
 - **`graph/`**:
