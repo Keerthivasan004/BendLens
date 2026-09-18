@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import ProjectAnalyzer from '@/lib/analyzer';
-import serverCache from '@/lib/serverCache';
 import AdmZip from 'adm-zip';
 import os from 'os';
 import fs from 'fs';
@@ -89,7 +88,6 @@ export async function POST(request) {
 
           const result = ProjectAnalyzer.analyze(targetAnalyzeDir);
           result.projectName = repoName;
-          serverCache.setLatest(result);
 
           return NextResponse.json({ success: true, data: result });
         } else {
@@ -144,7 +142,6 @@ export async function POST(request) {
 
               const result = ProjectAnalyzer.analyze(targetAnalyzeDir);
               result.projectName = repoName;
-              serverCache.setLatest(result);
               return NextResponse.json({ success: true, data: result });
             }
           }
@@ -169,7 +166,6 @@ export async function POST(request) {
 
       const result = ProjectAnalyzer.analyze(cloneDir);
       result.projectName = repoName;
-      serverCache.setLatest(result);
 
       return NextResponse.json({ success: true, data: result });
     } catch (gitErr) {

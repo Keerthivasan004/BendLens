@@ -73,7 +73,7 @@ Evaluates real-time blast radius and cascading breakages when modifying a schema
 ---
 
 ## 3. GET `/api/current`
-Returns the active analysis payload directly from server memory (`serverCache.js`).
+Requires `?path=` and returns a freshly computed analysis for that path (no shared cache; 404 when `path` is missing so one session can never receive another's data).
 - **Response**:
   ```json
   {

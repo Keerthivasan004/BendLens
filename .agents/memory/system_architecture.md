@@ -14,7 +14,7 @@ flowchart TD
     D --> E1[DiagramGenerator: ERD, HLD, LLD, Sequence]
     D --> E2[ImpactAnalyzer: What-If Blast Radius]
     D --> E3[PersonaMapper: Developer, Manager, Business]
-    E1 --> F[Server Cache: serverCache.setLatest]
+    E1 --> F[Response: fresh analysis JSON per request (no shared cache)]
     E2 --> F
     E3 --> F
     F --> G[Client Dashboard: /lens]
@@ -54,5 +54,5 @@ flowchart TD
    - Projects technical metrics into Developer, Engineering Manager, and Business Owner views.
 
 ### Phase 5: Storage & Presentation
-- **Server Cache (`serverCache.js`)**: Keeps the active analysis in Node.js memory. This eliminates browser local-storage size constraints (5MB cap) when parsing massive enterprise schemas.
+- **No shared server cache (privacy fix)**: every API route (`analyze`, `current`, `upload`, `paste`, `sample`, `git-clone`, `impact`) runs a fresh `ProjectAnalyzer.analyze()` per request and returns it directly. The former global `serverCache.js` singleton was deleted because it leaked one user's analysis to other users and served stale results on re-scans. The lens page restores the last path from per-browser `localStorage` (`bendlens-path`) and re-analyzes on load.
 - **Client App (`src/app/lens/page.jsx`)**: Renders interactive diagram canvases with pan/zoom/export, persona views, data tables, and the blast radius simulator.

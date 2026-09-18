@@ -4,26 +4,17 @@ const { getSampleProjectPath } = require('@/lib/appPaths');
 const ProjectAnalyzer = require('@/lib/analyzer');
 const ImpactAnalyzer = require('@/lib/generators/impactAnalyzer');
 const KnowledgeGraph = require('@/lib/graph/knowledgeGraph');
-const serverCache = require('@/lib/serverCache');
 
 export async function POST(request) {
   try {
     const body = (await request.json().catch(() => ({}))) || {};
     let targetPath = (body.path || '').toString().trim().replace(/^["'`]+|["'`]+$/g, '').trim();
 
-    // Check server memory cache first for high speed and to support pasted/temp projects
-    let analysis = null;
-    if (targetPath) {
-      analysis = serverCache.getByPath(targetPath);
-    }
-    if (!analysis) {
-      analysis = serverCache.getLatest();
-    }
-    // If not in cache or path is specified and exists, analyze directory
-    if (!analysis || (targetPath && fs.existsSync(targetPath) && (!analysis.projectPath || analysis.projectPath !== targetPath))) {
-      const pathToAnalyze = (targetPath && fs.existsSync(targetPath)) ? targetPath : getSampleProjectPath();
-      analysis = ProjectAnalyzer.analyze(pathToAnalyze);
-    }
+    // Always run fresh analysis - no shared server cache (privacy: one
+    // user's schema must never leak into another user's impact simulation,
+    // and re-scans must reflect the current files on disk).
+    const pathToAnalyze = (targetPath && fs.existsSync(targetPath)) ? targetPath : getSampleProjectPath();
+    const analysis = ProjectAnalyzer.analyze(pathToAnalyze);
 
     const targetName = body.targetName || body.tableName || 'orders';
     const targetType = body.targetType || 'table';

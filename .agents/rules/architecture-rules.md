@@ -12,10 +12,11 @@ Large multi-gigabyte enterprise repositories are supported through strict guardr
 - **File Limit**: Never scan more than 10,000 files in a single pass (`MAX_FILES = 10000`).
 - **File Size Cap**: Only parse files <= 2MB (`MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024`) to prevent memory crashes on minified files or large binary dumps.
 
-## 3. Server Memory Cache Architecture
-- To bypass the browser's 5MB `localStorage` limit when analyzing large repositories, full analysis ASTs are cached on the server in `serverCache.js`.
-- The client fetches the current analysis via `/api/current`.
-- Analysis history is stored in a lightweight JSON file in the OS temp directory (`.bendlens_history.json`).
+## 3. No Shared Server Cache (Privacy Rule)
+- There is deliberately NO shared server-side analysis cache: the former `serverCache.js` global singleton was deleted because it leaked one user's analysis to other users and served stale results on re-scans.
+- Every API route analyzes fresh per request and returns the payload directly in the response (large payloads travel as JSON responses, not via shared memory).
+- The client passes an explicit `path` (`/api/current?path=...`, `/api/impact` body `path`) or keeps only the last path string in per-browser `localStorage` (`bendlens-path`).
+- Analysis history metadata only (counts, no schemas) is stored in a lightweight JSON file in the OS temp directory (`.bendlens_history.json`).
 
 ## 4. Single Source of Truth: In-Memory Knowledge Graph
 - The `KnowledgeGraph` (`src/lib/graph/knowledgeGraph.js`) is the central source of truth for:
