@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import ProjectAnalyzer from '@/lib/analyzer';
-import serverCache from '@/lib/serverCache';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -209,7 +208,6 @@ export async function POST(request) {
     const baseProjectName = safeFileName.replace(/\.zip$/i, '') || path.basename(targetAnalyzeDir);
     result.projectName = baseProjectName;
     
-    serverCache.setLatest(result);
     saveToHistory(result);
 
     return NextResponse.json({ success: true, data: result });

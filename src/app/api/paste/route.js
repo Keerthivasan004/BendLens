@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import ProjectAnalyzer from '@/lib/analyzer';
-import serverCache from '@/lib/serverCache';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -28,11 +27,9 @@ export async function POST(request) {
     const targetFilePath = path.join(extractDir, fileType);
     fs.writeFileSync(targetFilePath, code, 'utf-8');
 
-    // Run analyzer
+    // Run analyzer - always fresh, no caching
     const result = ProjectAnalyzer.analyze(extractDir);
     result.projectName = projectName;
-    
-    serverCache.setLatest(result);
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {

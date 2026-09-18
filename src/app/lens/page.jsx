@@ -60,27 +60,13 @@ export default function LensDashboard() {
       }
     } catch {}
 
-    // Fetch active analysis directly from server cache (No browser 5MB limit!)
-    fetchCurrentAnalysis();
-  }, []);
-
-  const fetchCurrentAnalysis = async () => {
-    setIsLoading(true);
-    try {
-      const res = await fetch('/api/current');
-      const result = await res.json();
-      if (result.success && result.data) {
-        setAnalysisData(result.data);
-        setCurrentPath(result.data.projectPath || '');
-      } else {
-        await loadSampleProject();
-      }
-    } catch (err) {
-      await loadSampleProject();
-    } finally {
-      setIsLoading(false);
+    // Restore last scanned project from localStorage and re-analyze
+    // (no server cache - always fresh analysis for privacy & correctness)
+    const savedPath = localStorage.getItem('bendlens-path');
+    if (savedPath) {
+      handleAnalyze(savedPath);
     }
-  };
+  }, []);
 
   const toggleTheme = (explicitTheme) => {
     const newTheme = (typeof explicitTheme === 'string' && (explicitTheme === 'dark' || explicitTheme === 'light'))

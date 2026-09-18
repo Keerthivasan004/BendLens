@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import ProjectAnalyzer from '@/lib/analyzer';
-import serverCache from '@/lib/serverCache';
 import { getSampleProjectPath } from '@/lib/appPaths';
 import fs from 'fs';
 import os from 'os';
@@ -38,9 +37,8 @@ export async function POST(request) {
       targetPath = getSampleProjectPath();
     }
 
+    // Always run fresh analysis - no caching, no cross-user leakage
     const result = ProjectAnalyzer.analyze(targetPath);
-    
-    serverCache.setLatest(result);
     saveToHistory(result);
 
     return NextResponse.json({ success: true, data: result });
