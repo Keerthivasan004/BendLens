@@ -24,8 +24,6 @@
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_UNPAGE_FINISH
 
-!insertmacro MUI_LANGUAGE "English"
-
 ; --- Component IDs ---
 !define COMP_DESKTOP_SHORTCUT 0
 !define COMP_STARTMENU_SHORTCUT 1
