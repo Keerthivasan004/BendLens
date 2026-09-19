@@ -58,7 +58,7 @@ export async function GET(request) {
 
     // 1. If running on cloud / web server without local dist/ binaries,
     // redirect to the official GitHub Releases page to download the full installer:
-    return NextResponse.redirect('https://github.com/Keerthivasan004/BendLens/releases', 307);
+    return NextResponse.redirect('https://github.com/Keerthivasan004/BendLens/releases/latest', 307);
   } catch (error) {
     console.error('Download route error:', error);
     return NextResponse.json(

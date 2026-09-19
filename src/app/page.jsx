@@ -151,6 +151,14 @@ CREATE TABLE orders (
         setScanStep(5);
         setScanProgress(100);
         await new Promise((r) => setTimeout(r, 120));
+        try {
+          if (result.data) {
+            sessionStorage.setItem('bendlens-current-data', JSON.stringify(result.data));
+            if (result.data.projectPath) {
+              localStorage.setItem('bendlens-path', result.data.projectPath);
+            }
+          }
+        } catch {}
         onComplete(result.data);
       } else {
         setErrorMessage(result.error || 'Analysis failed.');
@@ -170,7 +178,7 @@ CREATE TABLE orders (
   const handleScanPath = async (overridePath) => {
     const target = overridePath || folderPath;
 
-    if (!isLocalApp && target && (target.includes(':/') || target.includes(':\\') || target.startsWith('/Users/') || target.startsWith('/home/') || target.startsWith('C:') || target.startsWith('D:'))) {
+    if (!isLocalApp && !isDesktop && target && (target.includes(':/') || target.includes(':\\') || target.startsWith('/Users/') || target.startsWith('/home/') || target.startsWith('C:') || target.startsWith('D:') || target.startsWith('E:') || target.startsWith('F:'))) {
       setErrorMessage('Browser Security Notice: Web browsers cannot access host disk paths directly. Download the BendLens Desktop App for direct folder scans, or use ZIP Upload, Paste Schema, or Git Clone.');
       setDownloadModalReason('DEFAULT');
       setIsDownloadModalOpen(true);

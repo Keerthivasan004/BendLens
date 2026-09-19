@@ -8,6 +8,8 @@ const fs = require('fs');
 let mainWindow = null;
 let serverProcess = null;
 let activePort = 3000;
+let studioLoaded = false;
+let studioLoading = false;
 const HOST = '127.0.0.1';
 const PORT_CANDIDATES = [3000, 3001, 3030, 8000, 5000];
 const appUrl = () => `http://${HOST}:${activePort}`;
@@ -336,13 +338,15 @@ function detectDuplicateInstalls(projectDir) {
       fs.mkdirSync(path.dirname(flagFile), { recursive: true });
       fs.writeFileSync(flagFile, others.join('\n'), 'utf-8');
     } catch {}
-    dialog.showMessageBox(mainWindow, {
-      type: 'info',
-      title: 'BendLens Already Installed',
-      message: 'An existing BendLens installation was detected.',
-      detail: `Active installation:\n${projectDir}\n\nOther copie(s) found:\n${others.join('\n')}\n\nYou are running the active one above. To avoid conflicts, remove the old copy with its Uninstall option (this also deletes all BendLens app data).`,
-      buttons: ['OK']
-    }).catch(() => {});
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'BendLens Already Installed',
+        message: 'An existing BendLens installation was detected.',
+        detail: `Active installation:\n${projectDir}\n\nOther copie(s) found:\n${others.join('\n')}\n\nYou are running the active one above. To avoid conflicts, remove the old copy with its Uninstall option (this also deletes all BendLens app data).`,
+        buttons: ['OK']
+      }).catch(() => {});
+    }
   } catch {}
 }
 
@@ -351,7 +355,7 @@ function detectDuplicateInstalls(projectDir) {
  * Packaged mode runs Next in-process (Electron's binary is NOT node, so it
  * cannot spawn `next start` as a child script). Dev mode keeps npm/pnpm spawn.
  */
-function startBackendServer(projectDir, port) {
+function startBackendServer(projectDir, port, onReady = null) {
   if (serverProcess) return true;
 
   // Packaged + dev alike: anchor every process.cwd()-based lookup
@@ -412,6 +416,9 @@ function startBackendServer(projectDir, port) {
           const server = http.createServer((req, res) => handle(req, res));
           server.listen(port, HOST, () => {
             console.log(`[*] Embedded engine listening on ${HOST}:${port}.`);
+            if (typeof onReady === 'function') {
+              try { onReady(); } catch {}
+            }
           });
           server.on('error', (err) => {
             console.error('[!] Embedded engine server error:', err);
@@ -461,6 +468,9 @@ function startBackendServer(projectDir, port) {
       const text = data.toString();
       if (text.includes('Ready in') || text.includes('ready started') || text.includes('compiled client and server')) {
         console.log('[*] Engine ready signal received.');
+        if (typeof onReady === 'function') {
+          try { onReady(); } catch {}
+        }
       }
     });
     serverProcess.stderr?.on('data', (data) => {
@@ -481,60 +491,110 @@ function startBackendServer(projectDir, port) {
 function initBackendAndConnect() {
   const projectDir = resolveAppDir();
 
-  // Re-download safety net: tell the user when another copy exists instead
-  // of silently running a stale duplicate that "does not work properly".
-  try {
-    detectDuplicateInstalls(projectDir);
-  } catch {}
-
   resolvePort((port, shouldSpawn) => {
     activePort = port;
     if (!shouldSpawn) {
       loadStudio();
       return;
     }
-    // startBackendServer already shows its own error dialog on failure;
-    // never leave the user stranded on the splash screen silently.
-    if (!startBackendServer(projectDir, port)) {
+
+    let isEngineReady = false;
+    const triggerStudioLoad = () => {
+      if (isEngineReady || studioLoaded) return;
+      isEngineReady = true;
+      loadStudio();
+    };
+
+    // 1. In-process engine callback: immediate transition on server.listen
+    if (!startBackendServer(projectDir, port, () => {
+      console.log('[*] Engine server.listen signal received — transitioning to studio.');
+      triggerStudioLoad();
+    })) {
       console.error('[!] Backend could not be started — splash will stay visible with the error above.');
       return;
     }
 
-    // Poll BendLens identity (not just TCP) before leaving the splash screen
+    // 2. Sequential fallback probe (up to 45s, non-overlapping)
     let attempts = 0;
-    const pollInterval = setInterval(() => {
+    const maxAttempts = 180; // 180 * 250ms = 45s
+    let isProbing = false;
+
+    const probe = () => {
+      if (isEngineReady || studioLoaded) return;
       attempts++;
+      if (attempts > maxAttempts) {
+        console.error('[!] Engine did not become ready in time (45s).');
+        dialog.showErrorBox(
+          'BendLens Engine Failed to Start',
+          'The local BendLens engine did not respond in time (45s).\n\nPlease restart the application. If the problem persists, reinstall BendLens.'
+        );
+        return;
+      }
+
+      if (isProbing) {
+        setTimeout(probe, 250);
+        return;
+      }
+
+      isProbing = true;
       isBendLensServer(activePort, (ready) => {
+        isProbing = false;
+        if (isEngineReady || studioLoaded) return;
         if (ready) {
-          clearInterval(pollInterval);
-          loadStudio();
-        } else if (attempts > 130) { // ~20s timeout
-          clearInterval(pollInterval);
-          console.error('[!] Engine did not become ready in time.');
-          dialog.showErrorBox(
-            'BendLens Engine Failed to Start',
-            'The local BendLens engine did not respond in time.\n\nPlease restart the application. If the problem persists, reinstall BendLens.'
-          );
+          console.log('[*] Engine identity confirmed via HTTP probe.');
+          triggerStudioLoad();
+        } else {
+          setTimeout(probe, 250);
         }
       });
-    }, 150);
+    };
+
+    setTimeout(probe, 200);
   });
 }
 
-function loadStudio() {
-  if (!mainWindow) return;
-  mainWindow.loadURL(appUrl()).then(() => {
-    checkForDesktopUpdates();
-    // Recurring desktop check while the window stays open (previously
-    // once-only, so releases published mid-session never fired).
-    if (!loadStudio.updateTimer) {
-      loadStudio.updateTimer = setInterval(() => {
-        if (mainWindow) checkForDesktopUpdates();
-      }, 15 * 60 * 1000);
-    }
-  }).catch((err) => {
-    console.error('[!] Error loading studio URL:', err);
-  });
+function loadStudio(attempt = 1) {
+  if (!mainWindow || studioLoaded) return;
+  studioLoading = true;
+  console.log(`[*] Loading studio URL: ${appUrl()} (attempt ${attempt})...`);
+
+  mainWindow
+    .loadURL(appUrl())
+    .then(() => {
+      studioLoaded = true;
+      studioLoading = false;
+      console.log('[*] Studio URL loaded successfully.');
+      checkForDesktopUpdates();
+
+      // Defer duplicate installs detection safely after UI has settled
+      try {
+        const projectDir = resolveAppDir();
+        setTimeout(() => detectDuplicateInstalls(projectDir), 2500);
+      } catch {}
+
+      // Recurring desktop check while the window stays open
+      if (!loadStudio.updateTimer) {
+        loadStudio.updateTimer = setInterval(() => {
+          if (mainWindow) checkForDesktopUpdates();
+        }, 15 * 60 * 1000);
+      }
+    })
+    .catch((err) => {
+      studioLoading = false;
+      const msg = (err && err.message) || String(err);
+      console.warn(`[!] loadStudio error (attempt ${attempt}):`, msg);
+
+      // Auto-retry on aborted or transient errors (up to 4 attempts with exponential backoff)
+      if (attempt < 4 && !studioLoaded) {
+        const delay = attempt * 400;
+        console.log(`[*] Retrying studio navigation in ${delay}ms...`);
+        setTimeout(() => {
+          if (!studioLoaded && mainWindow) {
+            loadStudio(attempt + 1);
+          }
+        }, delay);
+      }
+    });
 }
 
 function cleanupServer() {

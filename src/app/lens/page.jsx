@@ -60,11 +60,28 @@ export default function LensDashboard() {
       }
     } catch {}
 
-    // Restore last scanned project from localStorage and re-analyze
-    // (no server cache - always fresh analysis for privacy & correctness)
-    const savedPath = localStorage.getItem('bendlens-path');
-    if (savedPath) {
-      handleAnalyze(savedPath);
+    // Check if fresh analysis data was handed off from the ingestion portal
+    let restoredFromSession = false;
+    try {
+      const sessionDataRaw = sessionStorage.getItem('bendlens-current-data');
+      if (sessionDataRaw) {
+        const sessionData = JSON.parse(sessionDataRaw);
+        if (sessionData && sessionData.schema) {
+          setAnalysisData(sessionData);
+          setCurrentPath(sessionData.projectPath || '');
+          restoredFromSession = true;
+        }
+      }
+    } catch {}
+
+    if (!restoredFromSession) {
+      const savedPath = localStorage.getItem('bendlens-path');
+      if (savedPath) {
+        handleAnalyze(savedPath);
+      } else {
+        // Fallback: load the built-in sample project so the studio never hangs on a blank spinner
+        loadSampleProject();
+      }
     }
   }, []);
 

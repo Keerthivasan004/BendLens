@@ -27,9 +27,10 @@ BendLens ships as a true native Windows application: double-click → splash →
   - `resolvePort()`: reuses a live BendLens server (verified by identity probe) or picks the first free port from `[3000, 3001, 3030, 8000, 5000]`.
   - `isBendLensServer()`: probes `/api/updates/check` for `{ success: true, currentVersion: string }` — never attaches to a foreign service on port 3000.
   - Packaged mode runs the production engine **in-process** (`require('next')` + `prepare()` + `http.createServer(handle).listen(port, 127.0.0.1)`, `NODE_ENV=production`) — **no npm required** on the user machine. Rationale: `process.execPath` in a packaged app is the Electron binary, not Node, so `spawn(process.execPath, [nextBin, 'start', ...])` cannot boot Next and leaves the app stuck on splash.
-  - Dev mode keeps the `npm/pnpm run dev|start` spawn; child-process stdio/exit handlers are skipped for the embedded server.
-  - Readiness = identity probe success (150ms poll, ~20s timeout); on timeout a native error dialog is shown instead of loading a dead URL.
-- **Security**:
+    - Readiness = direct in-process `server.listen()` callback in packaged mode, plus a sequential HTTP identity probe fallback (250ms interval, 45s timeout) for spawned dev engines.
+    - `loadStudio()` incorporates a single-flight execution lock (`studioLoaded`/`studioLoading`) and automatic exponential retry on Chromium navigation aborts (`ERR_ABORTED -3`) so the window never gets stranded on `splash.html`.
+    - `detectDuplicateInstalls()` is deferred until 2.5s after studio load to ensure modal dialogs never freeze the startup message pump or trigger Windows Application Hang (Event 1002).
+    - Ingestion-to-Studio handoff: scans completed on the landing page persist to `sessionStorage` and `localStorage`, and `/lens` automatically checks session cache, then local path, with immediate fallback to `loadSampleProject()` to prevent infinite loading spinners.
   - `contextIsolation: true`
   - `nodeIntegration: false`
   - Intercepts external link navigation (`setWindowOpenHandler`) to open links in the system's default browser via `shell.openExternal`.
