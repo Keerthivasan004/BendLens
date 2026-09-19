@@ -33,11 +33,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
-      - name: Verify pnpm store
-        run: pnpm store path
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Verify pnpm store
+        run: pnpm store path
 
       - name: Build Next.js application
         run: pnpm run build
