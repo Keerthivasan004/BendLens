@@ -70,3 +70,6 @@ Use this skill when you need to:
 - **Uninstall leftovers**: NSIS Uninstall wipes `%APPDATA%\BendLens` (`deleteAppDataOnUninstall` + `customUnInstall`); legacy-payload users run `Uninstall-BendLens.cmd` from the install dir (or `public/downloads/`). If data survives, the uninstaller was bypassed by manual folder deletion — re-run the matching uninstaller.
 - **Splash Screen Stalling**: a native error dialog now appears if the engine fails; check logs by running the spawned engine command in a standalone terminal.
 - **Window Icon Missing**: Verify `public/icon.ico` exists. Use `scripts/generate-icons.js` to regenerate icons if missing.
+- **CI/CD Windows Release (`release.yml`)**:
+  - Requires `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'` in workflow `env:` to avoid GitHub Actions runner Node 20 deprecation warnings and forced Node 24 incompatibility.
+  - Requires `pnpm-workspace.yaml` to explicitly include `packages: ['- .']` so that `pnpm 9` does not fail with `packages field missing or empty` during `actions/setup-node@v4` pnpm store cache resolution (`pnpm store path`).

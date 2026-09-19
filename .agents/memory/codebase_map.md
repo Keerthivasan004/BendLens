@@ -5,12 +5,14 @@ This document maps all directories, modules, and significant files across BendLe
 ## Root Directory
 - `package.json`: Project manifest (Next.js 16, React 18, Tailwind CSS 3, Electron 43, electron-builder 26).
 - `pnpm-lock.yaml`: Primary lockfile for fast, deterministic dependency resolution via `pnpm`.
+- `pnpm-workspace.yaml`: Workspace manifest defining package roots (`.`) and security build allowances (`allowBuilds`).
 - `.npmrc`: Configured with `shamefully-hoist=true` and `auto-install-peers=true` for Next.js and Electron flat resolution.
 - `run.bat` / `run.js`: 1-Click Windows development launcher (auto-detects `pnpm`).
 - `BendLens.bat` / `BendLens.exe`: Windows desktop launcher wrapper (auto-detects `pnpm`).
 - `next.config.js`: Next.js configuration.
 - `tailwind.config.js`: Tailwind theme styling configuration.
 - `sample_project/`: Built-in sample multi-tier application (Flask, schema.sql, docker-compose.yml) used for quick demonstration and fallback analysis.
+- `.github/workflows/release.yml`: Automated GitHub Actions Windows release build & release pipeline with Node 20/24 compatibility flag (`ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'`) and pnpm store caching.
 
 ---
 
