@@ -154,7 +154,6 @@ export default function DownloadModal({ isOpen, onClose, reason = 'DEFAULT' }) {
           <div className="mt-6 pt-5 border-t border-border-subtle flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
             <a
               href="/api/download-app"
-              download="BendLens.exe"
               onClick={() => setTimeout(onClose, 1500)}
               className="btn-primary flex-1 py-3 text-sm font-bold justify-center group shadow-glow"
             >
