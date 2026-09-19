@@ -5,6 +5,9 @@
 ;  2. UNINSTALL LEAVES DATA — cleans user data, legacy payload, temp files, and shortcuts.
 
 !macro customInstall
+  ; Kill any running BendLens processes before replacing files
+  nsExec::Exec 'taskkill /F /IM BendLens.exe /T'
+
   ; Remove legacy CMD-payload install dir left by older BendLens-Setup.cmd
   RMDir /r "$LOCALAPPDATA\BendLens"
   ; Remove legacy extracted-app cache
@@ -16,7 +19,7 @@
 
 !macro customUnInstall
   ; Kill any running BendLens processes before removing files
-  ExecWait '"$SYSDIR\wbem\WMIC.exe" process where "name='\''BendLens.exe'\''" call terminate' $0
+  nsExec::Exec 'taskkill /F /IM BendLens.exe /T'
 
   ; Remove installed files
   RMDir /r "$INSTDIR"
