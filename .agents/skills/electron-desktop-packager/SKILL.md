@@ -73,3 +73,5 @@ Use this skill when you need to:
 - **CI/CD Windows Release (`release.yml`)**:
   - Requires `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'` in workflow `env:` to avoid GitHub Actions runner Node 20 deprecation warnings and forced Node 24 incompatibility.
   - Requires `pnpm-workspace.yaml` to explicitly include `packages: ['- .']` so that `pnpm 9` does not fail with `packages field missing or empty` during `actions/setup-node@v4` pnpm store cache resolution (`pnpm store path`).
+  - `scripts/installer.nsh` must only define `!macro customInstall` and `!macro customUnInstall` (do not define `Function .onInit` or insert duplicate `MUI_PAGE_*` macros, as electron-builder defines them internally).
+  - Exclude `node_modules/electron`, `node_modules/electron-builder`, `.cache`, and `*.map` from `build.files` in `package.json` to avoid packaging ~250MB+ of redundant binaries and slow 7z compression.

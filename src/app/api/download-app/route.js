@@ -124,12 +124,12 @@ export async function GET(request) {
     const FILES = ['BendLens.bat', 'package.json', 'run.bat', 'run.js', 'README.md', 'tailwind.config.js', 'next.config.js', 'postcss.config.js', 'jsconfig.json'];
 
     for (const dir of DIRS) {
-      const p = path.join(projectRoot, dir);
-      if (fs.existsSync(p)) zip.addLocalFolder(p, dir);
+      const p = path.join(/*turbopackIgnore: true*/ projectRoot, dir);
+      if (fs.existsSync(/*turbopackIgnore: true*/ p)) zip.addLocalFolder(p, dir);
     }
     for (const f of FILES) {
-      const p = path.join(projectRoot, f);
-      if (fs.existsSync(p)) zip.addLocalFile(p);
+      const p = path.join(/*turbopackIgnore: true*/ projectRoot, f);
+      if (fs.existsSync(/*turbopackIgnore: true*/ p)) zip.addLocalFile(p);
     }
 
     const zipBuffer = zip.toBuffer();

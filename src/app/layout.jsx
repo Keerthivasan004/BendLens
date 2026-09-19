@@ -3,10 +3,6 @@ import './globals.css';
 export const metadata = {
   title: 'BendLens — Backend Architecture & Blast-Radius Studio',
   description: 'Local-first backend architecture studio: schema ERD, HLD, LLD, execution sequences and what-if blast-radius analysis for Developers, Managers, and Business Owners.',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#f6f8fc' },
-    { media: '(prefers-color-scheme: dark)', color: '#070b14' },
-  ],
   icons: {
     icon: [
       { url: '/icon.svg', type: 'image/svg+xml' },
@@ -16,6 +12,13 @@ export const metadata = {
     shortcut: '/icon.ico',
     apple: '/icon.png'
   }
+};
+
+export const viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f6f8fc' },
+    { media: '(prefers-color-scheme: dark)', color: '#070b14' },
+  ],
 };
 
 export default function RootLayout({ children }) {

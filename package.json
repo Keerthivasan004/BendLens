@@ -2,6 +2,8 @@
   "name": "bendlens-platform",
   "version": "1.1.0",
   "description": "BendLens - Universal Backend Architecture & Blast Platform",
+  "author": "BendLens Team",
+  "packageManager": "pnpm@9.15.9",
   "main": "electron/main.js",
   "private": true,
   "scripts": {
@@ -10,7 +12,6 @@
     "start": "next start -p 3000",
     "desktop": "electron .",
     "launch": "node scripts/launch-desktop.js",
-    "predist": "next build",
     "dist": "electron-builder --win"
   },
   "build": {
@@ -31,7 +32,11 @@
       "!public/downloads/**",
       "electron/**/*",
       "sample_project/**/*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!node_modules/electron/**",
+      "!node_modules/electron-builder/**",
+      "!node_modules/.cache/**",
+      "!**/*.map"
     ],
     "extraResources": [
       {

@@ -23,7 +23,7 @@ const path = require('path');
 let cachedRoot = null;
 
 function getAppRoot() {
-  if (cachedRoot && fs.existsSync(cachedRoot)) return cachedRoot;
+  if (cachedRoot && fs.existsSync(/*turbopackIgnore: true*/ cachedRoot)) return cachedRoot;
 
   const candidates = [];
 
