@@ -39,6 +39,8 @@ All diagram logic resides in `src/lib/generators/diagramGenerator.js`:
   ```javascript
   if (safeTarget === safeSource) continue;
   ```
+- **Attribute Capping (14 Max per Table)**: Retain 100% of Primary Keys (`PK`) and Foreign Keys (`FK`). Fill up to 14 attributes total and append `string _more_N_fields` for excess fields. This prevents layout lockups on tables with 30-50+ columns.
+- **Max Text Size & Caching**: Always set `maxTextSize: 10000000` in `mermaid.initialize` to prevent `"Maximum text size in diagram exceeded"` error blocks. Cache rendered SVGs in `svgCacheRef` to render 0ms transitions without re-evaluating layouts.
 
 ### 3. HLD Service Tier Labels
 - First backend service = `Core Backend API (NAME - Port X - N Routes)`; the rest = `Other API Service (NAME - Port X)`.

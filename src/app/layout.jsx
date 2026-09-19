@@ -43,7 +43,7 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
         <script src="/mermaid.min.js"></script>
-        <script dangerouslySetInnerHTML={{ __html: `if(!window.mermaid){document.write('<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"><\\/script>')}` }} />
+        <script dangerouslySetInnerHTML={{ __html: `if(!window.mermaid){document.write('<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"><\\/script>');} else { try { window.mermaid.initialize({ startOnLoad: false, maxTextSize: 10000000 }); } catch(e){} }` }} />
       </head>
       <body className="min-h-screen transition-colors antialiased">
         {children}

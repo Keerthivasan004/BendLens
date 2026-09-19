@@ -37,13 +37,14 @@ export default function DiagramCanvas({
   const isRenderingRef = useRef(false);
   const queuedRenderRef = useRef(false);
   const lastThemeRef = useRef(null);
+  const svgCacheRef = useRef(new Map());
 
   const currentDiagram = diagrams ? diagrams[activeTab] : null;
 
   const cleanStrayMermaidErrors = () => {
     if (typeof document !== 'undefined') {
       // Only remove error overlays, never remove active rendering sandboxes
-      document.querySelectorAll('body > [id*="mermaid-"][aria-roledescription="error"], body > svg[aria-roledescription="error"]').forEach((el) => {
+      document.querySelectorAll('body > [id*="mermaid-"][aria-roledescription="error"], body > svg[aria-roledescription="error"], body > div[id^="dmermaid"]').forEach((el) => {
         el.remove();
       });
     }
@@ -114,6 +115,7 @@ export default function DiagramCanvas({
         window.mermaid.initialize({
           startOnLoad: false,
           suppressErrorRendering: true,
+          maxTextSize: 10000000,
           theme: isDark ? 'dark' : 'neutral',
           securityLevel: 'loose',
           themeVariables: isDark ? {
@@ -203,6 +205,27 @@ export default function DiagramCanvas({
       return;
     }
 
+    // Check in-memory cache for instant 0ms transitions without recomputing layout
+    const cacheKey = `${activeTab}-${theme}-${mermaidCode.length}-${mermaidCode.slice(0, 60)}`;
+    if (svgCacheRef.current.has(cacheKey)) {
+      const cachedSvg = svgCacheRef.current.get(cacheKey);
+      if (thisReq === renderReqId.current && element) {
+        cleanStrayMermaidErrors();
+        element.innerHTML = cachedSvg;
+        const svgEl = element.querySelector('svg');
+        if (svgEl) {
+          svgEl.style.maxWidth = 'none';
+          svgEl.style.height = 'auto';
+        }
+        setTimeout(handleFitToScreen, 30);
+      }
+      isRenderingRef.current = false;
+      return;
+    }
+
+    // Yield to event loop to keep the UI interactive and avoid window freezes
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
     // Ensure custom fonts are loaded to guarantee non-zero text measurement bounding boxes
     if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
       try {
@@ -225,7 +248,18 @@ export default function DiagramCanvas({
       const { svg } = await window.mermaid.render(id, mermaidCode);
       if (thisReq === renderReqId.current && element) {
         cleanStrayMermaidErrors();
+
+        // Self-heal: If Mermaid generated an internal text size error SVG, fall back to Interactive Topology
+        if (svg && (svg.includes('Maximum text size in diagram exceeded') || svg.includes('style a fill:#faa'))) {
+          if (activeTab === 'erd') {
+            setErdMode('INTERACTIVE');
+            isRenderingRef.current = false;
+            return;
+          }
+        }
+
         element.innerHTML = svg;
+        svgCacheRef.current.set(cacheKey, svg);
         const svgEl = element.querySelector('svg');
         if (svgEl) {
           svgEl.style.maxWidth = 'none';
@@ -248,7 +282,15 @@ export default function DiagramCanvas({
           const { svg: retrySvg } = await window.mermaid.render(retryId, sanitizedCode);
           if (thisReq === renderReqId.current && element) {
             cleanStrayMermaidErrors();
+            if (retrySvg && (retrySvg.includes('Maximum text size in diagram exceeded') || retrySvg.includes('style a fill:#faa'))) {
+              if (activeTab === 'erd') {
+                setErdMode('INTERACTIVE');
+                isRenderingRef.current = false;
+                return;
+              }
+            }
             element.innerHTML = retrySvg;
+            svgCacheRef.current.set(cacheKey, retrySvg);
             const svgEl = element.querySelector('svg');
             if (svgEl) {
               svgEl.style.maxWidth = 'none';
@@ -259,10 +301,14 @@ export default function DiagramCanvas({
         } catch (fallbackErr) {
           if (thisReq === renderReqId.current && element) {
             cleanStrayMermaidErrors();
-            element.innerHTML = `<div class="p-6 text-xs text-muted font-mono bg-surface-card rounded-xl border border-border flex flex-col items-center justify-center text-center">
-              <p class="font-semibold text-foreground">Diagram Visual Preview</p>
-              <p class="text-[11px] text-muted mt-1">Switch to 'Code' view to inspect schema definitions.</p>
-            </div>`;
+            if (activeTab === 'erd') {
+              setErdMode('INTERACTIVE');
+            } else {
+              element.innerHTML = `<div class="p-6 text-xs text-muted font-mono bg-surface-card rounded-xl border border-border flex flex-col items-center justify-center text-center">
+                <p class="font-semibold text-foreground">Diagram Visual Preview</p>
+                <p class="text-[11px] text-muted mt-1">Switch to 'Code' view to inspect schema definitions.</p>
+              </div>`;
+            }
           }
         }
       }

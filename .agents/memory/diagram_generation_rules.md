@@ -25,6 +25,9 @@ BendLens compiles architecture into 4 visual diagrams using Mermaid.js (`src/lib
   - Column types must be simple tokens without parenthesis (e.g., use `varchar` instead of `varchar(255)`).
   - Tags must strictly be `PK` or `FK` or omitted.
   - **Self-Referencing Keys**: If `sourceTable === targetTable`, skip the relationship edge to prevent zero-length SVG path rendering bugs in Mermaid.
+  - **Column Capping (14 Max per Table)**: Always preserve 100% of Primary Keys (`PK`) and Foreign Keys (`FK`). Cap non-key columns to 14 total and append `string _more_N_fields` to prevent layout engine CPU lockups and text size limit errors.
+  - **Large Schema Prioritization (> 50 Tables)**: For massive schemas, prioritize top 50 relational and interconnected tables in Crow's Foot ERD, while retaining 100% entities in `Interactive Topology` and KnowledgeGraph.
+  - **Mermaid Config**: Initialize Mermaid with `maxTextSize: 10000000` to prevent `"Maximum text size in diagram exceeded"` error placeholders.
 
 ---
 

@@ -20,15 +20,53 @@ class DiagramGenerator {
     }
     let mermaid = 'erDiagram\n';
 
-    // Format tables with clean types and PK/FK markers
-    for (const table of tables) {
+    // Prioritize relational and interconnected tables if schema is colossal (> 50 tables)
+    // to prevent Mermaid Dagre engine from locking up the browser thread.
+    let targetTables = tables;
+    if (tables.length > 50) {
+      const relatedTableNames = new Set();
+      (relations || []).forEach(r => {
+        if (r.sourceTable) relatedTableNames.add(r.sourceTable);
+        if (r.targetTable) relatedTableNames.add(r.targetTable);
+      });
+      targetTables = [...tables].sort((a, b) => {
+        const aRel = relatedTableNames.has(a.name) ? 1 : 0;
+        const bRel = relatedTableNames.has(b.name) ? 1 : 0;
+        if (aRel !== bRel) return bRel - aRel;
+        return (a.name || '').localeCompare(b.name || '');
+      }).slice(0, 50);
+    }
+
+    const includedTableNames = new Set(targetTables.map(t => (t.name || '').replace(/[^a-zA-Z0-9_]/g, '_')));
+
+    // Format tables with clean types and PK/FK markers (cap at 14 columns per entity to avoid CPU layout hangs)
+    const MAX_COLS_PER_TABLE = 14;
+
+    for (const table of targetTables) {
       const safeTableName = (table.name || 'table').replace(/[^a-zA-Z0-9_]/g, '_');
       mermaid += `    ${safeTableName} {\n`;
       const cols = table.columns || [];
       if (cols.length === 0) {
         mermaid += `        string id PK\n`;
       } else {
+        const pkCols = [];
+        const fkCols = [];
+        const regularCols = [];
+
         for (const col of cols) {
+          const isPk = !!col.isPrimaryKey;
+          const isFk = (table.foreignKeys || []).some(f => f.column === col.name);
+          if (isPk) pkCols.push(col);
+          else if (isFk) fkCols.push(col);
+          else regularCols.push(col);
+        }
+
+        // Always retain all PKs and FKs, and fill remaining slots up to MAX_COLS_PER_TABLE
+        const selectedCols = [...pkCols, ...fkCols];
+        const remainingSlots = Math.max(0, MAX_COLS_PER_TABLE - selectedCols.length);
+        selectedCols.push(...regularCols.slice(0, remainingSlots));
+
+        for (const col of selectedCols) {
           const pk = col.isPrimaryKey ? 'PK' : '';
           const fk = (table.foreignKeys || []).some(f => f.column === col.name) ? 'FK' : '';
           const tag = pk || fk || '';
@@ -44,11 +82,16 @@ class DiagramGenerator {
           if (tag) tokens.push(tag);
           mermaid += `        ${tokens.join(' ')}\n`;
         }
+
+        const omittedCount = cols.length - selectedCols.length;
+        if (omittedCount > 0) {
+          mermaid += `        string _more_${omittedCount}_fields\n`;
+        }
       }
       mermaid += `    }\n`;
     }
 
-    // Deduplicate relations
+    // Deduplicate relations and filter to only tables present in the diagram
     const seenRelations = new Set();
     for (const rel of (relations || [])) {
       if (!rel.targetTable || !rel.sourceTable) continue;
@@ -56,8 +99,10 @@ class DiagramGenerator {
       const safeSource = rel.sourceTable.replace(/[^a-zA-Z0-9_]/g, '_');
       // Prevent self-referencing foreign keys from generating zero-length SVG paths in Mermaid ER
       if (safeTarget === safeSource) continue;
+      // Skip relations where one of the tables was excluded
+      if (!includedTableNames.has(safeTarget) || !includedTableNames.has(safeSource)) continue;
 
-      const safeCol = (rel.sourceColumn || 'references').replace(/[^a-zA-Z0-9_]/g, '_');
+      const safeCol = (rel.sourceColumn || 'references').replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 32);
       const relKey = `${safeTarget}->${safeSource}:${safeCol}`;
       if (!seenRelations.has(relKey)) {
         seenRelations.add(relKey);
@@ -71,6 +116,7 @@ class DiagramGenerator {
       title: 'Database Entity-Relationship Diagram',
       mermaid: mermaid.trim(),
       tablesCount: tables.length,
+      tablesShown: targetTables.length,
       relationsCount: seenRelations.size
     };
   }
