@@ -10,14 +10,10 @@
 !include "FileFunc.nsh"
 !include "LogicLib.nsh"
 !include "WinCore.nsh"
-!include "WinShell.nsh"
 
-; --- MUI Pages ---
-!define MUI_ICON "public/icon.ico"
-!define MUI_UNICON "public/icon.ico"
-
+; --- MUI Pages (MUI_ICON/MUI_UNICON already defined by electron-builder config) ---
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "LICENSE"
+!insertmacro MUI_PAGE_LICENSE "${PROJECT_DIR}\LICENSE"
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -40,77 +36,71 @@
   ; below must match the component IDs above.
 
   Section "Desktop Shortcut" SecDesktopShortcut
-    SectionIn ${COMP_DESKTOP_SHORTCUT}
-    ; Shortcut creation is handled by electron-builder via createDesktopShortcut
+    SectionIn 1 2
+    ; Shortcut created in .onSelChange based on component state
   SectionEnd
 
   Section "Start Menu Shortcut" SecStartMenuShortcut
-    SectionIn ${COMP_STARTMENU_SHORTCUT}
-    ; Shortcut creation is handled by electron-builder via createStartMenuShortcut
+    SectionIn 1 2
+    ; Shortcut created in .onSelChange based on component state
   SectionEnd
 
-  ; Pre-install cleanup (runs before files are copied)
-  ; Remove legacy CMD-payload install dir left by older BendLens-Setup.cmd
+  ; Clean up legacy installs before installing fresh
+  ; Remove legacy %LOCALAPPDATA%\BendLens folder
   RMDir /r "$LOCALAPPDATA\BendLens"
-  ; Drop the stale asar-extraction cache so the new version re-extracts cleanly
+  ; Remove legacy extracted-app cache
   RMDir /r "$APPDATA\BendLens\extracted-app"
-  Delete "$APPDATA\BendLens\extracted-app.version"
-
-  ; If an older version is already installed in the same directory,
-  ; the file overwrite will handle it. But we also kill any running
-  ; BendLens processes so files aren't locked.
-  System::Call 'kernel32::GetCurrentProcessId()i.r0'
-  ExecWait '"$SYSDIR\wbem\WMIC.exe" process where "name='\''BendLens.exe'\''" call terminate' $0
+  ; Remove any stray temp scan folders
+  RMDir /r "$TEMP\bendlens_temp_scans"
 !macroend
 
 ; --- Custom Uninstall Section ---
 !macro customUnInstall
-  ; Electron userData (Cache, GPUCache, Code Cache, Local Storage, logs).
-  ; deleteAppDataOnUninstall=true already removes $APPDATA\<productName>;
-  ; these explicit lines also cover renamed/legacy variants.
+  ; Kill any running BendLens processes before removing files
+  ExecWait '"$SYSDIR\wbem\WMIC.exe" process where "name='\''BendLens.exe'\''" call terminate' $0
+
+  ; Remove installed files
+  RMDir /r "$INSTDIR"
+
+  ; Remove user data
   RMDir /r "$APPDATA\BendLens"
-  RMDir /r "$APPDATA\com.bendlens.studio"
-  ; Legacy payload dir from BendLens-Setup.cmd installs.
+
+  ; Remove legacy install locations
   RMDir /r "$LOCALAPPDATA\BendLens"
-  ; Temp analysis-history file written by src/app/api/history/route.js
-  Delete "$TEMP\.bendlens_history.json"
-  ; Shortcuts (belt-and-braces alongside the builder-managed ones).
+  RMDir /r "$LOCALAPPDATA\Programs\BendLens"
+  RMDir /r "$PROGRAMFILES\BendLens"
+
+  ; Remove shortcuts
   Delete "$DESKTOP\BendLens.lnk"
   Delete "$SMPROGRAMS\BendLens.lnk"
 
-  ; Kill any running BendLens processes before removing files
-  ExecWait '"$SYSDIR\wbem\WMIC.exe" process where "name='\''BendLens.exe'\''" call terminate' $0
+  ; Remove temp scan folders
+  RMDir /r "$TEMP\bendlens_temp_scans"
 !macroend
 
-; --- Component selection callbacks ---
+; --- Component selection callbacks (simplified for NSIS 3.0.4 compatibility) ---
+; Use basic SectionGetFlags/SectionSetFlags via !insertmacro if available, else skip
 Function .onInit
   ; Default both shortcut components ON
-  ${SectionGetFlags} ${COMP_DESKTOP_SHORTCUT} $0
-  IntOp $0 $0 | ${SF_SELECTED}
-  ${SectionSetFlags} ${COMP_DESKTOP_SHORTCUT} $0
-
-  ${SectionGetFlags} ${COMP_STARTMENU_SHORTCUT} $0
-  IntOp $0 $0 | ${SF_SELECTED}
-  ${SectionSetFlags} ${COMP_STARTMENU_SHORTCUT} $0
+  StrCpy $0 ${SF_SELECTED}
+  SectionSetFlags ${COMP_DESKTOP_SHORTCUT} $0
+  SectionSetFlags ${COMP_STARTMENU_SHORTCUT} $0
 FunctionEnd
 
 Function .onSelChange
-  ; Update electron-builder shortcut creation flags based on component selection
-  ; Note: electron-builder reads these at build time, not install time.
-  ; For install-time control, we create/remove shortcuts manually here.
-  ${SectionGetFlags} ${COMP_DESKTOP_SHORTCUT} $0
-  IntOp $0 $0 & ${SF_SELECTED}
-  StrCmp $0 ${SF_SELECTED} +2
-  ; Desktop shortcut NOT selected - remove if exists
-  Delete "$DESKTOP\BendLens.lnk"
-  Goto +1
-  ; Desktop shortcut selected - create it
-  CreateShortcut "$DESKTOP\BendLens.lnk" "$INSTDIR\BendLens.exe" "" "$INSTDIR\public\icon.ico" 0
+  ; Check desktop shortcut component
+  SectionGetFlags ${COMP_DESKTOP_SHORTCUT} $0
+  ${If} $0 & ${SF_SELECTED}
+    CreateShortcut "$DESKTOP\BendLens.lnk" "$INSTDIR\BendLens.exe" "" "$INSTDIR\public\icon.ico" 0
+  ${Else}
+    Delete "$DESKTOP\BendLens.lnk"
+  ${EndIf}
 
-  ${SectionGetFlags} ${COMP_STARTMENU_SHORTCUT} $0
-  IntOp $0 $0 & ${SF_SELECTED}
-  StrCmp $0 ${SF_SELECTED} +2
-  Delete "$SMPROGRAMS\BendLens.lnk"
-  Goto +1
-  CreateShortcut "$SMPROGRAMS\BendLens.lnk" "$INSTDIR\BendLens.exe" "" "$INSTDIR\public\icon.ico" 0
+  ; Check start menu shortcut component
+  SectionGetFlags ${COMP_STARTMENU_SHORTCUT} $0
+  ${If} $0 & ${SF_SELECTED}
+    CreateShortcut "$SMPROGRAMS\BendLens.lnk" "$INSTDIR\BendLens.exe" "" "$INSTDIR\public\icon.ico" 0
+  ${Else}
+    Delete "$SMPROGRAMS\BendLens.lnk"
+  ${EndIf}
 FunctionEnd

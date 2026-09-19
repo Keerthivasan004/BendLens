@@ -5,7 +5,8 @@ const nextConfig = {
     buildActivity: false,
     appIsrStatus: false
   },
-  serverExternalPackages: ['adm-zip']
+  serverExternalPackages: ['adm-zip'],
+  productionBrowserSourceMaps: false,
 };
 
 module.exports = nextConfig;

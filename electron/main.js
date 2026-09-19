@@ -121,7 +121,15 @@ function resolveAppDir() {
       // reuse the previous version's extracted files — that mismatch is what
       // left reinstalled apps "not working properly".
       const tempAppDir = path.join(app.getPath('userData'), 'extracted-app');
-      clearStaleExtractedApp(tempAppDir);
+      const cachedVersion = clearStaleExtractedApp(tempAppDir);
+      const currentVersion = getRunningVersion();
+
+      // Skip extraction if already extracted for this version (prevents 2hr+ re-extraction on every launch)
+      if (cachedVersion === currentVersion && fs.existsSync(path.join(tempAppDir, 'package.json'))) {
+        console.log('[*] Using cached extracted engine (v' + currentVersion + ')');
+        return tempAppDir;
+      }
+
       if (!fs.existsSync(path.join(tempAppDir, 'package.json'))) {
         try {
           const asar = require('asar');
@@ -129,8 +137,10 @@ function resolveAppDir() {
             fs.rmSync(tempAppDir, { recursive: true, force: true });
           }
           fs.mkdirSync(tempAppDir, { recursive: true });
+          console.log('[*] Extracting app.asar (this may take a minute on first launch)...');
+          const extractStart = Date.now();
           asar.extractAll(asarApp, tempAppDir);
-          console.log('[*] Extracted app.asar to:', tempAppDir);
+          console.log('[*] Extracted app.asar to:', tempAppDir, 'in', (Date.now() - extractStart) / 1000, 'seconds');
           stampExtractedApp(tempAppDir);
         } catch (err) {
           console.error('[!] Failed to extract app.asar:', err.message);
@@ -384,9 +394,21 @@ function startBackendServer(projectDir, port) {
       const nextApp = nextFactory({ dev: false, dir: projectDir, hostname: HOST, port });
       const handle = nextApp.getRequestHandler();
       serverProcess = { isEmbedded: true, pid: null };
+
+      // Timeout guard: fail fast if Next.js prepare hangs (>60s)
+      const prepareTimeout = setTimeout(() => {
+        console.error('[!] Embedded engine prepare() timed out after 60s');
+        serverProcess = null;
+        dialog.showErrorBox(
+          'BendLens Engine Timeout',
+          'The embedded engine took too long to start (60s).\n\nThis usually means a corrupted build or resource exhaustion.\nPlease restart the application or reinstall BendLens.'
+        );
+      }, 60000);
+
       nextApp
         .prepare()
         .then(() => {
+          clearTimeout(prepareTimeout);
           const server = http.createServer((req, res) => handle(req, res));
           server.listen(port, HOST, () => {
             console.log(`[*] Embedded engine listening on ${HOST}:${port}.`);
@@ -398,6 +420,7 @@ function startBackendServer(projectDir, port) {
           serverProcess.server = server;
         })
         .catch((err) => {
+          clearTimeout(prepareTimeout);
           console.error('[!] Embedded engine failed to start:', err);
           serverProcess = null;
           dialog.showErrorBox(
@@ -408,6 +431,12 @@ function startBackendServer(projectDir, port) {
     } catch (err) {
       console.error('[!] Embedded engine failed to start:', err);
       serverProcess = null;
+      dialog.showErrorBox(
+        'BendLens Engine Failed to Start',
+        'The local BendLens engine could not be started.\n\n' +
+        `Details: ${(err && err.message) || err}\n\n` +
+        'Please restart the application. If the problem persists, reinstall BendLens.'
+      );
       return false;
     }
   } else {
@@ -464,7 +493,12 @@ function initBackendAndConnect() {
       loadStudio();
       return;
     }
-    if (!startBackendServer(projectDir, port)) return;
+    // startBackendServer already shows its own error dialog on failure;
+    // never leave the user stranded on the splash screen silently.
+    if (!startBackendServer(projectDir, port)) {
+      console.error('[!] Backend could not be started — splash will stay visible with the error above.');
+      return;
+    }
 
     // Poll BendLens identity (not just TCP) before leaving the splash screen
     let attempts = 0;

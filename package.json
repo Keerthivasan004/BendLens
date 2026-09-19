@@ -16,8 +16,8 @@
   "build": {
     "appId": "com.bendlens.studio",
     "productName": "BendLens",
-"asar": false,
-  "asarUnpack": [
+    "asar": false,
+    "asarUnpack": [
     "public/icon.ico",
     "public/icon.png",
     "node_modules/asar/**/*"
