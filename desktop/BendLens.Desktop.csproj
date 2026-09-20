@@ -8,7 +8,7 @@
     <ApplicationIcon>..\public\icon.ico</ApplicationIcon>
     <AssemblyName>BendLens</AssemblyName>
     <RootNamespace>BendLens.Desktop</RootNamespace>
-    <Version>1.1.14</Version>
+    <Version>1.1.15</Version>
     <Authors>BendLens Team</Authors>
     <Company>BendLens</Company>
     <Product>BendLens Studio</Product>
