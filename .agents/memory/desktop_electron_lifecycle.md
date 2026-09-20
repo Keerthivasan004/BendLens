@@ -95,3 +95,18 @@ npm run dist
 - Output is placed in `dist/`.
 - `/api/download-app` validates MZ magic bytes before serving any `.exe` (dist installer → legacy `BendLens.exe` → CSC compile), then falls back to a source ZIP (requires Node on the user machine). `scripts/build-installer.js` writes only `BendLens-Setup.cmd` — never batch text to a `.exe` path.
 - Brand source of truth: `src/components/Logo.jsx` (unique gradient IDs per mount via `useId`) == `public/icon.svg` == `scripts/generate-icons.js` template. Regenerate rasterized `icon.png`/`icon.ico` via `scripts/build_brand_assets.js` after SVG changes.
+
+---
+
+## 4. Ultra-Lightweight .NET 8 WebView2 Architecture (`desktop/`)
+- **Native Microsoft Edge WebView2 Shell**:
+  - Leverages the Windows OS-provided Edge Chromium runtime (`Microsoft.Web.WebView2`), completely removing the ~180MB bundled Chromium binary.
+  - RAM footprint: **~40–60 MB** (vs 250 MB+ on Electron).
+  - Single-instance mutex (`Global\BendLens-Studio-SingleInstance`).
+  - Dark mode chrome (`#020617`), native SVG/ICO logo, and external URL interception via `NewWindowRequested`.
+- **Standalone Engine Pairing**:
+  - `next.config.js` sets `output: 'standalone'`, pruning unused dependency trees.
+  - `scripts/build-desktop.ps1` produces a self-contained single-file `BendLens.exe` in `dist/BendLens-WebView2/`.
+- **Commands**:
+  - Run dev desktop: `npm run desktop:run`
+  - 1-click lightweight build: `npm run desktop:build`

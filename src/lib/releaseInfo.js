@@ -187,8 +187,15 @@ export async function getEffectiveLatest(projectRoot, { allowRemote = false } = 
   const local = getLatestRelease(projectRoot);
   if (!allowRemote) return { ...local, updateSource: 'local' };
   const remote = await getRemoteLatestRelease();
-  if (remote.version && isNewerVersion(remote.version, local.latestVersion)) {
-    return { latestVersion: remote.version, updateArtifact: remote.asset || null, updateSource: 'remote' };
+  if (remote.version) {
+    const isNewer = isNewerVersion(remote.version, local.latestVersion);
+    const bestVersion = isNewer ? remote.version : local.latestVersion;
+    const asset = remote.asset || local.updateArtifact || null;
+    return {
+      latestVersion: bestVersion,
+      updateArtifact: asset,
+      updateSource: isNewer ? 'remote' : 'local'
+    };
   }
   return { ...local, updateSource: 'local' };
 }

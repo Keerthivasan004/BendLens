@@ -7,6 +7,7 @@ const nextConfig = {
   },
   serverExternalPackages: ['adm-zip'],
   productionBrowserSourceMaps: false,
+  output: 'standalone',
 };
 
 module.exports = nextConfig;

@@ -124,10 +124,10 @@ export async function POST() {
         }
 
         // Recompile BendLens.exe with updated icon if CSC compiler is present
-        const cscCompiler = 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe';
+        const cscCompiler = ['C:', 'Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe'].join(path.sep);
         const csSource = path.join(projectRoot, 'scripts', 'BendLensLauncher.cs');
         const outExe = path.join(projectRoot, 'public', 'downloads', 'BendLens.exe');
-        if (fs.existsSync(cscCompiler) && fs.existsSync(csSource)) {
+        if (fs.existsSync(/*turbopackIgnore: true*/ cscCompiler) && fs.existsSync(csSource)) {
           await execPromise(`"${cscCompiler}" /target:winexe /win32icon:"${iconPath}" /platform:anycpu /optimize+ /out:"${outExe}" "${csSource}" /reference:System.Windows.Forms.dll,System.Drawing.dll,System.dll,Microsoft.CSharp.dll`, { cwd: projectRoot });
           fs.copyFileSync(outExe, path.join(projectRoot, 'BendLens.exe'));
         }
