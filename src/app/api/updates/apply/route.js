@@ -90,9 +90,9 @@ export async function POST() {
             const dirsToCopy = ['src', 'public', 'electron', 'scripts'];
             for (const dir of dirsToCopy) {
               const srcDir = path.join(sourceFolder, dir);
-              const destDir = path.join(projectRoot, dir);
+              const destDir = path.join(/*turbopackIgnore: true*/ projectRoot, dir);
               if (fs.existsSync(srcDir)) {
-                if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+                if (!fs.existsSync(/*turbopackIgnore: true*/ destDir)) fs.mkdirSync(destDir, { recursive: true });
                 copyFolderRecursiveSync(srcDir, destDir);
               }
             }
