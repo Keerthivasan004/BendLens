@@ -27,7 +27,7 @@ function resolveRoot(projectRoot) {
  * update signal for testing the notification UI end-to-end.
  */
 
-export const BASELINE_LATEST_VERSION = '1.1.17';
+export const BASELINE_LATEST_VERSION = '1.1.18';
 
 /** Extract a semver triple from an installer filename, or null. */
 export function parseArtifactVersion(filename) {
