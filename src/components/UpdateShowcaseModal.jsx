@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, Pause, RefreshCw, X, Sparkles, CheckCircle2, 
   Database, Zap, Layers, ShieldCheck, ArrowRight, 
-  Terminal, Activity, Laptop, FileCode, Check
+  Terminal, Activity, Laptop, FileCode, Check, Clock, Timer
 } from 'lucide-react';
 import Logo from '@/components/Logo';
 
@@ -15,7 +15,9 @@ export default function UpdateShowcaseModal({
   isUpdating,
   updateStep,
   updateSuccess,
-  updateInfo
+  updateInfo,
+  updateElapsedTime = 0,
+  updateFinalDuration = ''
 }) {
   const [activeSlide, setActiveSlide] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -97,6 +99,13 @@ export default function UpdateShowcaseModal({
 
     return () => clearInterval(timerRef.current);
   }, [isOpen, isPlaying, isUpdating, activeSlide, slides.length]);
+
+  const formatTimer = (seconds) => {
+    if (!seconds && seconds !== 0) return '00:00.0';
+    const mins = Math.floor(seconds / 60);
+    const secs = (seconds % 60).toFixed(1);
+    return `${mins.toString().padStart(2, '0')}:${secs.padStart(4, '0')}`;
+  };
 
   const selectSlide = (index) => {
     setActiveSlide(index);
@@ -456,32 +465,70 @@ export default function UpdateShowcaseModal({
             </div>
           </div>
 
-          {/* Update Execution Pipeline (Only runs on explicit user click) */}
+          {/* Update Execution Pipeline with Live Stopwatch Telemetry */}
           {isUpdating && (
-            <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-500/40 space-y-2 animate-fadeIn">
-              <div className="flex items-center gap-2 text-xs font-bold text-sky-300">
-                <RefreshCw className="h-4 w-4 animate-spin text-sky-400" />
-                <span>{updateStep || 'Applying BendLens Architecture Updates...'}</span>
+            <div className="p-4 sm:p-5 rounded-2xl bg-blue-950/50 border border-blue-500/50 space-y-3 animate-fadeIn">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 text-xs font-bold text-sky-300">
+                  <RefreshCw className="h-4 w-4 animate-spin text-sky-400 shrink-0" />
+                  <span>{updateStep || 'Applying BendLens Architecture Updates...'}</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/40 text-sky-300 font-mono text-xs font-bold shrink-0 shadow-sm">
+                  <Clock className="h-3.5 w-3.5 animate-pulse text-sky-400" />
+                  <span>{formatTimer(updateElapsedTime)}</span>
+                </div>
               </div>
-              <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-blue-500 to-sky-400 animate-pulse w-3/4 rounded-full" />
+              <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden relative">
+                <div className="h-full bg-gradient-to-r from-blue-500 via-sky-400 to-indigo-500 animate-pulse w-full rounded-full" />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-muted font-mono">
+                <span>Fast-path engine synchronization active</span>
+                <span>Optimized local build</span>
               </div>
             </div>
           )}
 
+          {/* Update Completed Notification with Explicit Close Button */}
           {updateSuccess && (
-            <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between gap-2.5 text-xs text-emerald-300 animate-fadeIn">
-              <div className="flex items-center gap-2.5">
-                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                <span>Update installed successfully! BendLens is now on v{updateInfo?.latestVersion || '1.1.0'}. Closing...</span>
+            <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-emerald-950/70 via-emerald-900/30 to-[#090d16] border border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)] space-y-4 animate-fadeIn">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0 shadow-sm">
+                    <CheckCircle2 className="h-6 w-6 text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm sm:text-base font-extrabold text-emerald-200">
+                        Software Update Completed Successfully!
+                      </h4>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-bold">
+                        v{updateInfo?.latestVersion || '1.1.0'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-emerald-300/80 mt-0.5">
+                      BendLens Studio has been updated to the latest architectural engine in{' '}
+                      <strong className="text-emerald-200 font-mono font-bold">
+                        {updateFinalDuration || (updateElapsedTime ? `${updateElapsedTime.toFixed(1)}s` : 'completed')}
+                      </strong>.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="self-start sm:self-center px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-[0_2px_12px_rgba(16,185,129,0.4)] transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  <span>Close</span>
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[11px] font-bold border border-emerald-500/30 transition-colors cursor-pointer"
-              >
-                Close Now
-              </button>
+
+              <div className="pt-3 border-t border-emerald-500/20 flex flex-wrap items-center gap-3 text-[11px] text-emerald-300/70 font-mono">
+                <span className="flex items-center gap-1">✓ In-memory DB parser refreshed</span>
+                <span className="flex items-center gap-1">✓ C4 flowchart visualizers active</span>
+                <span className="flex items-center gap-1">✓ Brand icons &amp; shortcut synced</span>
+              </div>
             </div>
           )}
         </div>

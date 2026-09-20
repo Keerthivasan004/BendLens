@@ -10,7 +10,8 @@ import useIsDesktop from '@/lib/useIsDesktop';
 import {
   FolderSearch, Play, Sparkles, Database, FileCode, Cpu, Layers,
   CheckCircle2, ArrowRight, ShieldCheck, HardDrive, Terminal,
-  UploadCloud, GitBranch, Globe, Laptop, Lock, AlertTriangle, AlertCircle, Download, Zap, RefreshCw
+  UploadCloud, GitBranch, Globe, Laptop, Lock, AlertTriangle, AlertCircle, Download, Zap, RefreshCw,
+  Clock, Timer
 } from 'lucide-react';
 
 export default function LandingPage() {
@@ -47,6 +48,8 @@ CREATE TABLE orders (
   const [isScanning, setIsScanning] = useState(false);
   const [scanStep, setScanStep] = useState(0);
   const [scanProgress, setScanProgress] = useState(0);
+  const [scanElapsedTime, setScanElapsedTime] = useState(0);
+  const [scanFinalDuration, setScanFinalDuration] = useState('');
   const [analysisResult, setAnalysisResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [localHistory, setLocalHistory] = useState([]);
@@ -127,11 +130,26 @@ CREATE TABLE orders (
     return val.toString().trim().replace(/^["'`]+|["'`]+$/g, '').trim();
   };
 
+  const formatTimer = (seconds) => {
+    if (!seconds && seconds !== 0) return '00:00.0';
+    const mins = Math.floor(seconds / 60);
+    const secs = (seconds % 60).toFixed(1);
+    return `${mins.toString().padStart(2, '0')}:${secs.padStart(4, '0')}`;
+  };
+
   const executeScanWithStages = async (fetchPromise, onComplete) => {
     setIsScanning(true);
     setErrorMessage('');
     setScanStep(1);
     setScanProgress(25);
+    setScanElapsedTime(0);
+    setScanFinalDuration('');
+
+    const startTime = performance.now();
+    const timerInterval = setInterval(() => {
+      const elapsed = (performance.now() - startTime) / 1000;
+      setScanElapsedTime(elapsed);
+    }, 50);
 
     let currentStep = 1;
     const interval = setInterval(() => {
@@ -140,17 +158,21 @@ CREATE TABLE orders (
         setScanStep(currentStep);
         setScanProgress(currentStep === 2 ? 50 : currentStep === 3 ? 75 : 95);
       }
-    }, 180);
+    }, 120);
 
     try {
       const res = await fetchPromise;
       const result = await res.json();
       clearInterval(interval);
+      clearInterval(timerInterval);
+
+      const finalElapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+      setScanElapsedTime(parseFloat(finalElapsed));
+      setScanFinalDuration(finalElapsed);
 
       if (result.success) {
         setScanStep(5);
         setScanProgress(100);
-        await new Promise((r) => setTimeout(r, 120));
         try {
           if (result.data) {
             sessionStorage.setItem('bendlens-current-data', JSON.stringify(result.data));
@@ -165,9 +187,11 @@ CREATE TABLE orders (
       }
     } catch (err) {
       clearInterval(interval);
+      clearInterval(timerInterval);
       setErrorMessage(err.message || 'Error executing architecture analysis');
     } finally {
       clearInterval(interval);
+      clearInterval(timerInterval);
       setIsScanning(false);
       setScanStep(0);
       setScanProgress(0);
@@ -963,8 +987,20 @@ CREATE TABLE audit_logs (
                   </div>
                 </div>
 
-                {/* Percentage Pill */}
+                {/* Percentage & Live Elapsed Timer Telemetry */}
                 <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <span
+                    className={`text-xs font-mono font-bold px-2.5 py-1 rounded-full border flex items-center gap-1.5 transition-all ${
+                      theme === 'dark'
+                        ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                        : 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
+                    }`}
+                    title="Elapsed analysis processing time"
+                  >
+                    <Clock className="h-3.5 w-3.5 animate-pulse text-emerald-400 dark:text-emerald-300" />
+                    <span>{formatTimer(scanElapsedTime)}</span>
+                  </span>
+
                   <span
                     className={`text-xs font-mono font-bold px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${
                       theme === 'dark'

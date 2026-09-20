@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { RefreshCw, Sparkles, X, ArrowRight, Play, CheckCircle2 } from 'lucide-react';
+import { RefreshCw, Sparkles, X, ArrowRight, Play, CheckCircle2, Clock, Timer } from 'lucide-react';
 import UpdateShowcaseModal from '@/components/UpdateShowcaseModal';
 import useIsDesktop from '@/lib/useIsDesktop';
 
@@ -22,8 +22,17 @@ export default function UpdateIndicator() {
   const [updateStep, setUpdateStep] = useState('');
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [updateSuccess, setUpdateSuccess] = useState(false);
+  const [updateElapsedTime, setUpdateElapsedTime] = useState(0);
+  const [updateFinalDuration, setUpdateFinalDuration] = useState('');
   const [checkError, setCheckError] = useState('');
   const [isNotificationDismissed, setIsNotificationDismissed] = useState(false);
+
+  const formatTimer = (seconds) => {
+    if (!seconds && seconds !== 0) return '00:00.0';
+    const mins = Math.floor(seconds / 60);
+    const secs = (seconds % 60).toFixed(1);
+    return `${mins.toString().padStart(2, '0')}:${secs.padStart(4, '0')}`;
+  };
 
   // Dismissal is persisted per released version: dismissing v1.2.0 must not
   // silence v1.3.0. A new latestVersion automatically re-arms the banner.
@@ -87,14 +96,29 @@ export default function UpdateIndicator() {
     } catch {}
   };
 
+  const handleCloseUpdateModal = () => {
+    setUpdateModalOpen(false);
+    if (updateSuccess) {
+      setUpdateSuccess(false);
+      setUpdateStep('');
+      setUpdateElapsedTime(0);
+      setUpdateFinalDuration('');
+      checkForUpdates();
+    }
+  };
+
   const handleApplyUpdate = async () => {
     setIsUpdating(true);
-    setUpdateStep('1/3: Synchronizing latest engine & schema visualizers...');
-    
-    try {
-      setTimeout(() => setUpdateStep('2/3: Refreshing brand icons & desktop shortcut...'), 800);
-      setTimeout(() => setUpdateStep('3/3: Finalizing Studio update...'), 1600);
+    setUpdateStep('Synchronizing latest engine & schema visualizers...');
+    setUpdateElapsedTime(0);
+    setUpdateFinalDuration('');
 
+    const startTime = Date.now();
+    const timerInterval = setInterval(() => {
+      setUpdateElapsedTime((Date.now() - startTime) / 1000);
+    }, 50);
+
+    try {
       const res = await fetch('/api/updates/apply', { method: 'POST' });
       let data = null;
       try {
@@ -102,10 +126,16 @@ export default function UpdateIndicator() {
       } catch {
         data = { success: false, error: `Engine returned non-JSON response (HTTP ${res.status})` };
       }
-      
+
+      clearInterval(timerInterval);
+      const finalDuration = ((Date.now() - startTime) / 1000).toFixed(1);
+      setUpdateElapsedTime(parseFloat(finalDuration));
+      setUpdateFinalDuration(finalDuration);
+
       if (res.ok && data?.success) {
         const newVersion = data.newVersion || updateInfo.latestVersion;
         setUpdateSuccess(true);
+        setIsUpdating(false);
         dismissNotification();
         setUpdateInfo((prev) => ({
           ...prev,
@@ -113,29 +143,24 @@ export default function UpdateIndicator() {
           hasUpdate: false
         }));
 
-        // Keep success confirmation visible for 1.4s so the user sees completion, then close the modal popup
-        setTimeout(() => {
-          setUpdateModalOpen(false);
-          setIsUpdating(false);
-          setUpdateSuccess(false);
-          setUpdateStep('');
-          checkForUpdates();
-        }, 1400);
+        // PERSISTENT COMPLETION NOTIFICATION:
+        // Does NOT auto-close. Kept open with full details and explicit Close button!
       } else {
+        setIsUpdating(false);
+        setUpdateStep('');
         const errorMsg = data?.error || `Update process could not be completed (HTTP ${res.status}).`;
         if (confirm(`${errorMsg}\n\nWould you like to open the official release download page directly?`)) {
           window.open('https://github.com/Keerthivasan004/BendLens/releases', '_blank');
         }
-        setIsUpdating(false);
-        setUpdateStep('');
       }
     } catch (err) {
+      clearInterval(timerInterval);
+      setIsUpdating(false);
+      setUpdateStep('');
       console.warn('Update apply failed:', err);
       if (confirm(`Update could not be applied: ${err?.message || 'Connection error'}.\n\nWould you like to open the official releases page to download the installer directly?`)) {
         window.open('https://github.com/Keerthivasan004/BendLens/releases', '_blank');
       }
-      setIsUpdating(false);
-      setUpdateStep('');
     }
   };
 
@@ -168,42 +193,74 @@ export default function UpdateIndicator() {
       </div>
 
       {/* Notification Body */}
-      <div className="space-y-1 mb-3.5">
-        <h4 className="text-xs font-bold text-foreground">
-          New BendLens Architectural Engine Ready
-        </h4>
-        <p className="text-[11px] text-muted leading-relaxed">
-          Universal polyglot DB parsing, blast ripple simulation, and multi-tier C4 flowchart diagrams.
-        </p>
-        {updateInfo.updateArtifact && (
-          <p className="text-[10px] font-mono text-muted/80 truncate" title={updateInfo.updateArtifact}>
-            Installer ready: {updateInfo.updateArtifact}
+      {updateSuccess ? (
+        <div className="space-y-2 mb-3.5">
+          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <h4 className="text-xs font-bold">Software Update Completed!</h4>
+          </div>
+          <p className="text-[11px] text-muted leading-relaxed">
+            BendLens Studio is now updated to <strong className="text-foreground font-mono">v{updateInfo.currentVersion}</strong> in {updateFinalDuration || updateElapsedTime.toFixed(1)}s.
           </p>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="space-y-1 mb-3.5">
+          <h4 className="text-xs font-bold text-foreground">
+            New BendLens Architectural Engine Ready
+          </h4>
+          <p className="text-[11px] text-muted leading-relaxed">
+            Universal polyglot DB parsing, blast ripple simulation, and multi-tier C4 flowchart diagrams.
+          </p>
+          {updateInfo.updateArtifact && (
+            <p className="text-[10px] font-mono text-muted/80 truncate" title={updateInfo.updateArtifact}>
+              Installer ready: {updateInfo.updateArtifact}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Action Buttons */}
       <div className="flex items-center gap-2 pt-1 border-t border-border dark:border-white/10">
-        <button
-          onClick={() => setUpdateModalOpen(true)}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-blue-600/10 hover:bg-blue-600/15 text-blue-700 border border-blue-500/30 dark:bg-blue-500/20 dark:hover:bg-blue-500/30 dark:text-sky-300 dark:border-blue-500/40 transition-all cursor-pointer shadow-sm"
-        >
-          <Play className="h-3 w-3 fill-current" />
-          <span>Watch What's New</span>
-        </button>
+        {updateSuccess ? (
+          <button
+            onClick={() => {
+              setUpdateSuccess(false);
+              dismissNotification();
+            }}
+            className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+          >
+            <X className="h-3.5 w-3.5" />
+            <span>Close Notification</span>
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() => setUpdateModalOpen(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-blue-600/10 hover:bg-blue-600/15 text-blue-700 border border-blue-500/30 dark:bg-blue-500/20 dark:hover:bg-blue-500/30 dark:text-sky-300 dark:border-blue-500/40 transition-all cursor-pointer shadow-sm"
+            >
+              <Play className="h-3 w-3 fill-current" />
+              <span>Watch What's New</span>
+            </button>
 
-        <button
-          onClick={handleApplyUpdate}
-          disabled={isUpdating}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 to-sky-500 hover:from-blue-500 hover:to-sky-400 text-white shadow-[0_2px_12px_rgba(56,189,248,0.35)] transition-all cursor-pointer disabled:opacity-50"
-        >
-          {isUpdating ? (
-            <RefreshCw className="h-3 w-3 animate-spin" />
-          ) : (
-            <Sparkles className="h-3 w-3" />
-          )}
-          <span>Update Now</span>
-        </button>
+            <button
+              onClick={handleApplyUpdate}
+              disabled={isUpdating}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 to-sky-500 hover:from-blue-500 hover:to-sky-400 text-white shadow-[0_2px_12px_rgba(56,189,248,0.35)] transition-all cursor-pointer disabled:opacity-50"
+            >
+              {isUpdating ? (
+                <>
+                  <Clock className="h-3.5 w-3.5 animate-pulse text-sky-200" />
+                  <span>{formatTimer(updateElapsedTime)}</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3 w-3" />
+                  <span>Update Now</span>
+                </>
+              )}
+            </button>
+          </>
+        )}
       </div>
     </div>
   ) : null;
@@ -241,12 +298,14 @@ export default function UpdateIndicator() {
       {mounted && typeof document !== 'undefined' && updateModalOpen && createPortal(
         <UpdateShowcaseModal
           isOpen={updateModalOpen}
-          onClose={() => setUpdateModalOpen(false)}
+          onClose={handleCloseUpdateModal}
           onApplyUpdate={handleApplyUpdate}
           isUpdating={isUpdating}
           updateStep={updateStep}
           updateSuccess={updateSuccess}
           updateInfo={updateInfo}
+          updateElapsedTime={updateElapsedTime}
+          updateFinalDuration={updateFinalDuration}
         />,
         document.body
       )}

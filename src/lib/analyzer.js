@@ -15,6 +15,15 @@ const yieldEventLoop = () => new Promise((resolve) => setImmediate(resolve));
  * Supports analyzing massive multi-gigabyte repositories seamlessly.
  */
 class ProjectAnalyzer {
+  static IGNORED_EXTS = new Set([
+    '.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.bmp', '.tiff',
+    '.woff', '.woff2', '.ttf', '.eot', '.otf',
+    '.mp3', '.mp4', '.wav', '.avi', '.mov', '.webm',
+    '.zip', '.tar', '.gz', '.tgz', '.7z', '.rar',
+    '.exe', '.dll', '.so', '.dylib', '.bin', '.iso',
+    '.pdf', '.map', '.log'
+  ]);
+
   static isSqlLikeFile(fullPath) {
     const ext = path.extname(fullPath).toLowerCase();
     return ['.sql', '.ddl', '.dump', '.dmp', '.pgsql', '.psql', '.mysql', '.tsql', '.mssql', '.cql', '.hql', '.ora', '.db.sql', '.sqlite.sql'].includes(ext)
@@ -27,6 +36,11 @@ class ProjectAnalyzer {
     if (ProjectAnalyzer.isSqlLikeFile(fullPath)) return true;
     if (/(^|[/\\])(schema\.rb|db\.xml|changelog[^/\\]*\.xml)$/i.test(fullPath)) return true;
     return /migrat|schema|seed|ddl|prisma/i.test(fullPath);
+  }
+
+  static isIgnoredAssetFile(fullPath) {
+    const ext = path.extname(fullPath).toLowerCase();
+    return ProjectAnalyzer.IGNORED_EXTS.has(ext);
   }
 
   static async scanDirectoryAsync(targetDir) {
@@ -84,6 +98,9 @@ class ProjectAnalyzer {
             seenTotal++;
             if (seenTotal % 150 === 0) {
               await yieldEventLoop();
+            }
+            if (ProjectAnalyzer.isIgnoredAssetFile(fullPath)) {
+              continue;
             }
             try {
               const priority = ProjectAnalyzer.isSchemaPriorityFile(fullPath);
@@ -163,6 +180,9 @@ class ProjectAnalyzer {
             }
           } else if (entry.isFile()) {
             seenTotal++;
+            if (ProjectAnalyzer.isIgnoredAssetFile(fullPath)) {
+              continue;
+            }
             try {
               const priority = ProjectAnalyzer.isSchemaPriorityFile(fullPath);
               const stat = fs.statSync(fullPath);

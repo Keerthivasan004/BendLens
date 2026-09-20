@@ -45,9 +45,19 @@ BendLens ships as a true native Windows application: double-click → splash →
 - **Desktop update notification**:
   - `checkForDesktopUpdates()` polls local `/api/updates/check` once after load + every 15 min; native `Notification` fires once per `latestVersion` (tracked in `notifiedUpdateVersions`), click focuses/restores the studio window.
   - In-app `UpdateIndicator` polls the same endpoint every 5 min + on window focus/tab-visible, persists dismissal per version (`bendlens-update-dismissed-<version>` in localStorage so new releases re-notify), surfaces check failures instead of faking success, and shows the ready installer filename (`updateArtifact`). It renders **only** for downloaded-desktop users (`useIsDesktop()` → `window.bendlensDesktop.isDesktop`); web users get null since the deployed web app is always current.
-- **Desktop update discovery & delivery**:
+- **Desktop update discovery, acceleration & telemetry**:
   - A packaged install has no `dist/` folder. `GET /api/updates/check?source=desktop` discovers releases from GitHub (`Keerthivasan004/BendLens`) and installer assets (`BendLens-Setup-*.exe`) using optional env tokens or public release assets.
   - `/api/updates/apply` streams and launches the official installer in the background via direct `browser_download_url` or updates the codebase files, refreshing desktop shortcuts and version stamps cleanly.
+  - **Accelerated Update Pipeline**:
+    - `scripts/build_brand_assets.js` skips spawning PowerShell and `System.Drawing` conversion if `public/icon.ico` is already generated, saving 3-5 seconds of cold-start delay per update.
+    - `/api/updates/apply` checks for existing Desktop shortcuts before launching PowerShell and performs fast-forward git pulls (`--ff-only`) with bounded timeouts.
+    - Returns `durationMs` telemetry in the API response.
+  - **Real-Time Update Telemetry & Timers**:
+    - `UpdateIndicator` and `UpdateShowcaseModal` start a high-resolution stopwatch timer (`updateElapsedTime`, formatted as `00:0X.X`) ticking at 50ms precision the moment an update is triggered.
+    - Displays active elapsed time in the floating notification, update action button, and modal update pipeline.
+  - **User-Controlled Completion Notification**:
+    - Eliminated artificial 1.4-second auto-closing timeouts so users always have full visibility into update status.
+    - Renders a prominent **Software Update Completed** notification banner displaying target version (`vX.X.X`), total elapsed duration (e.g. `Completed in 1.8s`), and an explicit **Close** button that lets the user dismiss the dialog when ready.
   - **Turbopack External Module & ZIP Handling**:
     - Next.js with Turbopack and pnpm hashes server external packages into aliases (`adm-zip-<hash>`), creating NTFS junctions in `.next/node_modules/` that do not exist or break in packaged desktop installations.
     - Centralized in `src/lib/safeAdmZip.js` using dynamic `eval('require')('adm-zip')` to bypass Turbopack static AST hashing across `/api/updates/apply`, `/api/upload`, and `/api/git-clone`.

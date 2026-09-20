@@ -10,7 +10,7 @@ import ManagerView from '@/components/views/ManagerView';
 import BusinessView from '@/components/views/BusinessView';
 import BlastRadiusSimulator from '@/components/BlastRadiusSimulator';
 import ExportModal from '@/components/ExportModal';
-import { ArrowLeft, RefreshCw, AlertCircle, Layers, FolderSearch } from 'lucide-react';
+import { ArrowLeft, RefreshCw, AlertCircle, Layers, FolderSearch, Clock, Timer } from 'lucide-react';
 
 export default function LensDashboard() {
   const router = useRouter();
@@ -23,6 +23,14 @@ export default function LensDashboard() {
   const [errorMessage, setErrorMessage] = useState('');
   const [theme, setTheme] = useState('dark');
   const [isLocalApp, setIsLocalApp] = useState(true);
+  const [rescanElapsedTime, setRescanElapsedTime] = useState(0);
+
+  const formatTimer = (seconds) => {
+    if (!seconds && seconds !== 0) return '00:00.0';
+    const mins = Math.floor(seconds / 60);
+    const secs = (seconds % 60).toFixed(1);
+    return `${mins.toString().padStart(2, '0')}:${secs.padStart(4, '0')}`;
+  };
 
   // Load theme and fetch analysis from server memory cache
   useEffect(() => {
@@ -121,6 +129,13 @@ export default function LensDashboard() {
     setAnalysisData(null);
     setIsLoading(true);
     setErrorMessage('');
+    setRescanElapsedTime(0);
+
+    const startTime = performance.now();
+    const timerInterval = setInterval(() => {
+      setRescanElapsedTime((performance.now() - startTime) / 1000);
+    }, 50);
+
     try {
       const res = await fetch(`/api/analyze?t=${Date.now()}`, {
         method: 'POST',
@@ -141,6 +156,7 @@ export default function LensDashboard() {
     } catch (err) {
       setErrorMessage(err.message || 'Network error analyzing project');
     } finally {
+      clearInterval(timerInterval);
       setIsLoading(false);
     }
   };
@@ -149,6 +165,13 @@ export default function LensDashboard() {
     setAnalysisData(null);
     setIsLoading(true);
     setErrorMessage('');
+    setRescanElapsedTime(0);
+
+    const startTime = performance.now();
+    const timerInterval = setInterval(() => {
+      setRescanElapsedTime((performance.now() - startTime) / 1000);
+    }, 50);
+
     try {
       const res = await fetch(`/api/sample?t=${Date.now()}`, { cache: 'no-store' });
       const result = await res.json();
@@ -164,6 +187,7 @@ export default function LensDashboard() {
     } catch (err) {
       setErrorMessage(err.message || 'Error connecting to backend');
     } finally {
+      clearInterval(timerInterval);
       setIsLoading(false);
     }
   };
@@ -261,15 +285,28 @@ export default function LensDashboard() {
                   </div>
                 </div>
               </div>
-              <span
-                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                  theme === 'dark'
-                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                    : 'bg-blue-50 border-blue-200 text-blue-700'
-                }`}
-              >
-                Live Scanning
-              </span>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border flex items-center gap-1.5 ${
+                    theme === 'dark'
+                      ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.25)]'
+                      : 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
+                  }`}
+                  title="Real-time elapsed analysis time"
+                >
+                  <Clock className="h-3 w-3 animate-pulse" />
+                  <span>{formatTimer(rescanElapsedTime)}</span>
+                </span>
+                <span
+                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                    theme === 'dark'
+                      ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                      : 'bg-blue-50 border-blue-200 text-blue-700'
+                  }`}
+                >
+                  Live Scanning
+                </span>
+              </div>
             </div>
             <div
               className={`mt-2 w-full h-1.5 rounded-full overflow-hidden relative ${

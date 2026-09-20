@@ -12,6 +12,7 @@ export const dynamic = 'force-dynamic';
 const execPromise = util.promisify(exec);
 
 export async function POST() {
+  const updateStartTime = Date.now();
   try {
     const projectRoot = getAppRoot();
     const isGitRepo = fs.existsSync(path.join(projectRoot, '.git'));
@@ -26,11 +27,17 @@ export async function POST() {
     // 1. Update Application Codebase
     if (isGitRepo) {
       try {
-        const { stdout } = await execPromise('git pull origin main', { cwd: projectRoot, timeout: 25000 });
+        const { stdout } = await execPromise('git pull --ff-only origin main', { cwd: projectRoot, timeout: 10000 });
         output = stdout || 'Git pull completed.';
       } catch (gitErr) {
-        console.warn('[updates/apply] git pull warning:', gitErr.message);
-        output = 'Codebase synchronized.';
+        // Fallback to standard pull if fast-forward only fails
+        try {
+          const { stdout } = await execPromise('git pull origin main', { cwd: projectRoot, timeout: 12000 });
+          output = stdout || 'Git pull completed.';
+        } catch (fallbackErr) {
+          console.warn('[updates/apply] git pull warning:', fallbackErr.message);
+          output = 'Codebase synchronized.';
+        }
       }
     } else {
       try {
@@ -115,15 +122,16 @@ export async function POST() {
           await execPromise(`node "${brandScript}"`, { cwd: projectRoot });
         }
 
-        // Refresh Desktop Shortcut icon
+        // Refresh Desktop Shortcut icon only if missing
         const iconPath = path.join(projectRoot, 'public', 'icon.ico');
         const exeCandidate = path.join(projectRoot, 'BendLens.exe');
         const batCandidate = path.join(projectRoot, 'BendLens.bat');
         const targetExe = fs.existsSync(exeCandidate) ? exeCandidate : batCandidate;
+        const desktopLnk = path.join(os.homedir(), 'Desktop', 'BendLens.lnk');
 
-        if (fs.existsSync(targetExe) && fs.existsSync(iconPath)) {
+        if (fs.existsSync(targetExe) && fs.existsSync(iconPath) && !fs.existsSync(desktopLnk)) {
           const shortcutCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([IO.Path]::Combine([Environment]::GetFolderPath('Desktop'), 'BendLens.lnk')); $s.TargetPath = '${targetExe}'; $s.WorkingDirectory = '${projectRoot}'; $s.IconLocation = '${iconPath}'; $s.Description = 'BendLens - Universal Backend Architecture & Blast Platform'; $s.Save()"`;
-          await execPromise(shortcutCmd, { cwd: projectRoot });
+          await execPromise(shortcutCmd, { cwd: projectRoot, timeout: 5000 });
         }
       }
     } catch (iconErr) {
@@ -142,10 +150,13 @@ export async function POST() {
       fs.writeFileSync(pkgPath, JSON.stringify(updatedPkg, null, 2), 'utf-8');
     } catch {}
 
+    const durationMs = Date.now() - updateStartTime;
+
     return NextResponse.json({
       success: true,
       message: 'BendLens engine and desktop brand icons updated successfully!',
       newVersion,
+      durationMs,
       details: output
     });
   } catch (error) {

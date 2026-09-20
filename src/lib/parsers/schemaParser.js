@@ -167,10 +167,26 @@ class SchemaParser {
     this._ddlVarsByFile = new Map();
     this._rawVarsByFile = new Map();
     this._dictVarsByFile = new Map();
+
+    const SCHEMA_CANDIDATE_EXTS = new Set([
+      '.sqlite', '.sqlite3', '.db', '.sql', '.ddl', '.dump', '.dmp', '.pgsql', '.psql', '.mysql', '.tsql', '.mssql', '.cql', '.hql', '.ora',
+      '.prisma', '.py', '.ts', '.js', '.jsx', '.tsx', '.mjs', '.cjs', '.java', '.cs', '.go', '.php', '.rb', '.xml', '.json'
+    ]);
+
     for (const filePath of fileList) {
       try {
         const ext = path.extname(filePath).toLowerCase();
         const baseName = path.basename(filePath).toLowerCase();
+
+        // Skip files that cannot contain schema, ORM models, or seed fixtures
+        if (!SCHEMA_CANDIDATE_EXTS.has(ext) && !baseName.endsWith('.sql') && !/(^|[.\-])sql$/i.test(baseName) && !baseName.endsWith('.prisma')) {
+          continue;
+        }
+
+        // For JSON, only read if it is a database seed, fixture, or mock data
+        if (ext === '.json' && !baseName.includes('seed') && !baseName.includes('fixture') && !baseName.includes('mock')) {
+          continue;
+        }
 
         // 1. Direct SQLite binary database files
         if (['.sqlite', '.sqlite3', '.db'].includes(ext)) {

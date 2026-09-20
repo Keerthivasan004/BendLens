@@ -17,9 +17,12 @@ class PolyglotParser {
   }
 
   parseDirectory(dirPath, fileList) {
+    const SUPPORTED_EXTS = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.java', '.go', '.cs', '.php', '.rb']);
     for (const filePath of fileList) {
       try {
         const ext = path.extname(filePath).toLowerCase();
+        if (!SUPPORTED_EXTS.has(ext)) continue;
+
         const content = fs.readFileSync(filePath, 'utf-8');
         const relativePath = path.relative(dirPath, filePath).replace(/\\/g, '/');
 

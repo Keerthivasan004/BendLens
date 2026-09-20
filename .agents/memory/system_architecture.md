@@ -22,12 +22,18 @@ flowchart TD
 
 ## Detailed Pipeline Phases
 
-### Phase 1: Directory Ingestion & Guards (`scanDirectory`)
+### Phase 1: Directory Ingestion & Guards (`scanDirectory` / `scanDirectoryAsync`)
 - Filters ignored folders (`node_modules`, `.git`, `.next`, `dist`, `__pycache__`, etc.).
+- **Pre-Filtered Media & Binary Assets**: Bypasses `fs.statSync` on media, fonts, binaries, and compressed archives (`.png`, `.jpg`, `.woff`, `.zip`, `.dll`, `.exe`, `.bin`, etc.) via `ProjectAnalyzer.IGNORED_EXTS`, drastically accelerating disk traversal on Windows file systems.
 - No table/API ceilings: up to 100k files / 100k schema files, 5MB per code file, 500MB schema dumps (schema DDL is streamed in 4MB chunks via `parseLargeSQLFile`, never skipped). Single-file paths (e.g. a lone `.sql` dump) analyze directly. SQL-likes covered: `.sql/.ddl/.dump/.dmp/.pgsql/.psql/.mysql/.tsql/.mssql/.cql/.hql/.ora`.
 - Collects an array of absolute file paths.
 
-### Phase 2: Specialized AST & Schema Parsers
+### Phase 2: Specialized AST & Schema Parsers (I/O Pre-Filtered)
+- **High-Speed File Pre-Filtering**:
+  - `InfraParser`: Checks filenames (`docker-compose.yml`, `dockerfile`, `openapi`, `package.json`, `requirements.txt`) before reading files from disk.
+  - `PolyglotParser`: Validates supported extensions (`.js`, `.jsx`, `.ts`, `.tsx`, `.py`, `.java`, etc.) before calling `fs.readFileSync`.
+  - `SchemaParser`: Pre-filters candidate schema extensions (`.sql`, `.prisma`, `.json` seeds, model definitions) before disk reads.
+  - Eliminates thousands of redundant synchronous file reads across non-target assets.
 1. **`SchemaParser` (`src/lib/parsers/schemaParser.js`)**:
    - Parses table definitions, column types, primary keys, foreign keys, unique constraints, and sample data fixtures from SQL files, SQLite databases, and ORM models.
    - Deduplicates tables via case/underscore/plural-insensitive `tableKey()` + `upsertTable()` merge (e.g. SQL `users` + Prisma `User` + `order_items`/`OrderItem` merge into one entry with a union of columns/FKs) so table counts stay consistent across Header, ERD, HLD, LLD, and persona views. Sample-data and INSERT lookups use the same normalized key.
@@ -55,4 +61,5 @@ flowchart TD
 
 ### Phase 5: Storage & Presentation
 - **No shared server cache (privacy fix)**: every API route (`analyze`, `current`, `upload`, `paste`, `sample`, `git-clone`, `impact`) runs a fresh `ProjectAnalyzer.analyze()` per request and returns it directly with `Cache-Control: no-store` (`analyze`/`current`/`sample` are `force-dynamic` + `revalidate: 0`). The former global `serverCache.js` singleton was deleted because it leaked one user's analysis to other users and served stale results on re-scans. The lens page restores the last path from per-browser `localStorage` (`bendlens-path`) and re-analyzes on load; rescan clears the displayed model first and fetches with `cache: no-store` + a timestamp query so the same old table/API counts can never flash back.
+- **Real-Time Telemetry & Sub-Second Timers**: Both `/` (Landing/Ingestion) and `/lens` (Studio Workspace) integrate millisecond-accurate stopwatch telemetry (`scanElapsedTime` / `rescanElapsedTime`), streaming live elapsed time in progress HUDs and displaying final duration upon completion without artificial delays.
 - **Client App (`src/app/lens/page.jsx`)**: Renders interactive diagram canvases with pan/zoom/export, persona views, data tables, and the blast radius simulator.

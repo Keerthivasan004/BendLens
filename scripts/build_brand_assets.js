@@ -35,13 +35,20 @@ async function buildBrandAssets() {
     console.log('[1/3] Synchronized high-res PNG at', png512Path);
   }
 
-  console.log('[2/3] Generating multi-size Windows .ico with System.Drawing...');
+  console.log('[2/3] Checking multi-size Windows .ico...');
   const psConvertScript = path.join(__dirname, 'convert_png_to_ico.ps1');
   const icoPublic = path.join(publicDir, 'icon.ico');
+  const forceRebuild = process.argv.includes('--force');
+
   if (fs.existsSync(psConvertScript) && fs.existsSync(png512Path)) {
-    execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${psConvertScript}" -PngPath "${png512Path}" -IcoPath "${icoPublic}"`, {
-      stdio: 'inherit'
-    });
+    if (!fs.existsSync(icoPublic) || forceRebuild) {
+      console.log('Generating multi-size Windows .ico with System.Drawing...');
+      execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${psConvertScript}" -PngPath "${png512Path}" -IcoPath "${icoPublic}"`, {
+        stdio: 'inherit'
+      });
+    } else {
+      console.log('[2/3] icon.ico is already present, skipping redundant PowerShell generation.');
+    }
   }
 
   // Copy ICO to root and downloads

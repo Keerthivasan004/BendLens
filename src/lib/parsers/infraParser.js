@@ -18,6 +18,17 @@ class InfraParser {
     for (const filePath of fileList) {
       try {
         const fileName = path.basename(filePath).toLowerCase();
+        const isInfraTarget = fileName === 'docker-compose.yml' ||
+          fileName === 'docker-compose.yaml' ||
+          fileName === 'dockerfile' ||
+          fileName.startsWith('dockerfile.') ||
+          fileName.includes('openapi') ||
+          fileName.includes('swagger') ||
+          fileName === 'package.json' ||
+          fileName === 'requirements.txt';
+
+        if (!isInfraTarget) continue;
+
         const content = fs.readFileSync(filePath, 'utf-8');
 
         if (fileName === 'docker-compose.yml' || fileName === 'docker-compose.yaml') {
