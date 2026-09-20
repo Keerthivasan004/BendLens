@@ -122,13 +122,18 @@ export default function UpdateIndicator() {
           checkForUpdates();
         }, 1400);
       } else {
-        alert(data?.error || `Update process could not be completed (HTTP ${res.status}).`);
+        const errorMsg = data?.error || `Update process could not be completed (HTTP ${res.status}).`;
+        if (confirm(`${errorMsg}\n\nWould you like to open the official release download page directly?`)) {
+          window.open('https://github.com/Keerthivasan004/BendLens/releases', '_blank');
+        }
         setIsUpdating(false);
         setUpdateStep('');
       }
     } catch (err) {
       console.warn('Update apply failed:', err);
-      alert(`Update could not be applied: ${err?.message || 'Connection error'}. Please check your connection to the local engine and try again.`);
+      if (confirm(`Update could not be applied: ${err?.message || 'Connection error'}.\n\nWould you like to open the official releases page to download the installer directly?`)) {
+        window.open('https://github.com/Keerthivasan004/BendLens/releases', '_blank');
+      }
       setIsUpdating(false);
       setUpdateStep('');
     }

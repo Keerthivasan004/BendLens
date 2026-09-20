@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import path from 'path';
 import fs from 'fs';
-import AdmZip from 'adm-zip';
 const { getAppRoot } = require('@/lib/appPaths');
 
 export const dynamic = 'force-dynamic';

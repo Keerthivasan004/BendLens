@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import ProjectAnalyzer from '@/lib/analyzer';
-import AdmZip from 'adm-zip';
+import { getAdmZip } from '@/lib/safeAdmZip';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
@@ -76,7 +76,8 @@ export async function POST(request) {
         if (res.ok) {
           const arrayBuffer = await res.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
-          const zip = new AdmZip(buffer);
+          const AdmZipClass = getAdmZip();
+          const zip = new AdmZipClass(buffer);
           zip.extractAllTo(cloneDir, true);
 
           // Find extracted root folder
@@ -131,7 +132,8 @@ export async function POST(request) {
             if (zipRes.ok) {
               const arrayBuffer = await zipRes.arrayBuffer();
               const buffer = Buffer.from(arrayBuffer);
-              const zip = new AdmZip(buffer);
+              const AdmZipClass = getAdmZip();
+              const zip = new AdmZipClass(buffer);
               zip.extractAllTo(cloneDir, true);
 
               const extractedItems = fs.readdirSync(cloneDir);

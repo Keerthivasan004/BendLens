@@ -24,6 +24,7 @@ Use this skill when you need to:
    - Resolves the engine directory (`resolveAppDir()`: packaged `<resources>/app`, dev repo root). The C# launcher probes `%LOCALAPPDATA%\Programs\BendLens` (NSIS) BEFORE `%LOCALAPPDATA%\BendLens` (legacy) — keep that order or reinstalls boot the stale copy.
    - Picks a port (`resolvePort()` over `[3000, 3001, 3030, 8000, 5000]`) reusing only identity-verified, version-matched BendLens servers (`isBendLensServer()` probes `/api/updates/check`).
    - Packaged mode spawns the production engine in an isolated background process via `electron/server-runner.js` (`process.execPath` + `ELECTRON_RUN_AS_NODE: '1'`) with in-process fallback — eliminating Windows "(Not Responding)" window hangs during heavy analysis; dev mode spawns `npm/pnpm run dev|start`.
+   - **Turbopack External Modules**: Avoid static `import AdmZip from 'adm-zip'`. Next.js/Turbopack with pnpm hashes external packages to `adm-zip-<hash>` and generates NTFS junctions in `.next/node_modules/` that are omitted or broken in packaged installs. Use `src/lib/safeAdmZip.js` (`eval('require')('adm-zip')`) and allow `server-runner.js` to link legacy aliases automatically.
    - Shows a native error dialog if the engine fails instead of loading a dead URL.
 2. **Native Launcher (`scripts/BendLensLauncher.cs` → `BendLens.exe`)**:
    - Named mutex (`Global\BendLens-Studio-SingleInstance`): re-launch while running shows "Already Installed & Running" and exits.

@@ -48,7 +48,11 @@ BendLens ships as a true native Windows application: double-click → splash →
 - **Desktop update discovery & delivery**:
   - A packaged install has no `dist/` folder. `GET /api/updates/check?source=desktop` discovers releases from GitHub (`Keerthivasan004/BendLens`) and installer assets (`BendLens-Setup-*.exe`) using optional env tokens or public release assets.
   - `/api/updates/apply` streams and launches the official installer in the background via direct `browser_download_url` or updates the codebase files, refreshing desktop shortcuts and version stamps cleanly.
-  - Fully offline environments fall back smoothly to the bundled baseline version (`1.1.16`).
+  - **Turbopack External Module & ZIP Handling**:
+    - Next.js with Turbopack and pnpm hashes server external packages into aliases (`adm-zip-<hash>`), creating NTFS junctions in `.next/node_modules/` that do not exist or break in packaged desktop installations.
+    - Centralized in `src/lib/safeAdmZip.js` using dynamic `eval('require')('adm-zip')` to bypass Turbopack static AST hashing across `/api/updates/apply`, `/api/upload`, and `/api/git-clone`.
+    - `electron/server-runner.js` automatically detects and establishes local junctions in `node_modules/` for any legacy hashed aliases (`adm-zip-[0-9a-fA-F]+`) during boot.
+  - Fully offline environments fall back smoothly to the bundled baseline version (`1.1.17`).
 - **Desktop-only UI gating** (`src/lib/useIsDesktop.js`): `UpdateIndicator` returns null on web; both "Download Desktop App" buttons (landing nav in `page.jsx`, "Download App" in `Header.jsx`) render only when NOT desktop.
 - **Theme**: `darkMode: 'class'` + CSS vars under `:root`/`.dark`; `layout.jsx` applies the saved `bendlens-theme` in a pre-hydration head script and both pages mirror it in state, so the toggle can never desync or flash-wrong on load.
 

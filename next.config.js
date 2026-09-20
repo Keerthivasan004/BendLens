@@ -5,7 +5,6 @@ const nextConfig = {
     buildActivity: false,
     appIsrStatus: false
   },
-  serverExternalPackages: ['adm-zip'],
   productionBrowserSourceMaps: false,
   output: 'standalone',
   compress: true,

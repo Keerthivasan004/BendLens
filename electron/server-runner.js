@@ -30,6 +30,39 @@ try {
 process.env.NODE_ENV = 'production';
 process.env.BENDLENS_APP_DIR = projectDir;
 
+// Ensure any Turbopack-mangled external aliases (e.g. adm-zip-<hash>) resolve seamlessly to node_modules
+try {
+  const nodeModulesDir = path.join(projectDir, 'node_modules');
+  const chunksDir = path.join(projectDir, '.next', 'server', 'chunks');
+  if (fs.existsSync(nodeModulesDir) && fs.existsSync(chunksDir)) {
+    const chunkFiles = fs.readdirSync(chunksDir);
+    for (const f of chunkFiles) {
+      if (f.endsWith('.js')) {
+        try {
+          const content = fs.readFileSync(path.join(chunksDir, f), 'utf-8');
+          const matches = content.match(/adm-zip-[0-9a-fA-F]+/g);
+          if (matches) {
+            const admZipSource = path.join(nodeModulesDir, 'adm-zip');
+            if (fs.existsSync(admZipSource)) {
+              for (const alias of new Set(matches)) {
+                const target = path.join(nodeModulesDir, alias);
+                if (!fs.existsSync(target)) {
+                  try {
+                    fs.symlinkSync(admZipSource, target, 'junction');
+                    console.log(`[*] [server-runner] Linked external alias: ${alias} -> adm-zip`);
+                  } catch {}
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+  }
+} catch (aliasErr) {
+  console.warn('[server-runner] External alias initialization warning:', aliasErr.message);
+}
+
 console.log(`[*] [server-runner] Booting BendLens production engine in isolated background process (pid ${process.pid}) on port ${port}...`);
 
 let nextFactory = null;

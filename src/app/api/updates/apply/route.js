@@ -3,7 +3,6 @@ import { exec } from 'child_process';
 import util from 'util';
 import path from 'path';
 import fs from 'fs';
-import AdmZip from 'adm-zip';
 import os from 'os';
 import { getEffectiveLatest } from '@/lib/releaseInfo';
 const { getAppRoot } = require('@/lib/appPaths');
@@ -82,7 +81,8 @@ export async function POST() {
           if (zipRes.ok) {
             const arrayBuffer = await zipRes.arrayBuffer();
             const buffer = Buffer.from(arrayBuffer);
-            const zip = new AdmZip(buffer);
+            const AdmZipClass = (await import('@/lib/safeAdmZip')).getAdmZip();
+            const zip = new AdmZipClass(buffer);
 
             const tempExtract = path.join(os.tmpdir(), `bendlens_update_${Date.now()}`);
             zip.extractAllTo(tempExtract, true);

@@ -3,7 +3,7 @@ import ProjectAnalyzer from '@/lib/analyzer';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import AdmZip from 'adm-zip';
+import { getAdmZip } from '@/lib/safeAdmZip';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,7 +52,8 @@ const IGNORED_ZIP_EXTS = new Set([
  * providing a 50x-100x speedup on Windows NTFS while extracting 100% of code and schema files.
  */
 function extractZipSafely(buffer, targetDir) {
-  const zip = new AdmZip(buffer);
+  const AdmZipClass = getAdmZip();
+  const zip = new AdmZipClass(buffer);
   const entries = zip.getEntries();
   let extractedCount = 0;
 
