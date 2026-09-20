@@ -8,6 +8,14 @@ const nextConfig = {
   serverExternalPackages: ['adm-zip'],
   productionBrowserSourceMaps: false,
   output: 'standalone',
+  compress: true,
+  poweredByHeader: false,
+  httpAgentOptions: {
+    keepAlive: true,
+  },
+  experimental: {
+    optimizePackageImports: ['lucide-react'],
+  },
 };
 
 module.exports = nextConfig;

@@ -185,7 +185,8 @@ namespace BendLens.Desktop
                 "BendLens",
                 "WebView2Data");
 
-            var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+            var options = new CoreWebView2EnvironmentOptions("--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist");
+            var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
             await _webView.EnsureCoreWebView2Async(env);
 
             _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;

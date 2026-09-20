@@ -35,6 +35,11 @@ BendLens ships as a true native Windows application: double-click → splash →
     - Ingestion-to-Studio handoff: scans completed on the landing page persist to `sessionStorage` and `localStorage`, and `/lens` automatically checks session cache, then local path, with immediate fallback to `loadSampleProject()` to prevent infinite loading spinners.
   - `contextIsolation: true`
   - `nodeIntegration: false`
+  - **GPU Hardware Acceleration & Render Pipeline**:
+    - `enable-gpu-rasterization`, `enable-zero-copy`, `ignore-gpu-blocklist`, and `CanvasOopRasterization` ensure vector diagrams and animations render directly on the GPU at 60+ FPS.
+    - `backgroundThrottling: false` and `disable-background-timer-throttling` prevent frame drops or timer freezing when focus shifts away.
+    - `spellcheck: false` eliminates background dictionary parsing on large schemas.
+    - `server-runner.js` maintains persistent HTTP socket keep-alive (`keepAliveTimeout: 65000ms`) to eliminate per-request connection overhead.
   - Intercepts external link navigation (`setWindowOpenHandler`) to open links in the system's default browser via `shell.openExternal`.
   - Configures `session.defaultSession.on('will-download')` to prevent native download prompts from stealing cursor focus or freezing the window.
 - **Desktop update notification**:
@@ -43,7 +48,7 @@ BendLens ships as a true native Windows application: double-click → splash →
 - **Desktop update discovery & delivery**:
   - A packaged install has no `dist/` folder. `GET /api/updates/check?source=desktop` discovers releases from GitHub (`Keerthivasan004/BendLens`) and installer assets (`BendLens-Setup-*.exe`) using optional env tokens or public release assets.
   - `/api/updates/apply` streams and launches the official installer in the background via direct `browser_download_url` or updates the codebase files, refreshing desktop shortcuts and version stamps cleanly.
-  - Fully offline environments fall back smoothly to the bundled baseline version (`1.1.15`).
+  - Fully offline environments fall back smoothly to the bundled baseline version (`1.1.16`).
 - **Desktop-only UI gating** (`src/lib/useIsDesktop.js`): `UpdateIndicator` returns null on web; both "Download Desktop App" buttons (landing nav in `page.jsx`, "Download App" in `Header.jsx`) render only when NOT desktop.
 - **Theme**: `darkMode: 'class'` + CSS vars under `:root`/`.dark`; `layout.jsx` applies the saved `bendlens-theme` in a pre-hydration head script and both pages mirror it in state, so the toggle can never desync or flash-wrong on load.
 

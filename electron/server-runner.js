@@ -57,6 +57,8 @@ nextApp
   .then(() => {
     clearTimeout(prepareTimeout);
     const server = http.createServer((req, res) => handle(req, res));
+    server.keepAliveTimeout = 65000;
+    server.headersTimeout = 66000;
 
     server.listen(port, host, () => {
       console.log(`[*] [server-runner] BendLens production engine listening on http://${host}:${port}`);
