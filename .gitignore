@@ -43,6 +43,8 @@ out/
 build/
 dist/
 dist-electron/
+desktop/bin/
+desktop/obj/
 
 # 5. Compiled Executables & Generated Downloads
 # Track BendLens binaries for Vercel and direct distribution

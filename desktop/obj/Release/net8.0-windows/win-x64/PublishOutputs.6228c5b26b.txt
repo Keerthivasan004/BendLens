@@ -1,5 +1,0 @@
-D:\BCBUZZ_Side_Project\data-project\dist\webview2-small\BendLens.pdb
-D:\BCBUZZ_Side_Project\data-project\dist\webview2-small\Microsoft.Web.WebView2.Core.xml
-D:\BCBUZZ_Side_Project\data-project\dist\webview2-small\Microsoft.Web.WebView2.WinForms.xml
-D:\BCBUZZ_Side_Project\data-project\dist\webview2-small\Microsoft.Web.WebView2.Wpf.xml
-D:\BCBUZZ_Side_Project\data-project\dist\webview2-small\BendLens.exe
