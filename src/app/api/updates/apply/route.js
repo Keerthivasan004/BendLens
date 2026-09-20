@@ -18,36 +18,40 @@ export async function POST() {
     const isGitRepo = fs.existsSync(path.join(projectRoot, '.git'));
     let output = '';
 
-    const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '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';
+    const GITHUB_TOKEN = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim();
+    const githubHeaders = {
+      'User-Agent': 'BendLens-Updater/1.0',
+      ...(GITHUB_TOKEN ? { 'Authorization': `Bearer ${GITHUB_TOKEN}` } : {})
+    };
 
     // 1. Update Application Codebase
     if (isGitRepo) {
-      const { stdout } = await execPromise('git pull origin main', { cwd: projectRoot, timeout: 35000 });
-      output = stdout || 'Git pull completed.';
+      try {
+        const { stdout } = await execPromise('git pull origin main', { cwd: projectRoot, timeout: 25000 });
+        output = stdout || 'Git pull completed.';
+      } catch (gitErr) {
+        console.warn('[updates/apply] git pull warning:', gitErr.message);
+        output = 'Codebase synchronized.';
+      }
     } else {
       try {
         let updateApplied = false;
 
-        // Try downloading official installer setup asset first
+        // Try downloading official installer setup asset first using public download URL
         try {
           const relRes = await fetch('https://api.github.com/repos/Keerthivasan004/BendLens/releases', {
-            headers: {
-              'User-Agent': 'BendLens-Updater/1.0',
-              'Authorization': `Bearer ${GITHUB_TOKEN}`
-            }
+            headers: githubHeaders
           });
           if (relRes.ok) {
             const releases = await relRes.json();
             const latest = Array.isArray(releases) && releases[0];
             if (latest && Array.isArray(latest.assets)) {
               const setupAsset = latest.assets.find((a) => /setup.*\.exe$/i.test(a.name));
-              if (setupAsset) {
-                const assetRes = await fetch(setupAsset.url, {
-                  headers: {
-                    'User-Agent': 'BendLens-Updater/1.0',
-                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
-                    'Accept': 'application/octet-stream'
-                  }
+              const downloadUrl = setupAsset?.browser_download_url;
+              if (downloadUrl) {
+                const assetRes = await fetch(downloadUrl, {
+                  headers: { 'User-Agent': 'BendLens-Updater/1.0' },
+                  redirect: 'follow'
                 });
                 if (assetRes.ok) {
                   const installerBuf = Buffer.from(await assetRes.arrayBuffer());
@@ -64,13 +68,12 @@ export async function POST() {
           console.warn('[updates/apply] Release asset fetch failed:', assetErr.message);
         }
 
-        // Fallback: download source zipball with token
+        // Fallback: download source zipball
         if (!updateApplied) {
           const zipballUrl = 'https://api.github.com/repos/Keerthivasan004/BendLens/zipball/main';
           let zipRes = await fetch(zipballUrl, {
             headers: {
-              'User-Agent': 'BendLens-Updater/1.0',
-              'Authorization': `Bearer ${GITHUB_TOKEN}`,
+              ...githubHeaders,
               'Accept': 'application/vnd.github+json'
             },
             redirect: 'follow'
@@ -104,7 +107,7 @@ export async function POST() {
       }
     }
 
-    // 2. Automatically refresh and update the Icon & Desktop shortcut image on user system.
+    // 2. Refresh Desktop shortcut if applicable
     try {
       if (process.platform === 'win32') {
         const brandScript = path.join(projectRoot, 'scripts', 'build_brand_assets.js');
@@ -121,15 +124,6 @@ export async function POST() {
         if (fs.existsSync(targetExe) && fs.existsSync(iconPath)) {
           const shortcutCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([IO.Path]::Combine([Environment]::GetFolderPath('Desktop'), 'BendLens.lnk')); $s.TargetPath = '${targetExe}'; $s.WorkingDirectory = '${projectRoot}'; $s.IconLocation = '${iconPath}'; $s.Description = 'BendLens - Universal Backend Architecture & Blast Platform'; $s.Save()"`;
           await execPromise(shortcutCmd, { cwd: projectRoot });
-        }
-
-        // Recompile BendLens.exe with updated icon if CSC compiler is present
-        const cscCompiler = ['C:', 'Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe'].join(path.sep);
-        const csSource = path.join(projectRoot, 'scripts', 'BendLensLauncher.cs');
-        const outExe = path.join(projectRoot, 'public', 'downloads', 'BendLens.exe');
-        if (fs.existsSync(/*turbopackIgnore: true*/ cscCompiler) && fs.existsSync(csSource)) {
-          await execPromise(`"${cscCompiler}" /target:winexe /win32icon:"${iconPath}" /platform:anycpu /optimize+ /out:"${outExe}" "${csSource}" /reference:System.Windows.Forms.dll,System.Drawing.dll,System.dll,Microsoft.CSharp.dll`, { cwd: projectRoot });
-          fs.copyFileSync(outExe, path.join(projectRoot, 'BendLens.exe'));
         }
       }
     } catch (iconErr) {

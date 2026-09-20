@@ -40,10 +40,10 @@ BendLens ships as a true native Windows application: double-click → splash →
 - **Desktop update notification**:
   - `checkForDesktopUpdates()` polls local `/api/updates/check` once after load + every 15 min; native `Notification` fires once per `latestVersion` (tracked in `notifiedUpdateVersions`), click focuses/restores the studio window.
   - In-app `UpdateIndicator` polls the same endpoint every 5 min + on window focus/tab-visible, persists dismissal per version (`bendlens-update-dismissed-<version>` in localStorage so new releases re-notify), surfaces check failures instead of faking success, and shows the ready installer filename (`updateArtifact`). It renders **only** for downloaded-desktop users (`useIsDesktop()` → `window.bendlensDesktop.isDesktop`); web users get null since the deployed web app is always current.
-- **Desktop update discovery & authenticated delivery**:
-  - A packaged install has no `dist/` folder. `GET /api/updates/check?source=desktop` uses the repository release token to discover private GitHub releases (`Keerthivasan004/BendLens`) and installer assets (`BendLens-Setup-*.exe`).
-  - `/api/updates/apply` streams and launches the official NSIS installer in the background or updates the codebase files, refreshing desktop shortcuts and version stamps cleanly.
-  - Fully offline environments fall back smoothly to the bundled baseline version (`1.1.12`).
+- **Desktop update discovery & delivery**:
+  - A packaged install has no `dist/` folder. `GET /api/updates/check?source=desktop` discovers releases from GitHub (`Keerthivasan004/BendLens`) and installer assets (`BendLens-Setup-*.exe`) using optional env tokens or public release assets.
+  - `/api/updates/apply` streams and launches the official installer in the background via direct `browser_download_url` or updates the codebase files, refreshing desktop shortcuts and version stamps cleanly.
+  - Fully offline environments fall back smoothly to the bundled baseline version (`1.1.14`).
 - **Desktop-only UI gating** (`src/lib/useIsDesktop.js`): `UpdateIndicator` returns null on web; both "Download Desktop App" buttons (landing nav in `page.jsx`, "Download App" in `Header.jsx`) render only when NOT desktop.
 - **Theme**: `darkMode: 'class'` + CSS vars under `:root`/`.dark`; `layout.jsx` applies the saved `bendlens-theme` in a pre-hydration head script and both pages mirror it in state, so the toggle can never desync or flash-wrong on load.
 

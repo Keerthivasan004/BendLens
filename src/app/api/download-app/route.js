@@ -61,14 +61,15 @@ export async function GET(request) {
     }
 
     // 1. If running without local dist/ binaries, query the latest GitHub release
-    // asset using the repository token and redirect directly to the signed download URL.
+    // asset and redirect directly to the public download URL.
     try {
-      const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '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';
+      const GITHUB_TOKEN = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim();
+      const githubHeaders = {
+        'User-Agent': 'BendLens-Downloader/1.0',
+        ...(GITHUB_TOKEN ? { 'Authorization': `Bearer ${GITHUB_TOKEN}` } : {})
+      };
       const relRes = await fetch('https://api.github.com/repos/Keerthivasan004/BendLens/releases', {
-        headers: {
-          'User-Agent': 'BendLens-Downloader/1.0',
-          'Authorization': `Bearer ${GITHUB_TOKEN}`
-        }
+        headers: githubHeaders
       });
       if (relRes.ok) {
         const releases = await relRes.json();
@@ -77,19 +78,8 @@ export async function GET(request) {
           const setupAsset =
             latest.assets.find((a) => /setup.*\.exe$/i.test(a.name)) ||
             latest.assets.find((a) => /\.exe$/i.test(a.name));
-          if (setupAsset) {
-            const assetRes = await fetch(setupAsset.url, {
-              headers: {
-                'User-Agent': 'BendLens-Downloader/1.0',
-                'Authorization': `Bearer ${GITHUB_TOKEN}`,
-                'Accept': 'application/octet-stream'
-              },
-              redirect: 'manual'
-            });
-            const redirectUrl = assetRes.headers.get('location');
-            if (redirectUrl) {
-              return NextResponse.redirect(redirectUrl, 307);
-            }
+          if (setupAsset?.browser_download_url) {
+            return NextResponse.redirect(setupAsset.browser_download_url, 307);
           }
         }
       }

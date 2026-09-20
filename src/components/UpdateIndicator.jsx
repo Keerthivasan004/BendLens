@@ -96,9 +96,14 @@ export default function UpdateIndicator() {
       setTimeout(() => setUpdateStep('3/3: Finalizing Studio update...'), 1600);
 
       const res = await fetch('/api/updates/apply', { method: 'POST' });
-      const data = await res.json();
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = { success: false, error: `Engine returned non-JSON response (HTTP ${res.status})` };
+      }
       
-      if (data.success) {
+      if (res.ok && data?.success) {
         const newVersion = data.newVersion || updateInfo.latestVersion;
         setUpdateSuccess(true);
         dismissNotification();
@@ -117,13 +122,13 @@ export default function UpdateIndicator() {
           checkForUpdates();
         }, 1400);
       } else {
-        alert(data.error || 'Update process could not be completed.');
+        alert(data?.error || `Update process could not be completed (HTTP ${res.status}).`);
         setIsUpdating(false);
         setUpdateStep('');
       }
     } catch (err) {
       console.warn('Update apply failed:', err);
-      alert('Update could not be applied. Please check your connection to the local engine and try again.');
+      alert(`Update could not be applied: ${err?.message || 'Connection error'}. Please check your connection to the local engine and try again.`);
       setIsUpdating(false);
       setUpdateStep('');
     }

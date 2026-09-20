@@ -126,7 +126,7 @@ export function getLatestRelease(projectRoot) {
 // secure repository release token.
 // Fully offline environments fall back seamlessly to local detection.
 const UPDATE_REPO = 'Keerthivasan004/BendLens';
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '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';
+const GITHUB_TOKEN = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim();
 const REMOTE_TTL_MS = 10 * 60 * 1000;
 let remoteCache = { at: 0, version: null, asset: null };
 
