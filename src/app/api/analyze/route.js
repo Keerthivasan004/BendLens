@@ -38,8 +38,8 @@ export async function POST(request) {
       targetPath = getSampleProjectPath();
     }
 
-    // Always run fresh analysis - no caching, no cross-user leakage
-    const result = ProjectAnalyzer.analyze(targetPath);
+    // Always run fresh analysis asynchronously with cooperative event-loop yields
+    const result = await ProjectAnalyzer.analyzeAsync(targetPath);
     saveToHistory(result);
 
     return NextResponse.json(

@@ -23,7 +23,7 @@ Use this skill when you need to:
    - Immediately loads the local lightweight splash screen (`splash.html`).
    - Resolves the engine directory (`resolveAppDir()`: packaged `<resources>/app`, dev repo root). The C# launcher probes `%LOCALAPPDATA%\Programs\BendLens` (NSIS) BEFORE `%LOCALAPPDATA%\BendLens` (legacy) — keep that order or reinstalls boot the stale copy.
    - Picks a port (`resolvePort()` over `[3000, 3001, 3030, 8000, 5000]`) reusing only identity-verified, version-matched BendLens servers (`isBendLensServer()` probes `/api/updates/check`).
-   - Packaged mode spawns the production engine with Electron's own Node (`process.execPath` + bundled `next start`, `windowsHide: true`) — no npm on user machines; dev mode spawns `npm/pnpm run dev|start`.
+   - Packaged mode spawns the production engine in an isolated background process via `electron/server-runner.js` (`process.execPath` + `ELECTRON_RUN_AS_NODE: '1'`) with in-process fallback — eliminating Windows "(Not Responding)" window hangs during heavy analysis; dev mode spawns `npm/pnpm run dev|start`.
    - Shows a native error dialog if the engine fails instead of loading a dead URL.
 2. **Native Launcher (`scripts/BendLensLauncher.cs` → `BendLens.exe`)**:
    - Named mutex (`Global\BendLens-Studio-SingleInstance`): re-launch while running shows "Already Installed & Running" and exits.

@@ -26,18 +26,24 @@ BendLens ships as a true native Windows application: double-click → splash →
   - `resolveWindowIcon()`: probes `resources/public`, `resources/app/public`, `app.asar.unpacked/public`, then dev `public/` — first existing `icon.ico` (win) / `icon.png` wins; `undefined` fallback is safe. Window + update-notification icons both use it (never a bare `__dirname` path that breaks inside asar).
   - `resolvePort()`: reuses a live BendLens server (verified by identity probe) or picks the first free port from `[3000, 3001, 3030, 8000, 5000]`.
   - `isBendLensServer()`: probes `/api/updates/check` for `{ success: true, currentVersion: string }` — never attaches to a foreign service on port 3000.
-  - Packaged mode runs the production engine **in-process** (`require('next')` + `prepare()` + `http.createServer(handle).listen(port, 127.0.0.1)`, `NODE_ENV=production`) — **no npm required** on the user machine. Rationale: `process.execPath` in a packaged app is the Electron binary, not Node, so `spawn(process.execPath, [nextBin, 'start', ...])` cannot boot Next and leaves the app stuck on splash.
-    - Readiness = direct in-process `server.listen()` callback in packaged mode, plus a sequential HTTP identity probe fallback (250ms interval, 45s timeout) for spawned dev engines.
+  - Packaged mode runs the production engine via a **dedicated isolated background Node.js child process** (`electron/server-runner.js` spawned using `process.execPath` with `ELECTRON_RUN_AS_NODE: '1'`).
+    - **Zero "(Not Responding)" hangs**: Decoupling Next.js from the Electron Main Process ensures that long-running AST parsing, directory scanning, and diagram generation compute in a separate OS thread and never starve Electron's Windows message pump.
+    - **Fallback**: Gracefully falls back to in-process prepare if process spawning is ever inhibited.
+    - Readiness = IPC `ready` message from `server-runner.js` + stdout signal + sequential HTTP identity probe fallback (250ms interval, 45s timeout).
     - `loadStudio()` incorporates a single-flight execution lock (`studioLoaded`/`studioLoading`) and automatic exponential retry on Chromium navigation aborts (`ERR_ABORTED -3`) so the window never gets stranded on `splash.html`.
     - `detectDuplicateInstalls()` is deferred until 2.5s after studio load to ensure modal dialogs never freeze the startup message pump or trigger Windows Application Hang (Event 1002).
     - Ingestion-to-Studio handoff: scans completed on the landing page persist to `sessionStorage` and `localStorage`, and `/lens` automatically checks session cache, then local path, with immediate fallback to `loadSampleProject()` to prevent infinite loading spinners.
   - `contextIsolation: true`
   - `nodeIntegration: false`
   - Intercepts external link navigation (`setWindowOpenHandler`) to open links in the system's default browser via `shell.openExternal`.
+  - Configures `session.defaultSession.on('will-download')` to prevent native download prompts from stealing cursor focus or freezing the window.
 - **Desktop update notification**:
   - `checkForDesktopUpdates()` polls local `/api/updates/check` once after load + every 15 min; native `Notification` fires once per `latestVersion` (tracked in `notifiedUpdateVersions`), click focuses/restores the studio window.
   - In-app `UpdateIndicator` polls the same endpoint every 5 min + on window focus/tab-visible, persists dismissal per version (`bendlens-update-dismissed-<version>` in localStorage so new releases re-notify), surfaces check failures instead of faking success, and shows the ready installer filename (`updateArtifact`). It renders **only** for downloaded-desktop users (`useIsDesktop()` → `window.bendlensDesktop.isDesktop`); web users get null since the deployed web app is always current.
-- **Desktop update discovery**: a packaged install has no `dist/` folder, so local-only detection could never fire there. `GET /api/updates/check?source=desktop` (called by `UpdateIndicator` and Electron's `checkForDesktopUpdates`) additionally compares the public GitHub release tag (`Keerthivasan004/BendLens`, version metadata only, 10-min cache, 6s timeout, silent local fallback when offline). Plain callers (including the engine identity probe) stay purely local.
+- **Desktop update discovery & authenticated delivery**:
+  - A packaged install has no `dist/` folder. `GET /api/updates/check?source=desktop` uses the repository release token to discover private GitHub releases (`Keerthivasan004/BendLens`) and installer assets (`BendLens-Setup-*.exe`).
+  - `/api/updates/apply` streams and launches the official NSIS installer in the background or updates the codebase files, refreshing desktop shortcuts and version stamps cleanly.
+  - Fully offline environments fall back smoothly to the bundled baseline version (`1.1.12`).
 - **Desktop-only UI gating** (`src/lib/useIsDesktop.js`): `UpdateIndicator` returns null on web; both "Download Desktop App" buttons (landing nav in `page.jsx`, "Download App" in `Header.jsx`) render only when NOT desktop.
 - **Theme**: `darkMode: 'class'` + CSS vars under `:root`/`.dark`; `layout.jsx` applies the saved `bendlens-theme` in a pre-hydration head script and both pages mirror it in state, so the toggle can never desync or flash-wrong on load.
 

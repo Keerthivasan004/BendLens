@@ -14,7 +14,7 @@ export async function POST(request) {
     // user's schema must never leak into another user's impact simulation,
     // and re-scans must reflect the current files on disk).
     const pathToAnalyze = (targetPath && fs.existsSync(targetPath)) ? targetPath : getSampleProjectPath();
-    const analysis = ProjectAnalyzer.analyze(pathToAnalyze);
+    const analysis = await ProjectAnalyzer.analyzeAsync(pathToAnalyze);
 
     const targetName = body.targetName || body.tableName || 'orders';
     const targetType = body.targetType || 'table';

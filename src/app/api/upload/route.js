@@ -204,7 +204,7 @@ export async function POST(request) {
     }
 
     // Analyze extracted project
-    const result = ProjectAnalyzer.analyze(targetAnalyzeDir);
+    const result = await ProjectAnalyzer.analyzeAsync(targetAnalyzeDir);
     const baseProjectName = safeFileName.replace(/\.zip$/i, '') || path.basename(targetAnalyzeDir);
     result.projectName = baseProjectName;
     

@@ -8,7 +8,7 @@ export const revalidate = 0;
 export async function GET() {
   try {
     const samplePath = getSampleProjectPath();
-    const result = ProjectAnalyzer.analyze(samplePath);
+    const result = await ProjectAnalyzer.analyzeAsync(samplePath);
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {

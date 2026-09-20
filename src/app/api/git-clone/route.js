@@ -86,7 +86,7 @@ export async function POST(request) {
             targetAnalyzeDir = path.join(cloneDir, extractedItems[0]);
           }
 
-          const result = ProjectAnalyzer.analyze(targetAnalyzeDir);
+          const result = await ProjectAnalyzer.analyzeAsync(targetAnalyzeDir);
           result.projectName = repoName;
 
           return NextResponse.json({ success: true, data: result });
@@ -140,7 +140,7 @@ export async function POST(request) {
                 targetAnalyzeDir = path.join(cloneDir, extractedItems[0]);
               }
 
-              const result = ProjectAnalyzer.analyze(targetAnalyzeDir);
+              const result = await ProjectAnalyzer.analyzeAsync(targetAnalyzeDir);
               result.projectName = repoName;
               return NextResponse.json({ success: true, data: result });
             }
@@ -164,7 +164,7 @@ export async function POST(request) {
         stdio: 'pipe'
       });
 
-      const result = ProjectAnalyzer.analyze(cloneDir);
+      const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
       result.projectName = repoName;
 
       return NextResponse.json({ success: true, data: result });

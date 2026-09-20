@@ -61,8 +61,16 @@ ${data.diagrams?.lld?.mermaid || ''}
     const a = document.createElement('a');
     a.href = url;
     a.download = `bendlens-architecture-report.${ext}`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => {
+      try {
+        if (a.parentNode) {
+          document.body.removeChild(a);
+        }
+        URL.revokeObjectURL(url);
+      } catch {}
+    }, 2000);
   };
 
   return (

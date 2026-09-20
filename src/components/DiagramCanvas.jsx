@@ -376,6 +376,18 @@ export default function DiagramCanvas({
     setIsDragging(false);
   };
 
+  // Ensure dragging never gets stuck and cursor always resets on window blur/mouseup
+  useEffect(() => {
+    const handleGlobalMouseUp = () => setIsDragging(false);
+    const handleGlobalBlur = () => setIsDragging(false);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('blur', handleGlobalBlur);
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('blur', handleGlobalBlur);
+    };
+  }, []);
+
   // Wheel behavior (Figma convention): plain wheel scrolls the page,
   // Ctrl/Cmd + wheel zooms the canvas. Native non-passive listener so
   // preventDefault works without console warnings.
@@ -401,6 +413,7 @@ export default function DiagramCanvas({
   };
 
   const handleExportSVG = () => {
+    setIsDragging(false);
     if (!containerRef.current) return;
     const svgElement = containerRef.current.querySelector('svg');
     if (!svgElement) return;
@@ -413,7 +426,14 @@ export default function DiagramCanvas({
     downloadLink.download = `BendLens-${activeTab.toUpperCase()}-Diagram.svg`;
     document.body.appendChild(downloadLink);
     downloadLink.click();
-    document.body.removeChild(downloadLink);
+    setTimeout(() => {
+      try {
+        if (downloadLink.parentNode) {
+          document.body.removeChild(downloadLink);
+        }
+        URL.revokeObjectURL(svgUrl);
+      } catch {}
+    }, 2000);
   };
 
   const handleCopyCode = () => {

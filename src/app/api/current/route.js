@@ -24,7 +24,7 @@ export async function GET(request) {
     const cleanPath = queryPath.trim().replace(/^["'`]+|["'`]+$/g, '').trim();
     
     // Always run fresh analysis for the requested path - no caching
-    const data = ProjectAnalyzer.analyze(cleanPath);
+    const data = await ProjectAnalyzer.analyzeAsync(cleanPath);
 
     return NextResponse.json(
       { success: true, data },

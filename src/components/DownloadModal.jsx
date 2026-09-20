@@ -154,7 +154,10 @@ export default function DownloadModal({ isOpen, onClose, reason = 'DEFAULT' }) {
           <div className="mt-6 pt-5 border-t border-border-subtle flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
             <a
               href="/api/download-app"
-              onClick={() => setTimeout(onClose, 1500)}
+              onClick={() => {
+                document.body.style.overflow = '';
+                setTimeout(onClose, 800);
+              }}
               className="btn-primary flex-1 py-3 text-sm font-bold justify-center group shadow-glow"
             >
               <Download className="h-4 w-4" />

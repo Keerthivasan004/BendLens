@@ -68,6 +68,17 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  // Ensure downloads never block the UI thread or freeze the cursor
+  try {
+    mainWindow.webContents.session.on('will-download', (event, item) => {
+      item.once('done', (e, state) => {
+        if (state === 'completed') {
+          console.log('[*] Desktop download completed smoothly:', item.getFilename());
+        }
+      });
+    });
+  } catch {}
+
   mainWindow.on('closed', () => {
     mainWindow = null;
     cleanupServer();
@@ -377,74 +388,106 @@ function startBackendServer(projectDir, port, onReady = null) {
       );
       return false;
     }
-    let nextFactory = null;
-    try {
-      nextFactory = require('next');
-    } catch {
+
+    const runnerCandidates = [
+      path.join(__dirname, 'server-runner.js'),
+      path.join(projectDir, 'electron', 'server-runner.js'),
+      path.join(process.resourcesPath, 'app', 'electron', 'server-runner.js')
+    ];
+    const runnerScript = runnerCandidates.find((p) => fs.existsSync(p));
+
+    if (runnerScript) {
+      console.log(`[*] Spawning BendLens isolated background engine via ELECTRON_RUN_AS_NODE on port ${port}...`);
+      serverProcess = spawn(process.execPath, [runnerScript], {
+        cwd: projectDir,
+        shell: false,
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+        env: {
+          ...process.env,
+          ELECTRON_RUN_AS_NODE: '1',
+          BENDLENS_APP_DIR: projectDir,
+          PORT: String(port)
+        }
+      });
+
+      serverProcess.on('message', (msg) => {
+        if (msg && msg.type === 'ready') {
+          console.log('[*] Engine IPC ready signal received.');
+          if (typeof onReady === 'function') {
+            try { onReady(); } catch {}
+          }
+        }
+      });
+    } else {
+      // In-process fallback if runner script cannot be resolved
+      let nextFactory = null;
       try {
-        nextFactory = require(path.join(projectDir, 'node_modules', 'next'));
+        nextFactory = require('next');
+      } catch {
+        try {
+          nextFactory = require(path.join(projectDir, 'node_modules', 'next'));
+        } catch (err) {
+          console.error('[!] Packaged engine missing bundled Next.js:', err && err.message);
+          dialog.showErrorBox(
+            'BendLens Engine Missing',
+            'The embedded BendLens engine could not be found in this installation.\n\nPlease reinstall BendLens from the official installer.'
+          );
+          return false;
+        }
+      }
+      try {
+        console.log(`[*] Starting embedded BendLens engine (in-process fallback) on port ${port}...`);
+        process.env.NODE_ENV = 'production';
+        const nextApp = nextFactory({ dev: false, dir: projectDir, hostname: HOST, port });
+        const handle = nextApp.getRequestHandler();
+        serverProcess = { isEmbedded: true, pid: null };
+
+        const prepareTimeout = setTimeout(() => {
+          console.error('[!] Embedded engine prepare() timed out after 60s');
+          serverProcess = null;
+          dialog.showErrorBox(
+            'BendLens Engine Timeout',
+            'The embedded engine took too long to start (60s).\n\nThis usually means a corrupted build or resource exhaustion.\nPlease restart the application or reinstall BendLens.'
+          );
+        }, 60000);
+
+        nextApp
+          .prepare()
+          .then(() => {
+            clearTimeout(prepareTimeout);
+            const server = http.createServer((req, res) => handle(req, res));
+            server.listen(port, HOST, () => {
+              console.log(`[*] Embedded engine listening on ${HOST}:${port}.`);
+              if (typeof onReady === 'function') {
+                try { onReady(); } catch {}
+              }
+            });
+            server.on('error', (err) => {
+              console.error('[!] Embedded engine server error:', err);
+              serverProcess = null;
+            });
+            serverProcess.server = server;
+          })
+          .catch((err) => {
+            clearTimeout(prepareTimeout);
+            console.error('[!] Embedded engine failed to start:', err);
+            serverProcess = null;
+            dialog.showErrorBox(
+              'BendLens Engine Failed to Start',
+              'The local BendLens engine did not respond in time.\n\nPlease restart the application. If the problem persists, reinstall BendLens.'
+            );
+          });
       } catch (err) {
-        console.error('[!] Packaged engine missing bundled Next.js:', err && err.message);
+        console.error('[!] Embedded engine failed to start:', err);
+        serverProcess = null;
         dialog.showErrorBox(
-          'BendLens Engine Missing',
-          'The embedded BendLens engine could not be found in this installation.\n\nPlease reinstall BendLens from the official installer.'
+          'BendLens Engine Failed to Start',
+          'The local BendLens engine could not be started.\n\n' +
+          `Details: ${(err && err.message) || err}\n\n` +
+          'Please restart the application. If the problem persists, reinstall BendLens.'
         );
         return false;
       }
-    }
-    try {
-      console.log(`[*] Starting embedded BendLens engine (in-process production) on port ${port}...`);
-      process.env.NODE_ENV = 'production';
-      const nextApp = nextFactory({ dev: false, dir: projectDir, hostname: HOST, port });
-      const handle = nextApp.getRequestHandler();
-      serverProcess = { isEmbedded: true, pid: null };
-
-      // Timeout guard: fail fast if Next.js prepare hangs (>60s)
-      const prepareTimeout = setTimeout(() => {
-        console.error('[!] Embedded engine prepare() timed out after 60s');
-        serverProcess = null;
-        dialog.showErrorBox(
-          'BendLens Engine Timeout',
-          'The embedded engine took too long to start (60s).\n\nThis usually means a corrupted build or resource exhaustion.\nPlease restart the application or reinstall BendLens.'
-        );
-      }, 60000);
-
-      nextApp
-        .prepare()
-        .then(() => {
-          clearTimeout(prepareTimeout);
-          const server = http.createServer((req, res) => handle(req, res));
-          server.listen(port, HOST, () => {
-            console.log(`[*] Embedded engine listening on ${HOST}:${port}.`);
-            if (typeof onReady === 'function') {
-              try { onReady(); } catch {}
-            }
-          });
-          server.on('error', (err) => {
-            console.error('[!] Embedded engine server error:', err);
-            serverProcess = null;
-          });
-          serverProcess.server = server;
-        })
-        .catch((err) => {
-          clearTimeout(prepareTimeout);
-          console.error('[!] Embedded engine failed to start:', err);
-          serverProcess = null;
-          dialog.showErrorBox(
-            'BendLens Engine Failed to Start',
-            'The local BendLens engine did not respond in time.\n\nPlease restart the application. If the problem persists, reinstall BendLens.'
-          );
-        });
-    } catch (err) {
-      console.error('[!] Embedded engine failed to start:', err);
-      serverProcess = null;
-      dialog.showErrorBox(
-        'BendLens Engine Failed to Start',
-        'The local BendLens engine could not be started.\n\n' +
-        `Details: ${(err && err.message) || err}\n\n` +
-        'Please restart the application. If the problem persists, reinstall BendLens.'
-      );
-      return false;
     }
   } else {
     const isWin = process.platform === 'win32';

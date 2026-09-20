@@ -27,7 +27,7 @@ function resolveRoot(projectRoot) {
  * update signal for testing the notification UI end-to-end.
  */
 
-export const BASELINE_LATEST_VERSION = '1.1.0';
+export const BASELINE_LATEST_VERSION = '1.1.12';
 
 /** Extract a semver triple from an installer filename, or null. */
 export function parseArtifactVersion(filename) {
@@ -118,40 +118,65 @@ export function getLatestRelease(projectRoot) {
   return { latestVersion, updateArtifact };
 }
 
-// --- Remote release discovery (downloaded desktop apps only) ---
+// --- Remote release discovery (downloaded desktop apps) ---
 //
 // A packaged desktop install has no `dist/` folder, so purely local
-// detection can never announce a release to it. For desktop clients the
-// check endpoint therefore ALSO reads the public GitHub release tag
-// (version metadata only — no source code or schemas ever leave the
-// machine, consistent with the existing apply-route GitHub fetch).
-// Fully offline/blocked environments fall back to local detection.
-// Web clients never take this path (their UI is update-gated).
+// detection could never announce a release to it. For desktop clients the
+// check endpoint therefore reads GitHub release tags and assets using the
+// secure repository release token.
+// Fully offline environments fall back seamlessly to local detection.
 const UPDATE_REPO = 'Keerthivasan004/BendLens';
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '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';
 const REMOTE_TTL_MS = 10 * 60 * 1000;
-let remoteCache = { at: 0, version: null };
+let remoteCache = { at: 0, version: null, asset: null };
 
-export async function getRemoteLatestVersion() {
+export async function getRemoteLatestRelease() {
   const now = Date.now();
   if (remoteCache.version && now - remoteCache.at < REMOTE_TTL_MS) {
-    return remoteCache.version;
+    return { version: remoteCache.version, asset: remoteCache.asset };
   }
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 6000);
-    const res = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'BendLens-Updater/1.0' },
+    const headers = {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'BendLens-Updater/1.0'
+    };
+    if (GITHUB_TOKEN) {
+      headers['Authorization'] = `Bearer ${GITHUB_TOKEN}`;
+    }
+
+    const res = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases`, {
+      headers,
       signal: ctrl.signal
     });
     clearTimeout(timer);
-    if (!res.ok) return remoteCache.version;
-    const json = await res.json().catch(() => ({}));
-    const v = parseArtifactVersion(json.tag_name || json.name || '');
-    if (v) remoteCache = { at: now, version: v };
-    return v || remoteCache.version;
+    if (!res.ok) return { version: remoteCache.version, asset: remoteCache.asset };
+    const releases = await res.json().catch(() => []);
+    if (Array.isArray(releases) && releases.length > 0) {
+      const newest = releases[0];
+      const v = parseArtifactVersion(newest.tag_name || newest.name || '');
+      let assetName = null;
+      if (Array.isArray(newest.assets)) {
+        const setupAsset =
+          newest.assets.find((a) => /setup.*\.exe$/i.test(a.name)) ||
+          newest.assets.find((a) => /\.exe$/i.test(a.name));
+        if (setupAsset) assetName = setupAsset.name;
+      }
+      if (v) {
+        remoteCache = { at: now, version: v, asset: assetName };
+        return { version: v, asset: assetName };
+      }
+    }
+    return { version: remoteCache.version, asset: remoteCache.asset };
   } catch {
-    return remoteCache.version;
+    return { version: remoteCache.version, asset: remoteCache.asset };
   }
+}
+
+export async function getRemoteLatestVersion() {
+  const rel = await getRemoteLatestRelease();
+  return rel.version;
 }
 
 /**
@@ -161,9 +186,9 @@ export async function getRemoteLatestVersion() {
 export async function getEffectiveLatest(projectRoot, { allowRemote = false } = {}) {
   const local = getLatestRelease(projectRoot);
   if (!allowRemote) return { ...local, updateSource: 'local' };
-  const remote = await getRemoteLatestVersion();
-  if (remote && isNewerVersion(remote, local.latestVersion)) {
-    return { latestVersion: remote, updateArtifact: null, updateSource: 'remote' };
+  const remote = await getRemoteLatestRelease();
+  if (remote.version && isNewerVersion(remote.version, local.latestVersion)) {
+    return { latestVersion: remote.version, updateArtifact: remote.asset || null, updateSource: 'remote' };
   }
   return { ...local, updateSource: 'local' };
 }

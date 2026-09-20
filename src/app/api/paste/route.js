@@ -28,7 +28,7 @@ export async function POST(request) {
     fs.writeFileSync(targetFilePath, code, 'utf-8');
 
     // Run analyzer - always fresh, no caching
-    const result = ProjectAnalyzer.analyze(extractDir);
+    const result = await ProjectAnalyzer.analyzeAsync(extractDir);
     result.projectName = projectName;
 
     return NextResponse.json({ success: true, data: result });
