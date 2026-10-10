@@ -15,13 +15,29 @@ const yieldEventLoop = () => new Promise((resolve) => setImmediate(resolve));
  * Supports analyzing massive multi-gigabyte repositories seamlessly.
  */
 class ProjectAnalyzer {
+  static IGNORED_DIRS = new Set([
+    'node_modules', '.git', '.next', 'dist', 'build', '.idea', '.vscode',
+    '__pycache__', 'venv', '.venv', 'env', '.env', 'coverage', '.turbo',
+    'target', 'bin', 'obj', 'vendor', '.terraform', '.cache', 'tmp', 'temp', 'logs', 'out',
+    '__MACOSX', '.DS_Store', 'Thumbs.db', 'PaxHeaders',
+    '.gradle', '.m2', 'Pods', 'Carthage', 'DerivedData',
+    '.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox', 'site-packages',
+    '.yarn', '.pnpm-store', 'bower_components', '.parcel-cache',
+    '.docusaurus', 'storybook-static', '.nuxt', '.svelte-kit', '.output',
+    'playwright-report', 'test-results', 'cypress', '.nyc_output',
+    '.serverless', '.sst', '.aws-sam'
+  ]);
+
   static IGNORED_EXTS = new Set([
-    '.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.bmp', '.tiff',
+    '.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.bmp', '.tiff', '.svg', '.psd', '.ai',
     '.woff', '.woff2', '.ttf', '.eot', '.otf',
-    '.mp3', '.mp4', '.wav', '.avi', '.mov', '.webm',
-    '.zip', '.tar', '.gz', '.tgz', '.7z', '.rar',
-    '.exe', '.dll', '.so', '.dylib', '.bin', '.iso',
-    '.pdf', '.map', '.log'
+    '.mp3', '.mp4', '.wav', '.avi', '.mov', '.webm', '.ogg', '.flac', '.m4a',
+    '.zip', '.tar', '.gz', '.tgz', '.7z', '.rar', '.bz2', '.xz',
+    '.exe', '.dll', '.so', '.dylib', '.bin', '.iso', '.wasm', '.class', '.jar', '.war',
+    '.pdf', '.map', '.log', '.txt', '.md', '.markdown', '.mdx', '.rst', '.doc', '.docx',
+    '.css', '.scss', '.sass', '.less', '.styl',
+    '.html', '.htm',
+    '.lock', '.sum', '.patch', '.diff'
   ]);
 
   static isSqlLikeFile(fullPath) {
@@ -32,7 +48,7 @@ class ProjectAnalyzer {
 
   static isSchemaPriorityFile(fullPath) {
     const ext = path.extname(fullPath).toLowerCase();
-    if (['.sql', '.ddl', '.dump', '.dmp', '.pgsql', '.psql', '.mysql', '.tsql', '.mssql', '.cql', '.hql', '.ora', '.prisma'].includes(ext)) return true;
+    if (['.sql', '.ddl', '.dump', '.dmp', '.pgsql', '.psql', '.mysql', '.tsql', '.mssql', '.cql', '.hql', '.ora', '.prisma', '.sqlite', '.sqlite3', '.db'].includes(ext)) return true;
     if (ProjectAnalyzer.isSqlLikeFile(fullPath)) return true;
     if (/(^|[/\\])(schema\.rb|db\.xml|changelog[^/\\]*\.xml)$/i.test(fullPath)) return true;
     return /migrat|schema|seed|ddl|prisma/i.test(fullPath);
@@ -43,18 +59,56 @@ class ProjectAnalyzer {
     return ProjectAnalyzer.IGNORED_EXTS.has(ext);
   }
 
+  static isIgnoredCodeFile(fullPath) {
+    const base = path.basename(fullPath).toLowerCase();
+    // TypeScript declarations have no executable schema or runtime endpoints
+    if (base.endsWith('.d.ts') || base.endsWith('.d.mts') || base.endsWith('.d.cts')) return true;
+    // Minified JS/CSS bundles (e.g. mermaid.min.js, bundle.min.js, chunk-xyz.min.js)
+    if (/\.(?:min|bundle|chunk|vendor)\.(?:js|mjs|cjs)$/i.test(base)) return true;
+    if (base.endsWith('.js.map') || base.endsWith('.css.map')) return true;
+    return false;
+  }
+
+  static isInfraTarget(fullPath) {
+    const base = path.basename(fullPath).toLowerCase();
+    return base === 'docker-compose.yml' ||
+      base === 'docker-compose.yaml' ||
+      base === 'dockerfile' ||
+      base.startsWith('dockerfile.') ||
+      base.includes('openapi') ||
+      base.includes('swagger') ||
+      base === 'package.json' ||
+      base === 'requirements.txt';
+  }
+
+  static isCodeCandidate(fullPath) {
+    const ext = path.extname(fullPath).toLowerCase();
+    const CODE_EXTS = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.java', '.go', '.cs', '.php', '.rb']);
+    return CODE_EXTS.has(ext);
+  }
+
+  static isRelevantFile(fullPath) {
+    if (ProjectAnalyzer.isIgnoredAssetFile(fullPath)) return false;
+    if (ProjectAnalyzer.isSchemaPriorityFile(fullPath)) return true;
+    if (ProjectAnalyzer.isIgnoredCodeFile(fullPath)) return false;
+    if (ProjectAnalyzer.isCodeCandidate(fullPath)) return true;
+    if (ProjectAnalyzer.isInfraTarget(fullPath)) return true;
+    const ext = path.extname(fullPath).toLowerCase();
+    const base = path.basename(fullPath).toLowerCase();
+    if (ext === '.json' && (base.includes('seed') || base.includes('fixture') || base.includes('mock'))) return true;
+    if (ext === '.xml' && (base.includes('liquibase') || base.includes('changelog') || base === 'db.xml')) return true;
+    if (ext === '.csv' && (base.includes('seed') || base.includes('fixture') || base.includes('mock'))) return true;
+    return false;
+  }
+
   static async scanDirectoryAsync(targetDir) {
     const schemaFiles = [];
+    const codeFiles = [];
+    const infraFiles = [];
     const otherFiles = [];
     const skippedOversize = [];
     let skippedOversizeCount = 0;
     let seenTotal = 0;
-    const IGNORED_DIRS = new Set([
-      'node_modules', '.git', '.next', 'dist', 'build', '.idea', '.vscode',
-      '__pycache__', 'venv', '.venv', 'env', '.env', 'coverage', '.turbo',
-      'target', 'bin', 'obj', 'vendor', '.terraform', '.cache', 'tmp', 'temp', 'logs', 'out',
-      '__MACOSX', '.DS_Store', 'Thumbs.db', 'PaxHeaders'
-    ]);
 
     const MAX_FILES = 100000;
     const MAX_SCHEMA_FILES = 100000;
@@ -65,11 +119,19 @@ class ProjectAnalyzer {
     try {
       const targetStat = fs.statSync(targetDir);
       if (targetStat.isFile()) {
+        const isPriority = ProjectAnalyzer.isSchemaPriorityFile(targetDir);
+        const isCode = ProjectAnalyzer.isCodeCandidate(targetDir);
+        const isInfra = ProjectAnalyzer.isInfraTarget(targetDir);
         return {
           fileList: [targetDir],
+          categorized: {
+            schemaFiles: isPriority ? [targetDir] : [],
+            codeFiles: isCode ? [targetDir] : [],
+            infraFiles: isInfra ? [targetDir] : []
+          },
           stats: {
             seenTotal: 1,
-            schemaPriorityCount: 1,
+            schemaPriorityCount: isPriority ? 1 : 0,
             truncatedByMaxFiles: false,
             skippedOversizeCount: 0,
             skippedOversize: []
@@ -91,7 +153,7 @@ class ProjectAnalyzer {
           const fullPath = path.join(currentDir, entry.name);
 
           if (entry.isDirectory()) {
-            if (!IGNORED_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+            if (!ProjectAnalyzer.IGNORED_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
               queue.push(fullPath);
             }
           } else if (entry.isFile()) {
@@ -99,12 +161,16 @@ class ProjectAnalyzer {
             if (seenTotal % 150 === 0) {
               await yieldEventLoop();
             }
-            if (ProjectAnalyzer.isIgnoredAssetFile(fullPath)) {
+
+            // High-speed pre-filtering: skip non-relevant assets without calling fs.statSync
+            if (!ProjectAnalyzer.isRelevantFile(fullPath)) {
               continue;
             }
+
             try {
               const priority = ProjectAnalyzer.isSchemaPriorityFile(fullPath);
               const stat = fs.statSync(fullPath);
+
               if (!priority && stat.size > MAX_CODE_SIZE) {
                 skippedOversizeCount++;
                 if (skippedOversize.length < 25) {
@@ -112,13 +178,19 @@ class ProjectAnalyzer {
                 }
                 continue;
               }
+
               if (priority && stat.size > MAX_SCHEMA_SIZE) {
                 if (skippedOversize.length < 25) {
                   skippedOversize.push(path.relative(targetDir, fullPath).replace(/\\/g, '/') + ' (streamed)');
                 }
               }
+
               if (priority) {
                 if (schemaFiles.length < MAX_SCHEMA_FILES) schemaFiles.push(fullPath);
+              } else if (ProjectAnalyzer.isCodeCandidate(fullPath)) {
+                if (codeFiles.length < MAX_FILES) codeFiles.push(fullPath);
+              } else if (ProjectAnalyzer.isInfraTarget(fullPath)) {
+                if (infraFiles.length < MAX_FILES) infraFiles.push(fullPath);
               } else if (otherFiles.length < MAX_FILES) {
                 otherFiles.push(fullPath);
               }
@@ -132,15 +204,22 @@ class ProjectAnalyzer {
 
     const fileList = [
       ...schemaFiles.slice(0, MAX_SCHEMA_FILES),
-      ...otherFiles.slice(0, Math.max(0, MAX_FILES - Math.min(schemaFiles.length, MAX_FILES)))
+      ...codeFiles.slice(0, Math.max(0, MAX_FILES - Math.min(schemaFiles.length, MAX_FILES))),
+      ...infraFiles,
+      ...otherFiles
     ];
 
     return {
       fileList,
+      categorized: {
+        schemaFiles: schemaFiles.slice(0, MAX_SCHEMA_FILES),
+        codeFiles: codeFiles.slice(0, MAX_FILES),
+        infraFiles
+      },
       stats: {
         seenTotal,
         schemaPriorityCount: schemaFiles.length,
-        truncatedByMaxFiles: otherFiles.length > Math.max(0, MAX_FILES - Math.min(schemaFiles.length, MAX_FILES)),
+        truncatedByMaxFiles: codeFiles.length > Math.max(0, MAX_FILES - Math.min(schemaFiles.length, MAX_FILES)),
         skippedOversizeCount,
         skippedOversize
       }
@@ -149,16 +228,12 @@ class ProjectAnalyzer {
 
   static scanDirectory(targetDir) {
     const schemaFiles = [];
+    const codeFiles = [];
+    const infraFiles = [];
     const otherFiles = [];
     const skippedOversize = [];
     let skippedOversizeCount = 0;
     let seenTotal = 0;
-    const IGNORED_DIRS = new Set([
-      'node_modules', '.git', '.next', 'dist', 'build', '.idea', '.vscode',
-      '__pycache__', 'venv', '.venv', 'env', '.env', 'coverage', '.turbo',
-      'target', 'bin', 'obj', 'vendor', '.terraform', '.cache', 'tmp', 'temp', 'logs', 'out',
-      '__MACOSX', '.DS_Store', 'Thumbs.db', 'PaxHeaders'
-    ]);
 
     const MAX_FILES = 100000;
     const MAX_SCHEMA_FILES = 100000;
@@ -175,17 +250,20 @@ class ProjectAnalyzer {
           const fullPath = path.join(currentDir, entry.name);
 
           if (entry.isDirectory()) {
-            if (!IGNORED_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+            if (!ProjectAnalyzer.IGNORED_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
               walk(fullPath);
             }
           } else if (entry.isFile()) {
             seenTotal++;
-            if (ProjectAnalyzer.isIgnoredAssetFile(fullPath)) {
+
+            if (!ProjectAnalyzer.isRelevantFile(fullPath)) {
               continue;
             }
+
             try {
               const priority = ProjectAnalyzer.isSchemaPriorityFile(fullPath);
               const stat = fs.statSync(fullPath);
+
               if (!priority && stat.size > MAX_CODE_SIZE) {
                 skippedOversizeCount++;
                 if (skippedOversize.length < 25) {
@@ -193,13 +271,19 @@ class ProjectAnalyzer {
                 }
                 continue;
               }
+
               if (priority && stat.size > MAX_SCHEMA_SIZE) {
                 if (skippedOversize.length < 25) {
                   skippedOversize.push(path.relative(targetDir, fullPath).replace(/\\/g, '/') + ' (streamed)');
                 }
               }
+
               if (priority) {
                 if (schemaFiles.length < MAX_SCHEMA_FILES) schemaFiles.push(fullPath);
+              } else if (ProjectAnalyzer.isCodeCandidate(fullPath)) {
+                if (codeFiles.length < MAX_FILES) codeFiles.push(fullPath);
+              } else if (ProjectAnalyzer.isInfraTarget(fullPath)) {
+                if (infraFiles.length < MAX_FILES) infraFiles.push(fullPath);
               } else if (otherFiles.length < MAX_FILES) {
                 otherFiles.push(fullPath);
               }
@@ -214,11 +298,19 @@ class ProjectAnalyzer {
     try {
       const targetStat = fs.statSync(targetDir);
       if (targetStat.isFile()) {
+        const isPriority = ProjectAnalyzer.isSchemaPriorityFile(targetDir);
+        const isCode = ProjectAnalyzer.isCodeCandidate(targetDir);
+        const isInfra = ProjectAnalyzer.isInfraTarget(targetDir);
         return {
           fileList: [targetDir],
+          categorized: {
+            schemaFiles: isPriority ? [targetDir] : [],
+            codeFiles: isCode ? [targetDir] : [],
+            infraFiles: isInfra ? [targetDir] : []
+          },
           stats: {
             seenTotal: 1,
-            schemaPriorityCount: 1,
+            schemaPriorityCount: isPriority ? 1 : 0,
             truncatedByMaxFiles: false,
             skippedOversizeCount: 0,
             skippedOversize: []
@@ -228,13 +320,24 @@ class ProjectAnalyzer {
     } catch {}
 
     walk(targetDir);
-    const fileList = [...schemaFiles.slice(0, MAX_SCHEMA_FILES), ...otherFiles.slice(0, Math.max(0, MAX_FILES - Math.min(schemaFiles.length, MAX_FILES)))];
+    const fileList = [
+      ...schemaFiles.slice(0, MAX_SCHEMA_FILES),
+      ...codeFiles.slice(0, Math.max(0, MAX_FILES - Math.min(schemaFiles.length, MAX_FILES))),
+      ...infraFiles,
+      ...otherFiles
+    ];
+
     return {
       fileList,
+      categorized: {
+        schemaFiles: schemaFiles.slice(0, MAX_SCHEMA_FILES),
+        codeFiles: codeFiles.slice(0, MAX_FILES),
+        infraFiles
+      },
       stats: {
         seenTotal,
         schemaPriorityCount: schemaFiles.length,
-        truncatedByMaxFiles: otherFiles.length > Math.max(0, MAX_FILES - Math.min(schemaFiles.length, MAX_FILES)),
+        truncatedByMaxFiles: codeFiles.length > Math.max(0, MAX_FILES - Math.min(schemaFiles.length, MAX_FILES)),
         skippedOversizeCount,
         skippedOversize
       }
@@ -254,17 +357,27 @@ class ProjectAnalyzer {
     const scanStats = scan.stats;
     await yieldEventLoop();
 
+    const schemaTargetFiles = scan.categorized
+      ? [...scan.categorized.schemaFiles, ...scan.categorized.codeFiles]
+      : fileList;
+    const codeTargetFiles = scan.categorized
+      ? scan.categorized.codeFiles
+      : fileList;
+    const infraTargetFiles = scan.categorized
+      ? scan.categorized.infraFiles
+      : fileList;
+
     // 1. Run Parsers with event loop micro-yields
     const schemaParser = new SchemaParser();
-    const schemaData = schemaParser.parseDirectory(absPath, fileList);
+    const schemaData = schemaParser.parseDirectory(absPath, schemaTargetFiles);
     await yieldEventLoop();
 
     const polyglotParser = new PolyglotParser();
-    const codeData = polyglotParser.parseDirectory(absPath, fileList);
+    const codeData = polyglotParser.parseDirectory(absPath, codeTargetFiles);
     await yieldEventLoop();
 
     const infraParser = new InfraParser();
-    const infraData = infraParser.parseDirectory(absPath, fileList);
+    const infraData = infraParser.parseDirectory(absPath, infraTargetFiles);
     await yieldEventLoop();
 
     // 2. Build Bi-Directional In-Memory Knowledge Graph
@@ -302,6 +415,31 @@ class ProjectAnalyzer {
     await yieldEventLoop();
     const businessView = PersonaMapper.getBusinessView(schemaData, codeData, infraData, graph);
 
+    // High-Scale Payload Optimization:
+    // Retain full statistics, counts, classes, and endpoints, but cap raw auxiliary arrays
+    // so JSON serialization, HTTP transfer, and browser sessionStorage stay instantaneous.
+    const sanitizedCode = {
+      ...codeData,
+      functions: (codeData.functions && codeData.functions.length > 500)
+        ? codeData.functions.slice(0, 500)
+        : (codeData.functions || []),
+      modules: (codeData.modules && codeData.modules.length > 250)
+        ? codeData.modules.slice(0, 250).map((m) => ({
+            filePath: m.filePath,
+            relativePath: m.relativePath,
+            extension: m.extension,
+            linesOfCode: m.linesOfCode,
+            endpoints: m.endpoints,
+            classes: m.classes?.slice(0, 10) || []
+          }))
+        : (codeData.modules || [])
+    };
+
+    if (developerView) {
+      developerView.functions = sanitizedCode.functions;
+      developerView.modules = sanitizedCode.modules;
+    }
+
     return {
       timestamp: new Date().toISOString(),
       projectPath: absPath,
@@ -309,7 +447,7 @@ class ProjectAnalyzer {
       scannedFilesCount: fileList.length,
       scanStats,
       schema: schemaData,
-      code: codeData,
+      code: sanitizedCode,
       infra: infraData,
       graph: {
         stats: graph.getStats()
@@ -341,15 +479,25 @@ class ProjectAnalyzer {
     const fileList = scan.fileList;
     const scanStats = scan.stats;
 
+    const schemaTargetFiles = scan.categorized
+      ? [...scan.categorized.schemaFiles, ...scan.categorized.codeFiles]
+      : fileList;
+    const codeTargetFiles = scan.categorized
+      ? scan.categorized.codeFiles
+      : fileList;
+    const infraTargetFiles = scan.categorized
+      ? scan.categorized.infraFiles
+      : fileList;
+
     // 1. Run Parsers
     const schemaParser = new SchemaParser();
-    const schemaData = schemaParser.parseDirectory(absPath, fileList);
+    const schemaData = schemaParser.parseDirectory(absPath, schemaTargetFiles);
 
     const polyglotParser = new PolyglotParser();
-    const codeData = polyglotParser.parseDirectory(absPath, fileList);
+    const codeData = polyglotParser.parseDirectory(absPath, codeTargetFiles);
 
     const infraParser = new InfraParser();
-    const infraData = infraParser.parseDirectory(absPath, fileList);
+    const infraData = infraParser.parseDirectory(absPath, infraTargetFiles);
 
     // 2. Build Bi-Directional In-Memory Knowledge Graph
     const graph = new KnowledgeGraph();
@@ -378,6 +526,28 @@ class ProjectAnalyzer {
     const managerView = PersonaMapper.getManagerView(schemaData, codeData, infraData, graph);
     const businessView = PersonaMapper.getBusinessView(schemaData, codeData, infraData, graph);
 
+    const sanitizedCode = {
+      ...codeData,
+      functions: (codeData.functions && codeData.functions.length > 500)
+        ? codeData.functions.slice(0, 500)
+        : (codeData.functions || []),
+      modules: (codeData.modules && codeData.modules.length > 250)
+        ? codeData.modules.slice(0, 250).map((m) => ({
+            filePath: m.filePath,
+            relativePath: m.relativePath,
+            extension: m.extension,
+            linesOfCode: m.linesOfCode,
+            endpoints: m.endpoints,
+            classes: m.classes?.slice(0, 10) || []
+          }))
+        : (codeData.modules || [])
+    };
+
+    if (developerView) {
+      developerView.functions = sanitizedCode.functions;
+      developerView.modules = sanitizedCode.modules;
+    }
+
     return {
       timestamp: new Date().toISOString(),
       projectPath: absPath,
@@ -385,7 +555,7 @@ class ProjectAnalyzer {
       scannedFilesCount: fileList.length,
       scanStats,
       schema: schemaData,
-      code: codeData,
+      code: sanitizedCode,
       infra: infraData,
       graph: {
         stats: graph.getStats()

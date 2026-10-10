@@ -96,6 +96,12 @@ class KnowledgeGraph {
       });
     }
 
+    // Precompute lowercase table tokens for high-speed edge linking
+    const tableLookup = tables.map((t) => ({
+      name: t.name,
+      lower: (t.name || '').toLowerCase()
+    }));
+
     // 3. Add API Endpoints
     for (const ep of endpoints) {
       const epId = `endpoint:${ep.method}_${ep.path}`;
@@ -108,11 +114,12 @@ class KnowledgeGraph {
       });
 
       // Link endpoint to related tables if name matches
-      for (const table of tables) {
-        if (ep.path.toLowerCase().includes(table.name.toLowerCase())) {
+      const epPathLower = (ep.path || '').toLowerCase();
+      for (const t of tableLookup) {
+        if (epPathLower.includes(t.lower)) {
           this.addEdge({
             source: epId,
-            target: `table:${table.name}`,
+            target: `table:${t.name}`,
             type: ep.method === 'GET' ? 'READS_FROM' : 'WRITES_TO'
           });
         }
@@ -120,25 +127,39 @@ class KnowledgeGraph {
     }
 
     // 4. Add Code Functions & Classes
+    // In large codebases, link functions related to tables and cap total graph functions to keep traversal instantaneous
+    const MAX_GRAPH_FUNCTIONS = 500;
+    let addedFnCount = 0;
     for (const fn of functions) {
-      const fnId = `function:${fn.module}:${fn.name}`;
-      this.addNode({
-        id: fnId,
-        name: `${fn.name}()`,
-        type: 'function',
-        group: 'code',
-        metadata: { module: fn.module, params: fn.params }
-      });
+      const fnNameLower = (fn.name || '').toLowerCase();
+      const fnModLower = (fn.module || '').toLowerCase();
+      let matchedTable = null;
+      for (const t of tableLookup) {
+        if (fnNameLower.includes(t.lower) || fnModLower.includes(t.lower)) {
+          matchedTable = t.name;
+          break;
+        }
+      }
 
-      // Link functions to matching tables
-      for (const table of tables) {
-        if (fn.name.toLowerCase().includes(table.name.toLowerCase()) || (fn.module || '').toLowerCase().includes(table.name.toLowerCase())) {
+      if (matchedTable || addedFnCount < 50) {
+        const fnId = `function:${fn.module}:${fn.name}`;
+        this.addNode({
+          id: fnId,
+          name: `${fn.name}()`,
+          type: 'function',
+          group: 'code',
+          metadata: { module: fn.module, params: fn.params }
+        });
+        addedFnCount++;
+
+        if (matchedTable) {
           this.addEdge({
             source: fnId,
-            target: `table:${table.name}`,
+            target: `table:${matchedTable}`,
             type: 'READS_FROM'
           });
         }
+        if (addedFnCount >= MAX_GRAPH_FUNCTIONS) break;
       }
     }
 

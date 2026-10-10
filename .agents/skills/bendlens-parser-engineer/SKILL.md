@@ -57,7 +57,14 @@ When adding a new language or framework route pattern:
 1. Open `src/lib/graph/knowledgeGraph.js`.
 2. Ensure new node types or edge types (`CALLS`, `WRITES_TO`, `CONTAINS`, `DEPENDS_ON`) are added via `addNode` and `addEdge`.
 
-### Step 4: Synchronize .agents Knowledge
+### Step 4: Performance & Large-Scale Codebase Guidelines
+When developing parsers or graph builder logic for 10,000+ file codebases:
+1. **Keyword Fast-Paths**: Never execute complex multi-line regexes without testing `content.includes('keyword')` first (e.g. check for `create` and `table` before checking for DDL strings; check for `@Entity` before JPA parsing; check for `app.`/`router.`/`route` before HTTP endpoint matching). Over 99% of code files do not define schemas or routes.
+2. **Bounded String Scans**: Never run unbounded backwards string slices or regex replacements like `content.substring(0, index)` inside tight token loops. Bounded searches (e.g., `content.lastIndexOf('\n', index)` or clamping to the previous 2,000 characters) prevent catastrophic GC churn and CPU lockups on minified single-line files.
+3. **Reject Compiled Artifacts**: Exclude `.d.ts`, `*.min.js`, `*.bundle.js`, and `.map` files during file discovery. Minified bundles contain tens of thousands of assignments in a single line, causing pathological regex performance.
+4. **Graph Node Capping**: Cap auxiliary graph nodes (e.g., non-table linked functions capped at 500) and precalculate lookup sets (e.g., lowercase table names) to avoid $O(F \times T)$ nested loops during KnowledgeGraph synthesis.
+
+### Step 5: Synchronize .agents Knowledge
 Whenever parser capabilities or signatures are added or modified:
 1. Update `.agents/memory/system_architecture.md` with the new parsing capabilities.
 2. Update `.agents/memory/project_overview.md` if new dialects or languages were supported.

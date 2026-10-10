@@ -183,6 +183,11 @@ class SchemaParser {
           continue;
         }
 
+        // Skip TypeScript declarations, minified bundles, vendor packages and maps
+        if (baseName.endsWith('.d.ts') || baseName.endsWith('.d.mts') || baseName.endsWith('.d.cts')) continue;
+        if (/\.(?:min|bundle|chunk|vendor)\.(?:js|mjs|cjs)$/i.test(baseName)) continue;
+        if (baseName.endsWith('.js.map') || baseName.endsWith('.css.map')) continue;
+
         // For JSON, only read if it is a database seed, fixture, or mock data
         if (ext === '.json' && !baseName.includes('seed') && !baseName.includes('fixture') && !baseName.includes('mock')) {
           continue;
@@ -503,6 +508,7 @@ class SchemaParser {
    * reflected instead of silently dropped.
    */
   parseAlterTables(content, filePath, sourceType = 'SQL Migration (ALTER)', trust = false) {
+    if (!/alter\s+table/i.test(content)) return;
     const alterRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:`|"|\[)?(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:`|"|\])?\s+/gi;
     let m;
     while ((m = alterRe.exec(content)) !== null) {
@@ -682,8 +688,10 @@ class SchemaParser {
    * examples (e.g. JSDoc snippets), never real schema.
    */
   isInComment(content, index) {
-    const lineStart = content.lastIndexOf('\n', index - 1) + 1;
-    const prefix = content.substring(lineStart, index);
+    const lineStart = Math.max(0, content.lastIndexOf('\n', index - 1) + 1);
+    // Fast guard against colossal or minified lines: looking back 2000 chars is more than enough
+    const searchStart = Math.max(lineStart, index - 2000);
+    const prefix = content.substring(searchStart, index);
     const stripped = prefix
       .replace(/`[^`]*`/g, '')
       .replace(/"[^"]*"/g, '')
@@ -695,20 +703,22 @@ class SchemaParser {
     // Python triple-quoted docstrings count as comments, but only when the
     // opener starts a logical line. `op.execute("""CREATE TABLE...""")` is a
     // string literal holding executable DDL and must still be scanned.
-    if (this.isInTripleStringDoc(content, index, '"""')) return true;
-    if (this.isInTripleStringDoc(content, index, "'''")) return true;
+    if (content.includes('"""') && this.isInTripleStringDoc(content, index, '"""')) return true;
+    if (content.includes("'''") && this.isInTripleStringDoc(content, index, "'''")) return true;
     return false;
   }
 
   isInTripleStringDoc(content, index, quote) {
-    const before = content.substring(0, index);
     let count = 0;
     let lastPos = -1;
     let pos = -1;
-    while ((pos = before.indexOf(quote, pos + 1)) !== -1) { count++; lastPos = pos; }
+    while ((pos = content.indexOf(quote, pos + 1)) !== -1 && pos < index) {
+      count++;
+      lastPos = pos;
+    }
     if (count % 2 === 0 || lastPos === -1) return false;
-    const lineStart = before.lastIndexOf('\n', lastPos - 1) + 1;
-    return /^\s*$/.test(before.substring(lineStart, lastPos));
+    const lineStart = Math.max(0, content.lastIndexOf('\n', lastPos - 1) + 1);
+    return /^\s*$/.test(content.substring(lineStart, lastPos));
   }
 
   /**
@@ -731,6 +741,7 @@ class SchemaParser {
    * passed directly to a query executor (raw/query/execute/...(` + string).
    */
   parseEmbeddedCreateTables(content, filePath, trust = false) {
+    if (!/create\s+(?:or\s+replace\s+)?(?:(?:\w+\s+)?table)/i.test(content) && !/alter\s+table/i.test(content)) return;
     const createTableRegex = this.createTableHeadRe();
     let match;
 
@@ -928,6 +939,10 @@ class SchemaParser {
    */
   collectRawVars(content) {
     const allVars = new Map(); // name -> { tokens, formatCall }
+    // Fast path: if the file cannot hold CREATE TABLE text, bypass assignment scanning
+    if (!/create/i.test(content) || !/table/i.test(content)) {
+      return allVars;
+    }
     const assignRe = /([A-Za-z_$][\w$]*)\s*=\s*/g;
     let m;
     while ((m = assignRe.exec(content)) !== null) {
@@ -1033,6 +1048,7 @@ class SchemaParser {
    * holds CREATE TABLE text.
    */
   parseVariableExecutedDDL(content, filePath) {
+    if (!/create/i.test(content) || !/table/i.test(content)) return;
     let rawVars;
     let resolved;
     try {
@@ -1109,6 +1125,10 @@ class SchemaParser {
    */
   indexFileForCrossFile(content, filePath, ext) {
     try {
+      const hasExports = content.includes('export') || content.includes('module.exports') || content.includes('exports.');
+      const hasImports = content.includes('import') || content.includes('require') || content.includes('from');
+      const hasExec = /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql|\bstatement|\bselect|\binsert|\bupdate|\bdelete)\w*\s*\(/i.test(content);
+      if (!hasExports && !hasExec && !hasImports) return;
       if (!this._xfile) this._xfile = new Map();
       if (!this._ddlVarsByFile) this._ddlVarsByFile = new Map();
       if (!this._rawVarsByFile) this._rawVarsByFile = new Map();
@@ -1448,6 +1468,7 @@ class SchemaParser {
    * entities) land in the schema architecture delivered to the client.
    */
   parseCodeDefinedTables(content, filePath, ext) {
+    if (!/create|table|model|entity|schema|dbset|struct|define/i.test(content)) return;
     try { this.parseEmbeddedCreateTables(content, filePath); } catch {}
     // Data-flow pass: DDL assigned to a variable and executed elsewhere
     // (const ddl = "CREATE TABLE ..."; db.query(ddl)) — all code dialects.
@@ -1484,6 +1505,7 @@ class SchemaParser {
    * })
    */
   parseKnexTables(content, filePath) {
+    if (!content.includes('createTable')) return;
     const typeMap = { increments: 'INTEGER', bigincrements: 'BIGINT', string: 'VARCHAR(255)', text: 'TEXT', integer: 'INTEGER', biginteger: 'BIGINT', float: 'FLOAT', decimal: 'DECIMAL(10,2)', boolean: 'BOOLEAN', datetime: 'TIMESTAMP', timestamp: 'TIMESTAMP', date: 'DATE', time: 'TIME', json: 'JSON', jsonb: 'JSON', uuid: 'UUID', binary: 'BLOB' };
     const re = /\.createTable(?:IfNotExists)?\s*\(\s*['"`]([a-zA-Z0-9_]+)['"`]/gi;
     let m;
@@ -1530,6 +1552,7 @@ class SchemaParser {
    * and Model.init({ ... }) / X.init({ ... }).
    */
   parseSequelizeTables(content, filePath) {
+    if (!content.includes('define') && !content.includes('init') && !content.includes('createTable')) return;
     const typeMap = { STRING: 'VARCHAR(255)', CHAR: 'VARCHAR(255)', TEXT: 'TEXT', INTEGER: 'INTEGER', BIGINT: 'BIGINT', SMALLINT: 'SMALLINT', FLOAT: 'FLOAT', DOUBLE: 'DOUBLE', DECIMAL: 'DECIMAL(10,2)', BOOLEAN: 'BOOLEAN', DATE: 'TIMESTAMP', DATEONLY: 'DATE', TIME: 'TIME', UUID: 'UUID', JSON: 'JSON', JSONB: 'JSON', BLOB: 'BLOB', ENUM: 'VARCHAR(50)' };
     const defs = [];
     let m;
@@ -1605,6 +1628,7 @@ class SchemaParser {
    * Drizzle: pgTable / mysqlTable / sqliteTable('name', { id: serial('id').primaryKey(), ... })
    */
   parseDrizzleTables(content, filePath) {
+    if (!content.includes('Table') && !content.includes('table')) return;
     const typeMap = { serial: 'SERIAL', bigserial: 'BIGSERIAL', integer: 'INTEGER', int: 'INTEGER', bigint: 'BIGINT', smallint: 'SMALLINT', varchar: 'VARCHAR(255)', char: 'VARCHAR(255)', text: 'TEXT', boolean: 'BOOLEAN', timestamp: 'TIMESTAMP', date: 'DATE', time: 'TIME', numeric: 'DECIMAL(10,2)', decimal: 'DECIMAL(10,2)', real: 'FLOAT', doubleprecision: 'DOUBLE', json: 'JSON', jsonb: 'JSON', uuid: 'UUID', blob: 'BLOB' };
     const re = /(pgTable|mysqlTable|sqliteTable)\s*\(\s*['"`]([a-zA-Z0-9_]+)['"`]\s*,/g;
     let m;
@@ -1645,6 +1669,7 @@ class SchemaParser {
    * already-parsed schema so `User` and `users` never double-count.
    */
   parseMongooseModels(content, filePath) {
+    if (!content.includes('model')) return;
     const re = /(?:mongoose\.)?model\s*\(\s*['"`]([A-Za-z0-9_]+)['"`]\s*,\s*([A-Za-z0-9_]+)/gi;
     let m;
     while ((m = re.exec(content)) !== null) {
@@ -1676,6 +1701,7 @@ class SchemaParser {
    * TypeORM EntitySchema: new EntitySchema({ name: 'x', columns: { id: { type: 'int', primary: true } } })
    */
   parseEntitySchemaTables(content, filePath) {
+    if (!content.includes('EntitySchema')) return;
     const re = /new\s+EntitySchema(?:<[^>]*>)?\s*\(\s*\{/g;
     let m;
     while ((m = re.exec(content)) !== null) {
@@ -1711,6 +1737,7 @@ class SchemaParser {
    * }))
    */
   parseTypeOrmTableObjects(content, filePath) {
+    if (!content.includes('Table')) return;
     const re = /new\s+Table\s*\(\s*\{/g;
     let m;
     while ((m = re.exec(content)) !== null) {
@@ -1756,6 +1783,7 @@ class SchemaParser {
    * Python code outside class-based models.
    */
   parsePythonCodeTables(content, filePath) {
+    if (!content.includes('create_table') && !content.includes('Table') && !content.includes('CreateModel')) return;
     const saTypeMap = { Integer: 'INTEGER', BigInteger: 'BIGINT', SmallInteger: 'SMALLINT', String: 'VARCHAR(255)', Text: 'TEXT', Unicode: 'VARCHAR(255)', Boolean: 'BOOLEAN', Float: 'FLOAT', Numeric: 'DECIMAL(10,2)', DECIMAL: 'DECIMAL(10,2)', DateTime: 'TIMESTAMP', Date: 'DATE', Time: 'TIME', JSON: 'JSON', UUID: 'UUID', LargeBinary: 'BLOB', Enum: 'VARCHAR(50)' };
     // 1. op.create_table('x', sa.Column(...)) / Table('x', metadata, Column(...))
     const createRe = /(?:op\.create_table|Table)\s*\(\s*['"`]([a-zA-Z0-9_]+)['"`]/g;
@@ -1847,6 +1875,7 @@ class SchemaParser {
    * }
    */
   parseJavaEntities(content, filePath) {
+    if (!content.includes('@Entity') && !content.includes('@Table')) return;
     const typeMap = { String: 'VARCHAR(255)', Long: 'BIGINT', long: 'BIGINT', Integer: 'INTEGER', int: 'INTEGER', Short: 'SMALLINT', short: 'SMALLINT', Double: 'DOUBLE', double: 'DOUBLE', Float: 'FLOAT', float: 'FLOAT', BigDecimal: 'DECIMAL(19,2)', Boolean: 'BOOLEAN', boolean: 'BOOLEAN', Date: 'TIMESTAMP', LocalDateTime: 'TIMESTAMP', Timestamp: 'TIMESTAMP', LocalDate: 'DATE', LocalTime: 'TIME', UUID: 'UUID' };
     const re = /@Entity\s*(?:\([^)]*\))?\s*((?:@\w+(?:\([^)]*\))?\s*)*)(?:public|protected|private)?\s*(?:final\s+)?class\s+([A-Za-z0-9_]+)\s*(?:extends\s+[A-Za-z0-9_<>,\s]+)?\s*\{/g;
     let m;
@@ -1925,6 +1954,7 @@ class SchemaParser {
   }
 
   parseCSharpTables(content, filePath) {
+    if (!content.includes('DbSet') && !content.includes('Table') && !content.includes('modelBuilder')) return;
     const typeMap = { int: 'INTEGER', long: 'BIGINT', short: 'SMALLINT', string: 'VARCHAR(255)', Guid: 'UUID', bool: 'BOOLEAN', DateTime: 'TIMESTAMP', DateTimeOffset: 'TIMESTAMP', DateOnly: 'DATE', TimeOnly: 'TIME', decimal: 'DECIMAL(18,2)', double: 'DOUBLE', float: 'FLOAT' };
     this.indexCSharpClasses(content, filePath);
     try { this.parseMigrationBuilder(content, filePath); } catch {}
@@ -2112,7 +2142,8 @@ class SchemaParser {
   }
 
   resolveFluentAPI() {
-    if (!this._xfile) return;
+    if (!this._xfile || this._xfile.size === 0) return;
+    if (!this._csClasses || this._csClasses.size === 0) return;
     for (const [fp, info] of this._xfile) {
       if (info.ext !== '.cs') continue;
       let content;
@@ -2131,6 +2162,7 @@ class SchemaParser {
    * 2+ exported fields) are treated as tables to avoid struct noise.
    */
   parseGoStructs(content, filePath) {
+    if (!content.includes('struct')) return;
     const hasGormImport = /gorm\.io\/gorm/.test(content);
     const tableNames = {};
     const tnRe = /func\s*\(\s*(?:\w+\s+)?([A-Za-z0-9_]+)\s*\)\s*TableName\s*\(\s*\)\s*string\s*\{\s*return\s*["'`]([a-zA-Z0-9_]+)["'`]/g;
@@ -2416,6 +2448,7 @@ class SchemaParser {
    */
   resolveCrossFileDDL() {
     if (!this._xfile || this._xfile.size === 0) return;
+    if (!this._ddlVarsByFile || this._ddlVarsByFile.size === 0) return;
     const execRe = /(\braw|\bquery|\bexecute|\bexec|\brun|\bsql|\bstatement|\bselect|\binsert|\bupdate|\bdelete)\w*\s*\(\s*([^,()]+?)\s*[,)]/gi;
     for (const [filePath, info] of this._xfile) {
       // Prefilter: needs an executor call plus imports or a member-form
@@ -2579,6 +2612,7 @@ class SchemaParser {
    * Python ORMs: SQLAlchemy, Django, Tortoise, SQLModel, Pydantic
    */
   parsePythonORM(content, filePath) {
+    if (!content.includes('class ')) return;
     // Any base-list order counts (e.g. `class X(Mixin, db.Model)` or
     // `class X(models.Model, TimestampMixin)`): match the class header,
     // then accept when ANY base mentions a known ORM base. This keeps
@@ -2715,6 +2749,7 @@ class SchemaParser {
    * TypeScript / JavaScript: TypeORM, Sequelize, Mongoose, Drizzle
    */
   parseTypeScriptORM(content, filePath) {
+    if (!content.includes('Schema') && !content.includes('@Entity')) return;
     // 1. Mongoose Schema (MongoDB)
     const mongooseRegex = /(?:const|let|var)\s+([a-zA-Z0-9_]+Schema)\s*=\s*new\s+(?:mongoose\.)?Schema\s*\(\{([\s\S]*?)\}\)/g;
     let mMatch;
@@ -2839,6 +2874,7 @@ class SchemaParser {
    * CREATE, Schema::table('x', ...) merged ALTER-style.
    */
   parsePhpTables(content, filePath) {
+    if (!content.includes('Schema::')) return;
     const re = /Schema\s*::\s*(create|table)\s*\(\s*['"]([a-zA-Z0-9_]+)['"]/gi;
     let m;
     while ((m = re.exec(content)) !== null) {
@@ -2997,6 +3033,7 @@ class SchemaParser {
    * plus add_column / add_reference / add_foreign_key ALTER-style statements.
    */
   parseRubyTables(content, filePath) {
+    if (!content.includes('create_table') && !content.includes('add_column')) return;
     const re = /create_table\s+:?"?([a-zA-Z0-9_]+)"?/gi;
     let m;
     while ((m = re.exec(content)) !== null) {
