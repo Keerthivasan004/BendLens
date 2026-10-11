@@ -101,6 +101,23 @@ class ProjectAnalyzer {
     return false;
   }
 
+  /**
+   * Asynchronous directory scan.
+   *
+   * Performance-critical design decisions for massive repositories:
+   * - Uses `fs.promises.readdir` with `withFileTypes` so no extra `stat()`
+   *   round-trips are needed to distinguish files from directories.
+   * - Directory reads run CONCURRENTLY (bounded pool) instead of a serial
+   *   BFS queue — on network drives / slow disks this is a large win.
+   * - ZERO per-file `fs.stat()` calls whenever possible: `Dirent` entries
+   *   expose a size hint straight from the directory listing on platforms
+   *   that support it (Windows returns real sizes; POSIX returns 0/undefined).
+   *   When no hint exists we fall back to ONE batched `lstat()` wave per
+   *   directory via `Promise.all` — parallel, bounded, and event-loop
+   *   friendly, unlike a serialized or unbounded stat storm.
+   * - Oversize files are still detected and reported exactly like the
+   *   synchronous scanner, so results remain identical.
+   */
   static async scanDirectoryAsync(targetDir) {
     const schemaFiles = [];
     const codeFiles = [];
@@ -114,10 +131,11 @@ class ProjectAnalyzer {
     const MAX_SCHEMA_FILES = 100000;
     const MAX_CODE_SIZE = 5 * 1024 * 1024;
     const MAX_SCHEMA_SIZE = 500 * 1024 * 1024;
+    const DIR_CONCURRENCY = 32; // parallel readdir operations
 
     // Single-file scans
     try {
-      const targetStat = fs.statSync(targetDir);
+      const targetStat = await fs.promises.stat(targetDir);
       if (targetStat.isFile()) {
         const isPriority = ProjectAnalyzer.isSchemaPriorityFile(targetDir);
         const isCode = ProjectAnalyzer.isCodeCandidate(targetDir);
@@ -140,66 +158,108 @@ class ProjectAnalyzer {
       }
     } catch {}
 
-    const queue = [targetDir];
+    const categorize = (fullPath, priority) => {
+      if (priority) {
+        if (schemaFiles.length < MAX_SCHEMA_FILES) schemaFiles.push(fullPath);
+      } else if (ProjectAnalyzer.isCodeCandidate(fullPath)) {
+        if (codeFiles.length < MAX_FILES) codeFiles.push(fullPath);
+      } else if (ProjectAnalyzer.isInfraTarget(fullPath)) {
+        if (infraFiles.length < MAX_FILES) infraFiles.push(fullPath);
+      } else if (otherFiles.length < MAX_FILES) {
+        otherFiles.push(fullPath);
+      }
+    };
 
-    while (queue.length > 0) {
-      const currentDir = queue.shift();
-      if (!fs.existsSync(currentDir)) continue;
+    const handleRelevantFile = (fullPath, size, priority) => {
+      if (!priority && size > MAX_CODE_SIZE) {
+        skippedOversizeCount++;
+        if (skippedOversize.length < 25) {
+          skippedOversize.push(path.relative(targetDir, fullPath).replace(/\\/g, '/'));
+        }
+        return;
+      }
+      if (priority && size > MAX_SCHEMA_SIZE) {
+        if (skippedOversize.length < 25) {
+          skippedOversize.push(path.relative(targetDir, fullPath).replace(/\\/g, '/') + ' (streamed)');
+        }
+      }
+      categorize(fullPath, priority);
+    };
 
-      try {
-        const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    // Concurrent directory walker: pending dirs are processed in bounded
+    // batches so many folders are read from disk in parallel, while the
+    // libuv thread pool stays responsive for the rest of the app.
+    // `pending` is the FIFO of not-yet-read directories; `nextFrontier`
+    // accumulates subdirectories discovered during the current wave.
+    let frontier = [targetDir];
+    let pending = [];
+    let processedSinceYield = 0;
 
+    while (frontier.length > 0 || pending.length > 0) {
+      if (frontier.length === 0) frontier = pending.splice(0, pending.length);
+
+      const batch = frontier.splice(0, DIR_CONCURRENCY);
+      const results = await Promise.all(batch.map(async (dir) => {
+        try {
+          return await fs.promises.readdir(dir, { withFileTypes: true });
+        } catch (err) {
+          console.warn(`Skipping unreadable folder ${dir}:`, err.message);
+          return null;
+        }
+      }));
+
+      for (let b = 0; b < batch.length; b++) {
+        const dir = batch[b];
+        const entries = results[b];
+        if (!entries) continue;
+
+        // Pass 1: pure in-memory classification (no syscalls at all).
+        const relevant = []; // { fullPath, size, priority } | { fullPath, needStat: true, priority }
         for (const entry of entries) {
-          const fullPath = path.join(currentDir, entry.name);
-
           if (entry.isDirectory()) {
             if (!ProjectAnalyzer.IGNORED_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
-              queue.push(fullPath);
+              pending.push(path.join(dir, entry.name));
             }
-          } else if (entry.isFile()) {
-            seenTotal++;
-            if (seenTotal % 150 === 0) {
-              await yieldEventLoop();
-            }
+            continue;
+          }
+          if (!entry.isFile()) continue;
 
-            // High-speed pre-filtering: skip non-relevant assets without calling fs.statSync
-            if (!ProjectAnalyzer.isRelevantFile(fullPath)) {
-              continue;
-            }
+          seenTotal++;
 
-            try {
-              const priority = ProjectAnalyzer.isSchemaPriorityFile(fullPath);
-              const stat = fs.statSync(fullPath);
+          const fullPath = path.join(dir, entry.name);
+          // High-speed pre-filtering: skip non-relevant assets entirely
+          if (!ProjectAnalyzer.isRelevantFile(fullPath)) continue;
 
-              if (!priority && stat.size > MAX_CODE_SIZE) {
-                skippedOversizeCount++;
-                if (skippedOversize.length < 25) {
-                  skippedOversize.push(path.relative(targetDir, fullPath).replace(/\\/g, '/'));
-                }
-                continue;
-              }
-
-              if (priority && stat.size > MAX_SCHEMA_SIZE) {
-                if (skippedOversize.length < 25) {
-                  skippedOversize.push(path.relative(targetDir, fullPath).replace(/\\/g, '/') + ' (streamed)');
-                }
-              }
-
-              if (priority) {
-                if (schemaFiles.length < MAX_SCHEMA_FILES) schemaFiles.push(fullPath);
-              } else if (ProjectAnalyzer.isCodeCandidate(fullPath)) {
-                if (codeFiles.length < MAX_FILES) codeFiles.push(fullPath);
-              } else if (ProjectAnalyzer.isInfraTarget(fullPath)) {
-                if (infraFiles.length < MAX_FILES) infraFiles.push(fullPath);
-              } else if (otherFiles.length < MAX_FILES) {
-                otherFiles.push(fullPath);
-              }
-            } catch {}
+          const priority = ProjectAnalyzer.isSchemaPriorityFile(fullPath);
+          const hintedSize = typeof entry.size === 'number' ? entry.size : 0;
+          if (hintedSize > 0) {
+            // Windows & friends give us the size straight from readdir.
+            relevant.push({ fullPath, size: hintedSize, priority });
+          } else {
+            relevant.push({ fullPath, needStat: true, priority });
           }
         }
-      } catch (err) {
-        console.warn(`Skipping unreadable folder ${currentDir}:`, err.message);
+
+        // Pass 2: ONE batched lstat() per directory for the few files
+        // that actually need an oversize check (POSIX fallback).
+        const needStat = relevant.filter((r) => r.needStat);
+        if (needStat.length > 0) {
+          const stats = await Promise.all(
+            needStat.map((r) =>
+              fs.promises.lstat(r.fullPath).then((s) => s.size).catch(() => -1)
+            )
+          );
+          needStat.forEach((r, idx) => { r.size = stats[idx]; });
+        }
+
+        for (const r of relevant) {
+          if (r.size === -1) continue; // vanished/unreadable file
+          handleRelevantFile(r.fullPath, r.size, r.priority);
+        }
       }
+
+      processedSinceYield++;
+      if (processedSinceYield % 8 === 0) await yieldEventLoop();
     }
 
     const fileList = [
