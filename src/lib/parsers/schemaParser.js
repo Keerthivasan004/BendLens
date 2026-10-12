@@ -940,12 +940,14 @@ class SchemaParser {
   collectRawVars(content) {
     const allVars = new Map(); // name -> { tokens, formatCall }
     // Fast path: if the file cannot hold CREATE TABLE text, bypass assignment scanning
-    if (!/create/i.test(content) || !/table/i.test(content)) {
+    if (!/create\s+(?:or\s+replace\s+)?(?:(?:global\s+|local\s+)?(?:temp(?:orary)?|unlogged)\s+)?table/i.test(content)) {
       return allVars;
     }
     const assignRe = /([A-Za-z_$][\w$]*)\s*=\s*/g;
     let m;
+    let count = 0;
     while ((m = assignRe.exec(content)) !== null) {
+      if (++count > 2000) break; // Guard against catastrophic minified/bundled code
       if (this.isInComment(content, m.index)) continue;
       // Skip operators masquerading as assignments (==, =>, <=, +=, ...)
       let b = m.index - 1;
@@ -1048,7 +1050,7 @@ class SchemaParser {
    * holds CREATE TABLE text.
    */
   parseVariableExecutedDDL(content, filePath) {
-    if (!/create/i.test(content) || !/table/i.test(content)) return;
+    if (!/create\s+(?:or\s+replace\s+)?(?:(?:global\s+|local\s+)?(?:temp(?:orary)?|unlogged)\s+)?table/i.test(content)) return;
     let rawVars;
     let resolved;
     try {

@@ -25,7 +25,8 @@ class ProjectAnalyzer {
     '.yarn', '.pnpm-store', 'bower_components', '.parcel-cache',
     '.docusaurus', 'storybook-static', '.nuxt', '.svelte-kit', '.output',
     'playwright-report', 'test-results', 'cypress', '.nyc_output',
-    '.serverless', '.sst', '.aws-sam'
+    '.serverless', '.sst', '.aws-sam',
+    'edge_profile', 'chrome_profile', 'user_data', 'userdata', 'Default', 'Extensions', 'IndexedDB', 'blob_storage', 'GPUCache'
   ]);
 
   static IGNORED_EXTS = new Set([
@@ -56,7 +57,9 @@ class ProjectAnalyzer {
 
   static isIgnoredAssetFile(fullPath) {
     const ext = path.extname(fullPath).toLowerCase();
-    return ProjectAnalyzer.IGNORED_EXTS.has(ext);
+    if (ProjectAnalyzer.IGNORED_EXTS.has(ext)) return true;
+    if (/[\\/](?:edge_profile[^\\]*|chrome_profile[^\\]*|Default[\\/](?:Extensions|Network|Storage|GPUCache)|IndexedDB)[\\/]/i.test(fullPath)) return true;
+    return false;
   }
 
   static isIgnoredCodeFile(fullPath) {

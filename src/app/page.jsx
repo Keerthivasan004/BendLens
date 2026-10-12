@@ -11,12 +11,13 @@ import {
   FolderSearch, Play, Sparkles, Database, FileCode, Cpu, Layers,
   CheckCircle2, ArrowRight, ShieldCheck, HardDrive, Terminal,
   UploadCloud, GitBranch, Globe, Laptop, Lock, AlertTriangle, AlertCircle, Download, Zap, RefreshCw,
-  Clock, Timer
+  Clock, Timer, X
 } from 'lucide-react';
 
 export default function LandingPage() {
   const router = useRouter();
   const fileInputRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   // Ingestion Mode: 'PATH' | 'UPLOAD' | 'PASTE' | 'GIT'
   const [ingestMode, setIngestMode] = useState('PATH');
@@ -137,7 +138,24 @@ CREATE TABLE orders (
     return `${mins.toString().padStart(2, '0')}:${secs.padStart(4, '0')}`;
   };
 
-  const executeScanWithStages = async (fetchPromise, onComplete) => {
+  const handleCancelScan = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsScanning(false);
+    setScanStep(0);
+    setScanProgress(0);
+    setErrorMessage('Analysis was cancelled.');
+  };
+
+  const executeScanWithStages = async (fetchFn, onComplete) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsScanning(true);
     setErrorMessage('');
     setScanStep(1);
@@ -161,7 +179,7 @@ CREATE TABLE orders (
     }, 120);
 
     try {
-      const res = await fetchPromise;
+      const res = typeof fetchFn === 'function' ? await fetchFn(controller.signal) : await fetchFn;
       const result = await res.json();
       clearInterval(interval);
       clearInterval(timerInterval);
@@ -188,10 +206,15 @@ CREATE TABLE orders (
     } catch (err) {
       clearInterval(interval);
       clearInterval(timerInterval);
-      setErrorMessage(err.message || 'Error executing architecture analysis');
+      if (err.name === 'AbortError') {
+        setErrorMessage('Analysis was cancelled by user.');
+      } else {
+        setErrorMessage(err.message || 'Error executing architecture analysis');
+      }
     } finally {
       clearInterval(interval);
       clearInterval(timerInterval);
+      abortControllerRef.current = null;
       setIsScanning(false);
       setScanStep(0);
       setScanProgress(0);
@@ -209,13 +232,12 @@ CREATE TABLE orders (
       return;
     }
 
-    const fetchPromise = fetch('/api/analyze', {
+    await executeScanWithStages((signal) => fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: target })
-    });
-
-    await executeScanWithStages(fetchPromise, (data) => {
+      body: JSON.stringify({ path: target }),
+      signal
+    }), (data) => {
       setAnalysisResult(data);
       fetchLocalHistory();
       handleOpenLens('DEVELOPER');
@@ -232,12 +254,11 @@ CREATE TABLE orders (
     const formData = new FormData();
     formData.append('file', selectedFile);
 
-    const fetchPromise = fetch('/api/upload', {
+    await executeScanWithStages((signal) => fetch('/api/upload', {
       method: 'POST',
-      body: formData
-    });
-
-    await executeScanWithStages(fetchPromise, (data) => {
+      body: formData,
+      signal
+    }), (data) => {
       setAnalysisResult(data);
       fetchLocalHistory();
       handleOpenLens('DEVELOPER');
@@ -251,17 +272,16 @@ CREATE TABLE orders (
       return;
     }
 
-    const fetchPromise = fetch('/api/paste', {
+    await executeScanWithStages((signal) => fetch('/api/paste', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         code: pastedCode,
         fileType: pastedCode.includes('model ') ? 'schema.prisma' : 'schema.sql',
         projectName: 'Custom Schema Ingestion'
-      })
-    });
-
-    await executeScanWithStages(fetchPromise, (data) => {
+      }),
+      signal
+    }), (data) => {
       setAnalysisResult(data);
       fetchLocalHistory();
       handleOpenLens('DEVELOPER');
@@ -275,16 +295,15 @@ CREATE TABLE orders (
       return;
     }
 
-    const fetchPromise = fetch('/api/git-clone', {
+    await executeScanWithStages((signal) => fetch('/api/git-clone', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         repoUrl: gitUrl.trim(),
         token: gitToken.trim()
-      })
-    });
-
-    await executeScanWithStages(fetchPromise, (data) => {
+      }),
+      signal
+    }), (data) => {
       setAnalysisResult(data);
       fetchLocalHistory();
       handleOpenLens('DEVELOPER');
@@ -1015,6 +1034,16 @@ CREATE TABLE audit_logs (
                     />
                     <span>{scanProgress || 25}%</span>
                   </span>
+
+                  <button
+                    type="button"
+                    onClick={handleCancelScan}
+                    className="text-xs font-mono px-2.5 py-1 rounded-full border border-rose-500/40 bg-rose-950/70 hover:bg-rose-900/80 text-rose-300 transition-colors flex items-center gap-1 cursor-pointer shadow-sm"
+                    title="Cancel scanning process"
+                  >
+                    <X className="h-3.5 w-3.5 text-rose-400" />
+                    <span>Cancel</span>
+                  </button>
                 </div>
               </div>
 
