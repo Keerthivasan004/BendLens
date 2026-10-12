@@ -25,8 +25,7 @@ class ProjectAnalyzer {
     '.yarn', '.pnpm-store', 'bower_components', '.parcel-cache',
     '.docusaurus', 'storybook-static', '.nuxt', '.svelte-kit', '.output',
     'playwright-report', 'test-results', 'cypress', '.nyc_output',
-    '.serverless', '.sst', '.aws-sam',
-    'edge_profile', 'chrome_profile', 'user_data', 'userdata', 'Default', 'Extensions', 'IndexedDB', 'blob_storage', 'GPUCache'
+    '.serverless', '.sst', '.aws-sam'
   ]);
 
   static IGNORED_EXTS = new Set([
@@ -55,10 +54,19 @@ class ProjectAnalyzer {
     return /migrat|schema|seed|ddl|prisma/i.test(fullPath);
   }
 
+  static isIgnoredDirectory(dirName) {
+    if (ProjectAnalyzer.IGNORED_DIRS.has(dirName)) return true;
+    const lower = dirName.toLowerCase();
+    // Exclude automated browser test profiles and scratch caches
+    if (lower.startsWith('edge_profile') || lower.startsWith('chrome_profile')) return true;
+    if (lower === 'gpucache' || lower === 'dawnwebgpucache' || lower === 'dawngraphitecache' || lower === 'blob_storage' || lower === 'indexeddb') return true;
+    return false;
+  }
+
   static isIgnoredAssetFile(fullPath) {
     const ext = path.extname(fullPath).toLowerCase();
     if (ProjectAnalyzer.IGNORED_EXTS.has(ext)) return true;
-    if (/[\\/](?:edge_profile[^\\]*|chrome_profile[^\\]*|Default[\\/](?:Extensions|Network|Storage|GPUCache)|IndexedDB)[\\/]/i.test(fullPath)) return true;
+    if (/[\\/](?:edge_profile[^\\]*|chrome_profile[^\\]*)[\\/]/i.test(fullPath)) return true;
     return false;
   }
 
@@ -220,7 +228,7 @@ class ProjectAnalyzer {
         const relevant = []; // { fullPath, size, priority } | { fullPath, needStat: true, priority }
         for (const entry of entries) {
           if (entry.isDirectory()) {
-            if (!ProjectAnalyzer.IGNORED_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+            if (!ProjectAnalyzer.isIgnoredDirectory(entry.name) && !entry.name.startsWith('.')) {
               pending.push(path.join(dir, entry.name));
             }
             continue;

@@ -27,7 +27,7 @@ function resolveRoot(projectRoot) {
  * update signal for testing the notification UI end-to-end.
  */
 
-export const BASELINE_LATEST_VERSION = '1.1.18';
+export const BASELINE_LATEST_VERSION = '1.1.23';
 
 /** Extract a semver triple from an installer filename, or null. */
 export function parseArtifactVersion(filename) {
@@ -158,14 +158,22 @@ export async function getRemoteLatestRelease() {
     const releases = await res.json().catch(() => []);
     if (Array.isArray(releases) && releases.length > 0) {
       const newest = releases[0];
-      const v = parseArtifactVersion(newest?.tag_name || newest?.name || '');
+      const tagVersion = parseArtifactVersion(newest?.tag_name || newest?.name || '');
       let assetName = null;
+      let assetVersion = null;
       if (Array.isArray(newest?.assets)) {
         const setupAsset =
           newest.assets.find((a) => /setup.*\.exe$/i.test(a?.name)) ||
           newest.assets.find((a) => /\.exe$/i.test(a?.name));
-        if (setupAsset) assetName = setupAsset.name;
+        if (setupAsset) {
+          assetName = setupAsset.name;
+          assetVersion = parseArtifactVersion(setupAsset.name);
+        }
       }
+      // When the asset carries an explicit version (e.g. BendLens-Setup-1.1.23.exe),
+      // that is the real installer version delivered to users. Prefer assetVersion over
+      // tagVersion to prevent desynchronized tag-vs-asset release loops.
+      const v = assetVersion || tagVersion;
       if (v) {
         remoteCache = { at: now, version: v, asset: assetName };
         return { version: v, asset: assetName };
