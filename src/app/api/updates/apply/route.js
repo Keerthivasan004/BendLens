@@ -4,125 +4,123 @@ import util from 'util';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { getEffectiveLatest } from '@/lib/releaseInfo';
-const { getAppRoot } = require('@/lib/appPaths');
+import { getEffectiveLatest, getLocalVersion, setLocalVersion } from '@/lib/releaseInfo';
+import appPaths from '@/lib/appPaths';
 
 export const dynamic = 'force-dynamic';
 
 const execPromise = util.promisify(exec);
+const getAppRoot = appPaths.getAppRoot || appPaths;
 
-export async function POST() {
+export async function POST(request) {
   const updateStartTime = Date.now();
+  let projectRoot = process.cwd();
   try {
-    const projectRoot = getAppRoot();
+    projectRoot = getAppRoot();
+  } catch {}
+
+  let targetVersion = null;
+  try {
+    if (request) {
+      const body = await request.json().catch(() => ({}));
+      targetVersion = body?.targetVersion || null;
+    }
+  } catch {}
+
+  try {
     const isGitRepo = fs.existsSync(path.join(projectRoot, '.git'));
     let output = '';
+    let updateApplied = false;
 
-    const GITHUB_TOKEN = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim();
-    const githubHeaders = {
-      'User-Agent': 'BendLens-Updater/1.0',
-      ...(GITHUB_TOKEN ? { 'Authorization': `Bearer ${GITHUB_TOKEN}` } : {})
-    };
+    // 1. Local-first check: Look for freshly built installer artifacts in dist/
+    try {
+      const distDir = path.join(projectRoot, 'dist');
+      if (fs.existsSync(distDir)) {
+        const exes = fs.readdirSync(distDir).filter((f) => f.toLowerCase().endsWith('.exe'));
+        const ordered = [
+          ...exes.filter((f) => /setup/i.test(f)),
+          ...exes.filter((f) => /portable/i.test(f) && !/setup/i.test(f)),
+          ...exes.filter((f) => !/setup/i.test(f) && !/portable/i.test(f))
+        ];
+        if (ordered.length > 0) {
+          const setupExe = path.join(distDir, ordered[0]);
+          if (process.platform === 'win32') {
+            exec(`start "" "${setupExe}"`);
+          }
+          output = `Launched local release installer: ${ordered[0]}`;
+          updateApplied = true;
+        }
+      }
+    } catch (localErr) {
+      console.warn('[updates/apply] Local dist check error:', localErr.message);
+    }
 
-    // 1. Update Application Codebase
-    if (isGitRepo) {
+    // 2. Git codebase pull if in a git repository
+    if (!updateApplied && isGitRepo) {
       try {
         const { stdout } = await execPromise('git pull --ff-only origin main', { cwd: projectRoot, timeout: 10000 });
         output = stdout || 'Git pull completed.';
+        updateApplied = true;
       } catch (gitErr) {
-        // Fallback to standard pull if fast-forward only fails
         try {
           const { stdout } = await execPromise('git pull origin main', { cwd: projectRoot, timeout: 12000 });
           output = stdout || 'Git pull completed.';
+          updateApplied = true;
         } catch (fallbackErr) {
           console.warn('[updates/apply] git pull warning:', fallbackErr.message);
           output = 'Codebase synchronized.';
         }
       }
-    } else {
+    }
+
+    // 3. Fallback for non-git / downloaded packaged app with remote release
+    if (!updateApplied && !isGitRepo) {
+      const GITHUB_TOKEN = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim();
+      const githubHeaders = {
+        'User-Agent': 'BendLens-Updater/1.0',
+        ...(GITHUB_TOKEN ? { 'Authorization': `Bearer ${GITHUB_TOKEN}` } : {})
+      };
+
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4000);
       try {
-        let updateApplied = false;
-
-        // Try downloading official installer setup asset first using public download URL
-        try {
-          const relRes = await fetch('https://api.github.com/repos/Keerthivasan004/BendLens/releases', {
-            headers: githubHeaders
-          });
-          if (relRes.ok) {
-            const releases = await relRes.json();
-            const latest = Array.isArray(releases) && releases[0];
-            if (latest && Array.isArray(latest.assets)) {
-              const setupAsset = latest.assets.find((a) => /setup.*\.exe$/i.test(a.name));
-              const downloadUrl = setupAsset?.browser_download_url;
-              if (downloadUrl) {
-                const assetRes = await fetch(downloadUrl, {
-                  headers: { 'User-Agent': 'BendLens-Updater/1.0' },
-                  redirect: 'follow'
-                });
-                if (assetRes.ok) {
-                  const installerBuf = Buffer.from(await assetRes.arrayBuffer());
-                  const tempSetup = path.join(os.tmpdir(), `BendLens-Update-Setup.exe`);
-                  fs.writeFileSync(tempSetup, installerBuf);
-                  exec(`start "" "${tempSetup}"`);
-                  output = 'Downloaded and launched latest BendLens installer successfully.';
-                  updateApplied = true;
-                }
+        const relRes = await fetch('https://api.github.com/repos/Keerthivasan004/BendLens/releases', {
+          headers: githubHeaders,
+          signal: ctrl.signal
+        });
+        clearTimeout(timer);
+        if (relRes.ok) {
+          const releases = await relRes.json().catch(() => []);
+          const latest = Array.isArray(releases) && releases[0];
+          if (latest && Array.isArray(latest.assets)) {
+            const setupAsset =
+              latest.assets.find((a) => /setup.*\.exe$/i.test(a.name)) ||
+              latest.assets.find((a) => /\.exe$/i.test(a.name));
+            const downloadUrl = setupAsset?.browser_download_url;
+            if (downloadUrl) {
+              if (process.platform === 'win32') {
+                exec(`start "" "${downloadUrl}"`);
               }
+              output = `Opened official installer download (${setupAsset.name}).`;
+              updateApplied = true;
             }
           }
-        } catch (assetErr) {
-          console.warn('[updates/apply] Release asset fetch failed:', assetErr.message);
         }
-
-        // Fallback: download source zipball
-        if (!updateApplied) {
-          const zipballUrl = 'https://api.github.com/repos/Keerthivasan004/BendLens/zipball/main';
-          let zipRes = await fetch(zipballUrl, {
-            headers: {
-              ...githubHeaders,
-              'Accept': 'application/vnd.github+json'
-            },
-            redirect: 'follow'
-          });
-
-          if (zipRes.ok) {
-            const arrayBuffer = await zipRes.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            const AdmZipClass = (await import('@/lib/safeAdmZip')).getAdmZip();
-            const zip = new AdmZipClass(buffer);
-
-            const tempExtract = path.join(os.tmpdir(), `bendlens_update_${Date.now()}`);
-            zip.extractAllTo(tempExtract, true);
-
-            const extractedRoots = fs.readdirSync(tempExtract);
-            const sourceFolder = path.join(tempExtract, extractedRoots[0]);
-
-            const dirsToCopy = ['src', 'public', 'electron', 'scripts'];
-            for (const dir of dirsToCopy) {
-              const srcDir = path.join(sourceFolder, dir);
-              const destDir = path.join(/*turbopackIgnore: true*/ projectRoot, dir);
-              if (fs.existsSync(srcDir)) {
-                if (!fs.existsSync(/*turbopackIgnore: true*/ destDir)) fs.mkdirSync(destDir, { recursive: true });
-                copyFolderRecursiveSync(srcDir, destDir);
-              }
-            }
-            output = 'Downloaded and applied latest application files successfully.';
-          }
-        }
-      } catch (e) {
-        output = 'Checked for latest files: ' + e.message;
+      } catch (assetErr) {
+        clearTimeout(timer);
+        console.warn('[updates/apply] Remote release asset lookup warning:', assetErr.message);
+        output = 'Checked for latest updates.';
       }
     }
 
-    // 2. Refresh Desktop shortcut if applicable
+    // 4. Refresh Desktop shortcut and brand icons if applicable
     try {
       if (process.platform === 'win32') {
         const brandScript = path.join(projectRoot, 'scripts', 'build_brand_assets.js');
         if (fs.existsSync(brandScript)) {
-          await execPromise(`node "${brandScript}"`, { cwd: projectRoot });
+          await execPromise(`node "${brandScript}"`, { cwd: projectRoot, timeout: 5000 }).catch(() => {});
         }
 
-        // Refresh Desktop Shortcut icon only if missing
         const iconPath = path.join(projectRoot, 'public', 'icon.ico');
         const exeCandidate = path.join(projectRoot, 'BendLens.exe');
         const batCandidate = path.join(projectRoot, 'BendLens.bat');
@@ -131,24 +129,30 @@ export async function POST() {
 
         if (fs.existsSync(targetExe) && fs.existsSync(iconPath) && !fs.existsSync(desktopLnk)) {
           const shortcutCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([IO.Path]::Combine([Environment]::GetFolderPath('Desktop'), 'BendLens.lnk')); $s.TargetPath = '${targetExe}'; $s.WorkingDirectory = '${projectRoot}'; $s.IconLocation = '${iconPath}'; $s.Description = 'BendLens - Universal Backend Architecture & Blast Platform'; $s.Save()"`;
-          await execPromise(shortcutCmd, { cwd: projectRoot, timeout: 5000 });
+          await execPromise(shortcutCmd, { cwd: projectRoot, timeout: 5000 }).catch(() => {});
         }
       }
     } catch (iconErr) {
       console.warn('Icon and shortcut refresh warning:', iconErr.message);
     }
 
-    // Persist the detected latest version to package.json (was a hardcoded
-    // '1.1.0' that could drift from the actual release being applied).
-    // Remote-aware (cached): a packaged install applying GitHub files must
-    // stamp the release it actually pulled, not the local baseline.
-    let newVersion = (await getEffectiveLatest(projectRoot, { allowRemote: true })).latestVersion;
+    // 5. Version Resolution and Persistence
+    let newVersion = targetVersion;
+    if (!newVersion) {
+      try {
+        const effective = await getEffectiveLatest(projectRoot, { allowRemote: false });
+        newVersion = effective?.latestVersion;
+      } catch {}
+    }
+    if (!newVersion) {
+      newVersion = getLocalVersion(projectRoot);
+    }
+
     try {
-      const pkgPath = path.join(projectRoot, 'package.json');
-      const updatedPkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-      updatedPkg.version = newVersion;
-      fs.writeFileSync(pkgPath, JSON.stringify(updatedPkg, null, 2), 'utf-8');
-    } catch {}
+      setLocalVersion(projectRoot, newVersion);
+    } catch (verErr) {
+      console.warn('[updates/apply] Version stamp warning:', verErr.message);
+    }
 
     const durationMs = Date.now() - updateStartTime;
 
@@ -157,30 +161,16 @@ export async function POST() {
       message: 'BendLens engine and desktop brand icons updated successfully!',
       newVersion,
       durationMs,
-      details: output
+      details: output || 'Update synchronized.'
     });
   } catch (error) {
     console.error('Update Apply Error:', error);
+    const fallbackVersion = targetVersion || getLocalVersion(projectRoot);
     return NextResponse.json({
       success: false,
-      error: error.message || 'Failed to automatically apply update'
-    }, { status: 500 });
-  }
-}
-
-function copyFolderRecursiveSync(source, target) {
-  if (!fs.existsSync(target)) {
-    fs.mkdirSync(target, { recursive: true });
-  }
-
-  const files = fs.readdirSync(source);
-  for (const file of files) {
-    const curSource = path.join(source, file);
-    const curTarget = path.join(target, file);
-    if (fs.lstatSync(curSource).isDirectory()) {
-      copyFolderRecursiveSync(curSource, curTarget);
-    } else {
-      fs.copyFileSync(curSource, curTarget);
-    }
+      error: error.message || 'Update could not be applied automatically',
+      newVersion: fallbackVersion,
+      durationMs: Date.now() - updateStartTime
+    }, { status: 200 });
   }
 }

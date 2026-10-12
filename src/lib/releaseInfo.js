@@ -67,13 +67,15 @@ export function getLocalVersion(projectRoot) {
   return '1.0.0';
 }
 
-export function setLocalVersion(projectRoot, version) {
+export function setLocalVersion(projectRootOrVersion, maybeVersion) {
+  const version = maybeVersion !== undefined ? maybeVersion : projectRootOrVersion;
+  const projectRoot = maybeVersion !== undefined ? projectRootOrVersion : undefined;
   try {
     const root = resolveRoot(projectRoot);
     const pkgPath = path.join(root, 'package.json');
     if (fs.existsSync(pkgPath)) {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-      pkg.version = version;
+      pkg.version = String(version);
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2), 'utf-8');
       return true;
     }
@@ -132,12 +134,13 @@ let remoteCache = { at: 0, version: null, asset: null };
 
 export async function getRemoteLatestRelease() {
   const now = Date.now();
-  if (remoteCache.version && now - remoteCache.at < REMOTE_TTL_MS) {
+  if (remoteCache?.version && now - remoteCache.at < REMOTE_TTL_MS) {
     return { version: remoteCache.version, asset: remoteCache.asset };
   }
+  let timer;
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 6000);
+    timer = setTimeout(() => ctrl.abort(), 6000);
     const headers = {
       Accept: 'application/vnd.github+json',
       'User-Agent': 'BendLens-Updater/1.0'
@@ -150,17 +153,17 @@ export async function getRemoteLatestRelease() {
       headers,
       signal: ctrl.signal
     });
-    clearTimeout(timer);
-    if (!res.ok) return { version: remoteCache.version, asset: remoteCache.asset };
+    if (timer) clearTimeout(timer);
+    if (!res.ok) return { version: remoteCache?.version || null, asset: remoteCache?.asset || null };
     const releases = await res.json().catch(() => []);
     if (Array.isArray(releases) && releases.length > 0) {
       const newest = releases[0];
-      const v = parseArtifactVersion(newest.tag_name || newest.name || '');
+      const v = parseArtifactVersion(newest?.tag_name || newest?.name || '');
       let assetName = null;
-      if (Array.isArray(newest.assets)) {
+      if (Array.isArray(newest?.assets)) {
         const setupAsset =
-          newest.assets.find((a) => /setup.*\.exe$/i.test(a.name)) ||
-          newest.assets.find((a) => /\.exe$/i.test(a.name));
+          newest.assets.find((a) => /setup.*\.exe$/i.test(a?.name)) ||
+          newest.assets.find((a) => /\.exe$/i.test(a?.name));
         if (setupAsset) assetName = setupAsset.name;
       }
       if (v) {
@@ -168,15 +171,16 @@ export async function getRemoteLatestRelease() {
         return { version: v, asset: assetName };
       }
     }
-    return { version: remoteCache.version, asset: remoteCache.asset };
+    return { version: remoteCache?.version || null, asset: remoteCache?.asset || null };
   } catch {
-    return { version: remoteCache.version, asset: remoteCache.asset };
+    if (timer) clearTimeout(timer);
+    return { version: remoteCache?.version || null, asset: remoteCache?.asset || null };
   }
 }
 
 export async function getRemoteLatestVersion() {
   const rel = await getRemoteLatestRelease();
-  return rel.version;
+  return rel?.version || null;
 }
 
 /**
@@ -184,18 +188,20 @@ export async function getRemoteLatestVersion() {
  * Returns { latestVersion, updateArtifact, updateSource }.
  */
 export async function getEffectiveLatest(projectRoot, { allowRemote = false } = {}) {
-  const local = getLatestRelease(projectRoot);
+  const local = getLatestRelease(projectRoot) || { latestVersion: BASELINE_LATEST_VERSION, updateArtifact: null };
   if (!allowRemote) return { ...local, updateSource: 'local' };
-  const remote = await getRemoteLatestRelease();
-  if (remote.version) {
-    const isNewer = isNewerVersion(remote.version, local.latestVersion);
-    const bestVersion = isNewer ? remote.version : local.latestVersion;
-    const asset = remote.asset || local.updateArtifact || null;
-    return {
-      latestVersion: bestVersion,
-      updateArtifact: asset,
-      updateSource: isNewer ? 'remote' : 'local'
-    };
-  }
+  try {
+    const remote = await getRemoteLatestRelease();
+    if (remote?.version) {
+      const isNewer = isNewerVersion(remote.version, local.latestVersion);
+      const bestVersion = isNewer ? remote.version : local.latestVersion;
+      const asset = remote.asset || local.updateArtifact || null;
+      return {
+        latestVersion: bestVersion,
+        updateArtifact: asset,
+        updateSource: isNewer ? 'remote' : 'local'
+      };
+    }
+  } catch {}
   return { ...local, updateSource: 'local' };
 }

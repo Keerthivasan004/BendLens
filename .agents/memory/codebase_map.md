@@ -65,6 +65,7 @@ This document maps all directories, modules, and significant files across BendLe
   - `sample/route.js`: Loads and analyzes the built-in sample project.
   - `history/route.js`: Returns recent project analysis history.
   - `updates/check/route.js`: Checks version and update availability.
+  - `updates/apply/route.js`: Resilient, local-first engine updater that checks local `dist/` installers, performs git synchronization, or launches release downloads without HTTP 500 errors.
   - `git-clone/route.js`: Clones and analyzes a remote git repository locally.
   - `download-app/route.js`: Provides download links for the packaged desktop app.
 

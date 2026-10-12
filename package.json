@@ -1,6 +1,6 @@
 {
   "name": "bendlens-platform",
-  "version": "1.1.18",
+  "version": "1.1.21",
   "description": "BendLens - Universal Backend Architecture & Blast Platform",
   "author": "BendLens Team",
   "packageManager": "pnpm@9.15.9",
@@ -21,10 +21,10 @@
     "productName": "BendLens",
     "asar": false,
     "asarUnpack": [
-    "public/icon.ico",
-    "public/icon.png",
-    "node_modules/asar/**/*"
-  ],
+      "public/icon.ico",
+      "public/icon.png",
+      "node_modules/asar/**/*"
+    ],
     "files": [
       "package.json",
       "next.config.js",

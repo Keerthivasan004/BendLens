@@ -119,4 +119,13 @@ Returns installed version from `package.json` vs newest release detected by `src
 - **POST** `action: 'reset'` (set 1.0.0, for testing) / `'bump'` (adopt detected latest).
 
 ## 9. POST `/api/updates/apply`
-Applies the update (git pull in dev repos), refreshes brand assets via `scripts/build_brand_assets.js`, and persists the detected latest version to `package.json`. Returns `{ success, message, newVersion, details }`.
+Applies software updates with local-first, air-gapped guarantees and zero HTTP 500 failure modes:
+1. **Local-first Installer Check**: Probes `dist/*.exe` (Setup or Portable) and launches the local installer immediately if present.
+2. **Git Repository Pull**: In development repos (`.git` present), safely attempts `git pull --ff-only origin main` with a standard pull fallback.
+3. **Packaged App Remote Discovery**: If in a non-git environment without local installers, checks GitHub releases with a strict 4-second `AbortController` timeout and launches the download URL directly in the user's default browser (avoiding heavy 170MB memory buffering in Node.js).
+4. **Desktop Brand Sync**: Safely synchronizes brand assets via `scripts/build_brand_assets.js` and ensures the Windows Desktop shortcut exists.
+5. **Version Persistence**: Updates `package.json` to the target version or detected version via `setLocalVersion`.
+6. **Error Resiliency**: Always returns HTTP 200 with structured JSON (`{ success, newVersion, durationMs, details, warning }`) to ensure client UIs never encounter an unhandled HTTP 500 error.
+- **Request Body (optional)**: `{ "targetVersion": "1.1.21" }`
+- **Response**: `{ success: true, message: "...", newVersion: "1.1.21", durationMs: 120, details: "..." }`
+

@@ -1,1 +1,38 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Next.js Build Output & Cache
+.next/
+out/
+build/
+
+# Application Distributables & Desktop Builds
+dist/
+desktop/bin/
+desktop/obj/
+bin/
+obj/
+
+# Temporary scans & clones
+.temp_scans/
+
+# Profiling & Logs
 *.cpuprofile
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment & Local configs
+.env*.local
+.bendlens_history.json
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+*.suo
+*.user
+*.userosscache
+*.sln.docstates

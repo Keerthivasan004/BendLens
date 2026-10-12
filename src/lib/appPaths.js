@@ -98,4 +98,7 @@ function getSampleProjectPath() {
   return tried[0];
 }
 
-module.exports = { getAppRoot, getSampleProjectPath };
+const appPaths = { getAppRoot, getSampleProjectPath };
+module.exports = appPaths;
+module.exports.default = appPaths;
+

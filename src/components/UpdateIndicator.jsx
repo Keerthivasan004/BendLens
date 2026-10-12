@@ -119,7 +119,11 @@ export default function UpdateIndicator() {
     }, 50);
 
     try {
-      const res = await fetch('/api/updates/apply', { method: 'POST' });
+      const res = await fetch('/api/updates/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetVersion: updateInfo?.latestVersion })
+      });
       let data = null;
       try {
         data = await res.json();
@@ -148,7 +152,7 @@ export default function UpdateIndicator() {
       } else {
         setIsUpdating(false);
         setUpdateStep('');
-        const errorMsg = data?.error || `Update process could not be completed (HTTP ${res.status}).`;
+        const errorMsg = data?.error || (res.status !== 200 ? `Update process could not be completed (HTTP ${res.status}).` : 'Update process could not be completed.');
         if (confirm(`${errorMsg}\n\nWould you like to open the official release download page directly?`)) {
           window.open('https://github.com/Keerthivasan004/BendLens/releases', '_blank');
         }
