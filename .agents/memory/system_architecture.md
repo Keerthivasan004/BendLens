@@ -22,7 +22,10 @@ flowchart TD
 
 ## Detailed Pipeline Phases
 
-### Phase 1: Directory Ingestion & Guards (`scanDirectory` / `scanDirectoryAsync`)
+### Phase 1: Directory & Universal URL Ingestion (`scanDirectoryAsync` & `/api/git-clone`)
+- **Universal URL Ingestion (`/api/git-clone`)**:
+  - Ingests Git repositories (GitHub via zipball streaming, GitLab via archive zipball, Bitbucket & generic Git via shallow CLI clone).
+  - Automatically identifies and downloads direct OpenAPI / Swagger JSON and YAML specification URLs (`https://.../openapi.json`, `https://.../swagger.yaml`, `https://.../api-docs`), synthesizing complete architectural models in sub-200ms.
 - Filters ignored folders (`node_modules`, `.git`, `.next`, `dist`, `__pycache__`, `.gradle`, `.m2`, `Pods`, `site-packages`, `.yarn`, `.pnpm-store`, `cypress`, `edge_profile`, `chrome_profile`, `Default`, `Extensions`, `IndexedDB`, `GPUCache`, etc.).
 - **Pre-Filtered Media & Binary Assets**: Bypasses `fs.statSync` on media, fonts, binaries, and compressed archives (`.png`, `.jpg`, `.woff`, `.zip`, `.dll`, `.exe`, `.bin`, `.svg`, `.css`, `.scss`, `.md`, `.html`, `.lock`, etc.) via `ProjectAnalyzer.IGNORED_EXTS` and `isRelevantFile`, as well as automated browser testing user data caches (`edge_profile*`, `Default/Extensions`, `IndexedDB`), drastically accelerating disk traversal on Windows file systems.
 - **Targeted File Partitioning**: Automatically classifies scanned files into `schemaFiles`, `codeFiles`, and `infraFiles` before parsing, ensuring parsers only touch relevant files.
@@ -32,7 +35,7 @@ flowchart TD
 ### Phase 2: Specialized AST & Schema Parsers (I/O Pre-Filtered & Fast-Pathed)
 - **High-Speed File Pre-Filtering & Noise Rejection**:
   - Automatically bypasses `.d.ts`, `*.min.js`, `*.bundle.js`, and source maps across all parsers to prevent lockups on compiled bundles.
-  - `InfraParser`: Checks filenames (`docker-compose.yml`, `dockerfile`, `openapi`, `package.json`, `requirements.txt`) before reading files from disk.
+  - `InfraParser`: Checks filenames (`docker-compose.yml`, `dockerfile`, `openapi`, `swagger`, `api-docs`, `api-spec`, `package.json`, `requirements.txt`) before reading files from disk.
   - `PolyglotParser`: Validates supported extensions (`.js`, `.jsx`, `.ts`, `.tsx`, `.py`, `.java`, etc.) before calling `fs.readFileSync`, and uses fast keyword guards before running heavy route/DB regexes.
   - `SchemaParser`: Pre-filters candidate schema extensions (`.sql`, `.prisma`, `.json` seeds, model definitions) before disk reads.
 - **CPU & Regex Lockup Guards**:
@@ -53,8 +56,8 @@ flowchart TD
    - **Automated API Classification**: Classifies every endpoint by protocol kind (`REST`, `WEBSOCKET`, `AUTH`, `STORAGE`, `ADMIN`, `WEBHOOK`, `SYSTEM`, `GRAPHQL`) and architectural tier (`HIGH`, `MEDIUM`, `LOW`).
    - Fast route and DB keyword filters bypass unnecessary regex passes on generic files.
 3. **`InfraParser` (`src/lib/parsers/infraParser.js`)**:
-   - Extracts Docker containers, ports, environment bindings, Docker Compose services, and OpenAPI contracts (supporting both JSON and YAML OpenAPI specs).
-   - Seamlessly merges OpenAPI-declared endpoints into `codeData.endpoints` during project analysis.
+   - Extracts Docker containers, ports, environment bindings, Docker Compose services, and OpenAPI contracts (supporting JSON and YAML OpenAPI specs, resolving `basePath` and root servers).
+   - Seamlessly merges OpenAPI-declared endpoints into `codeData.endpoints` during project analysis with automatic kind and level classification.
 
 ### Phase 3: Bi-Directional Knowledge Graph (`KnowledgeGraph`)
 - In-memory directional graph constructed in `src/lib/graph/knowledgeGraph.js`.

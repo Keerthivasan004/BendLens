@@ -43,8 +43,8 @@ Use this skill when you need to:
      - `classifyApiKind(method, path, source)`: Categorizes endpoints into `REST`, `WEBSOCKET`, `AUTH`, `STORAGE`, `ADMIN`, `WEBHOOK`, `SYSTEM`, or `GRAPHQL`.
      - `classifyApiLevel(method, path, kind)`: Categorizes endpoints into `HIGH` (business orchestration, multi-table mutations), `MEDIUM` (domain CRUD), or `LOW` (system utilities).
 3. **`InfraParser` (`src/lib/parsers/infraParser.js`)**:
-   - Parses Dockerfiles, Docker Compose files, OpenAPI specs (both JSON and YAML formats), and package manifests.
-   - Discovered OpenAPI/Swagger endpoints merge seamlessly into `codeData.endpoints` during project analysis.
+   - Parses Dockerfiles, Docker Compose files, OpenAPI specs (both JSON and YAML formats with `basePath` resolution), and package manifests.
+   - Discovered OpenAPI/Swagger endpoints merge seamlessly into `codeData.endpoints` during project analysis with automatic archetype and tier classification.
 4. **`KnowledgeGraph` (`src/lib/graph/knowledgeGraph.js`)**:
    - Ingests parsed output and builds nodes and bi-directional edges (`adjacency` / `reverseAdjacency`).
    - Maps endpoints to connected database tables (`READS_FROM`, `WRITES_TO`, `STREAMS_FROM`) using plural/singular variant token matching and controller module bindings.

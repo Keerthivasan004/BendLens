@@ -476,7 +476,7 @@ CREATE TABLE orders (
               }`}
             >
               <Globe className="h-3.5 w-3.5" />
-              <span>Git / GitHub</span>
+              <span>Git / URL</span>
             </button>
             </div>
           </div>
@@ -889,14 +889,14 @@ CREATE TABLE audit_logs (
             </div>
           )}
 
-          {/* MODE 4: Git / GitHub Clone */}
+          {/* MODE 4: Git Repository / OpenAPI URL */}
           {ingestMode === 'GIT' && (
             <div>
               <label className="field-label">
-                Git / GitHub Repository URL
+                Git Repository or OpenAPI / Swagger URL
               </label>
               <p className="field-hint" style={{ marginTop: '-0.1rem', marginBottom: '0.6rem' }}>
-                Public repos clone instantly. For private repos, add a classic token with <code className="font-mono text-foreground font-semibold">repo</code> scope — used once, never stored.
+                Enter a GitHub, GitLab, or Git repo URL, or a direct OpenAPI / Swagger JSON/YAML spec URL. Private repos require a token with <code className="font-mono text-foreground font-semibold">repo</code> scope.
               </p>
               <div className="flex flex-col sm:flex-row items-center gap-2.5 mb-2.5">
                 <div className="relative flex-1 w-full">
@@ -905,7 +905,7 @@ CREATE TABLE audit_logs (
                     type="text"
                     value={gitUrl}
                     onChange={(e) => setGitUrl(e.target.value)}
-                    placeholder="e.g., https://github.com/Keerthivasan004/BendLens"
+                    placeholder="e.g., https://github.com/Keerthivasan004/BendLens or https://petstore.swagger.io/v2/swagger.json"
                     className="w-full pl-9 pr-3 py-2 text-xs rounded-lg bg-surface border border-border focus:border-brand outline-none text-foreground font-mono placeholder:text-muted transition-colors"
                   />
                 </div>

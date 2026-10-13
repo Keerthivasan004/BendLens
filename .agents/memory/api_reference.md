@@ -129,3 +129,27 @@ Applies software updates with local-first, air-gapped guarantees and zero HTTP 5
 - **Request Body (optional)**: `{ "targetVersion": "1.1.21" }`
 - **Response**: `{ success: true, message: "...", newVersion: "1.1.21", durationMs: 120, details: "..." }`
 
+---
+
+## 10. POST `/api/git-clone`
+Universal URL Ingestion Engine for remote repositories and direct API specifications.
+- **Supported URL Types**:
+  1. **Direct OpenAPI / Swagger Specifications**: JSON or YAML files (`https://.../openapi.json`, `https://.../swagger.yaml`, `https://.../api-docs`).
+  2. **GitHub Repositories**: Public and private repositories via Zipball streaming with PAT support (`https://github.com/owner/repo`).
+  3. **GitLab Repositories**: Public and private repositories via GitLab archive zipballs (`https://gitlab.com/owner/repo`).
+  4. **Generic Git Repositories**: Via shallow Git CLI clone fallback (`git clone --depth 1`).
+- **Request Body**:
+  ```json
+  {
+    "repoUrl": "https://github.com/owner/repo",
+    "token": "ghp_optionalTokenForPrivateRepos"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "success": true,
+    "data": { ...analysisObject }
+  }
+  ```
+

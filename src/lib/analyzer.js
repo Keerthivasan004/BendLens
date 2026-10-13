@@ -88,6 +88,8 @@ class ProjectAnalyzer {
       base.startsWith('dockerfile.') ||
       base.includes('openapi') ||
       base.includes('swagger') ||
+      base.includes('api-docs') ||
+      base.includes('api-spec') ||
       base === 'package.json' ||
       base === 'requirements.txt';
   }
@@ -457,14 +459,21 @@ class ProjectAnalyzer {
     if (infraData && infraData.externalAPIs && infraData.externalAPIs.length > 0) {
       const existingKeys = new Set(codeData.endpoints.map(e => `${(e.method || 'GET').toUpperCase()} ${e.path}`));
       for (const api of infraData.externalAPIs) {
-        const key = `${(api.method || 'GET').toUpperCase()} ${api.path}`;
+        const method = (api.method || 'GET').toUpperCase();
+        const normPath = api.path.startsWith('/') ? api.path : '/' + api.path;
+        const key = `${method} ${normPath}`;
         if (!existingKeys.has(key)) {
           existingKeys.add(key);
+          const kind = PolyglotParser.classifyApiKind(method, normPath, 'OpenAPI/Swagger Spec');
+          const level = PolyglotParser.classifyApiLevel(method, normPath, kind);
           const epObj = {
-            method: (api.method || 'GET').toUpperCase(),
-            path: api.path,
+            method,
+            path: normPath,
             module: path.relative(absPath, api.source).replace(/\\/g, '/'),
-            source: 'OpenAPI/Swagger Spec'
+            source: 'OpenAPI/Swagger Spec',
+            kind,
+            level,
+            connectedTables: []
           };
           codeData.endpoints.push(epObj);
           if (codeData.stats) codeData.stats.totalEndpoints = codeData.endpoints.length;
@@ -595,14 +604,21 @@ class ProjectAnalyzer {
     if (infraData && infraData.externalAPIs && infraData.externalAPIs.length > 0) {
       const existingKeys = new Set(codeData.endpoints.map(e => `${(e.method || 'GET').toUpperCase()} ${e.path}`));
       for (const api of infraData.externalAPIs) {
-        const key = `${(api.method || 'GET').toUpperCase()} ${api.path}`;
+        const method = (api.method || 'GET').toUpperCase();
+        const normPath = api.path.startsWith('/') ? api.path : '/' + api.path;
+        const key = `${method} ${normPath}`;
         if (!existingKeys.has(key)) {
           existingKeys.add(key);
+          const kind = PolyglotParser.classifyApiKind(method, normPath, 'OpenAPI/Swagger Spec');
+          const level = PolyglotParser.classifyApiLevel(method, normPath, kind);
           const epObj = {
-            method: (api.method || 'GET').toUpperCase(),
-            path: api.path,
+            method,
+            path: normPath,
             module: path.relative(absPath, api.source).replace(/\\/g, '/'),
-            source: 'OpenAPI/Swagger Spec'
+            source: 'OpenAPI/Swagger Spec',
+            kind,
+            level,
+            connectedTables: []
           };
           codeData.endpoints.push(epObj);
           if (codeData.stats) codeData.stats.totalEndpoints = codeData.endpoints.length;

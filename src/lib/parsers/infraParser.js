@@ -24,6 +24,8 @@ class InfraParser {
           fileName.startsWith('dockerfile.') ||
           fileName.includes('openapi') ||
           fileName.includes('swagger') ||
+          fileName.includes('api-docs') ||
+          fileName.includes('api-spec') ||
           fileName === 'package.json' ||
           fileName === 'requirements.txt';
 
@@ -35,7 +37,7 @@ class InfraParser {
           this.parseDockerCompose(content, filePath);
         } else if (fileName === 'dockerfile' || fileName.startsWith('dockerfile.')) {
           this.parseDockerfile(content, filePath);
-        } else if (fileName.includes('openapi') || fileName.includes('swagger')) {
+        } else if (fileName.includes('openapi') || fileName.includes('swagger') || fileName.includes('api-docs') || fileName.includes('api-spec')) {
           this.parseOpenAPI(content, filePath);
         } else if (fileName === 'package.json') {
           this.parsePackageJson(content, filePath);
@@ -138,11 +140,13 @@ class InfraParser {
     try {
       const spec = JSON.parse(content);
       if (spec.paths) {
+        const basePath = (spec.basePath && spec.basePath !== '/') ? spec.basePath.replace(/\/+$/, '') : '';
         for (const [pathUrl, methods] of Object.entries(spec.paths)) {
+          const fullPath = basePath ? `${basePath}${pathUrl.startsWith('/') ? pathUrl : '/' + pathUrl}` : pathUrl;
           for (const [method, details] of Object.entries(methods)) {
             if (['get', 'post', 'put', 'delete', 'patch', 'options', 'head'].includes(method.toLowerCase())) {
               this.externalAPIs.push({
-                path: pathUrl,
+                path: fullPath,
                 method: method.toUpperCase(),
                 summary: (details && (details.summary || details.description)) || '',
                 source: filePath
@@ -160,6 +164,12 @@ class InfraParser {
       const lines = content.split('\n');
       let inPaths = false;
       let currentPath = null;
+      let basePath = '';
+      const basePathMatch = content.match(/basePath:\s*['"]?([^'"\s\n]+)['"]?/i);
+      if (basePathMatch && basePathMatch[1] && basePathMatch[1] !== '/') {
+        basePath = basePathMatch[1].replace(/\/+$/, '');
+      }
+
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (/^paths\s*:/i.test(line)) {
@@ -179,8 +189,9 @@ class InfraParser {
           if (currentPath) {
             const methodMatch = line.match(/^\s{4,8}(get|post|put|delete|patch|options|head)\s*:/i);
             if (methodMatch) {
+              const fullPath = basePath ? `${basePath}${currentPath.startsWith('/') ? currentPath : '/' + currentPath}` : currentPath;
               this.externalAPIs.push({
-                path: currentPath,
+                path: fullPath,
                 method: methodMatch[1].toUpperCase(),
                 summary: '',
                 source: filePath
