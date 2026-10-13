@@ -499,17 +499,14 @@ export default function UpdateShowcaseModal({
                   <div>
                     <div className="flex items-center gap-2">
                       <h4 className="text-sm sm:text-base font-extrabold text-emerald-200">
-                        Software Update Completed Successfully!
+                        {updateStep?.includes('launched') ? 'Installer Launched Successfully!' : updateStep?.includes('Download') || updateStep?.includes('download') ? 'Installer Download Ready!' : 'Software Update Ready!'}
                       </h4>
                       <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-bold">
-                        v{updateInfo?.latestVersion || '1.1.0'}
+                        v{updateInfo?.latestVersion || '1.1.25'}
                       </span>
                     </div>
                     <p className="text-xs text-emerald-300/80 mt-0.5">
-                      BendLens Studio has been updated to the latest architectural engine in{' '}
-                      <strong className="text-emerald-200 font-mono font-bold">
-                        {updateFinalDuration || (updateElapsedTime ? `${updateElapsedTime.toFixed(1)}s` : 'completed')}
-                      </strong>.
+                      {updateStep || `BendLens Studio v${updateInfo?.latestVersion || '1.1.25'} is ready. Complete setup to finish updating.`}
                     </p>
                   </div>
                 </div>

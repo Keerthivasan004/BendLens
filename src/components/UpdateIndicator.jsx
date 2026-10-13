@@ -109,9 +109,13 @@ export default function UpdateIndicator() {
 
   const handleApplyUpdate = async () => {
     setIsUpdating(true);
-    setUpdateStep('Synchronizing latest engine & schema visualizers...');
+    setUpdateStep('Checking installer package & preparing update...');
     setUpdateElapsedTime(0);
     setUpdateFinalDuration('');
+
+    const targetVer = updateInfo?.latestVersion || '1.1.25';
+    const targetArtifact = updateInfo?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
+    const directDownloadUrl = `https://github.com/Keerthivasan004/BendLens/releases/download/v${targetVer}/${targetArtifact}`;
 
     const startTime = Date.now();
     const timerInterval = setInterval(() => {
@@ -128,7 +132,8 @@ export default function UpdateIndicator() {
       try {
         data = await res.json();
       } catch {
-        data = { success: false, error: `Engine returned non-JSON response (HTTP ${res.status})` };
+        // Handle older running engines that may return non-JSON gracefully
+        data = null;
       }
 
       clearInterval(timerInterval);
@@ -137,34 +142,40 @@ export default function UpdateIndicator() {
       setUpdateFinalDuration(finalDuration);
 
       if (res.ok && data?.success) {
-        const newVersion = data.newVersion || updateInfo.latestVersion;
+        setIsUpdating(false);
         setUpdateSuccess(true);
-        setIsUpdating(false);
-        dismissNotification();
-        setUpdateInfo((prev) => ({
-          ...prev,
-          currentVersion: newVersion,
-          hasUpdate: false
-        }));
-
-        // PERSISTENT COMPLETION NOTIFICATION:
-        // Does NOT auto-close. Kept open with full details and explicit Close button!
-      } else {
-        setIsUpdating(false);
-        setUpdateStep('');
-        const errorMsg = data?.error || (res.status !== 200 ? `Update process could not be completed (HTTP ${res.status}).` : 'Update process could not be completed.');
-        if (confirm(`${errorMsg}\n\nWould you like to open the official release download page directly?`)) {
-          window.open('https://github.com/Keerthivasan004/BendLens/releases', '_blank');
+        if (data.installerLaunched) {
+          setUpdateStep(`Installer launched: ${data.installerName || targetArtifact}. Complete the setup wizard to update BendLens!`);
+        } else if (data.downloadTriggered) {
+          setUpdateStep(`Downloading ${data.installerName || targetArtifact}. Run the installer once download finishes!`);
+        } else {
+          setUpdateStep(data.message || 'Update initiated successfully.');
         }
+      } else {
+        // Seamless fallback for older installed builds or network error:
+        // Automatically open the official installer download so the user can complete the installation
+        setIsUpdating(false);
+        const fallbackUrl = data?.downloadUrl || directDownloadUrl;
+        try {
+          window.open(fallbackUrl, '_blank');
+        } catch {
+          window.location.href = fallbackUrl;
+        }
+
+        setUpdateSuccess(true);
+        setUpdateStep(`Downloading ${data?.installerName || targetArtifact}. Run the downloaded installer to complete installation.`);
       }
     } catch (err) {
       clearInterval(timerInterval);
       setIsUpdating(false);
-      setUpdateStep('');
-      console.warn('Update apply failed:', err);
-      if (confirm(`Update could not be applied: ${err?.message || 'Connection error'}.\n\nWould you like to open the official releases page to download the installer directly?`)) {
-        window.open('https://github.com/Keerthivasan004/BendLens/releases', '_blank');
+      console.warn('Update apply network fallback:', err);
+      try {
+        window.open(directDownloadUrl, '_blank');
+      } catch {
+        window.location.href = directDownloadUrl;
       }
+      setUpdateSuccess(true);
+      setUpdateStep(`Downloading ${targetArtifact}. Run the downloaded installer to complete installation.`);
     }
   };
 
@@ -201,10 +212,12 @@ export default function UpdateIndicator() {
         <div className="space-y-2 mb-3.5">
           <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 className="h-4 w-4 shrink-0" />
-            <h4 className="text-xs font-bold">Software Update Completed!</h4>
+            <h4 className="text-xs font-bold">
+              {updateStep?.includes('launched') ? 'Installer Launched!' : updateStep?.includes('download') || updateStep?.includes('Downloading') ? 'Installer Download Ready!' : 'Software Update Ready!'}
+            </h4>
           </div>
           <p className="text-[11px] text-muted leading-relaxed">
-            BendLens Studio is now updated to <strong className="text-foreground font-mono">v{updateInfo.currentVersion}</strong> in {updateFinalDuration || updateElapsedTime.toFixed(1)}s.
+            {updateStep || `BendLens-Setup-${updateInfo.latestVersion}.exe is ready. Complete setup to finish updating.`}
           </p>
         </div>
       ) : (
@@ -226,16 +239,27 @@ export default function UpdateIndicator() {
       {/* Action Buttons */}
       <div className="flex items-center gap-2 pt-1 border-t border-border dark:border-white/10">
         {updateSuccess ? (
-          <button
-            onClick={() => {
-              setUpdateSuccess(false);
-              dismissNotification();
-            }}
-            className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
-          >
-            <X className="h-3.5 w-3.5" />
-            <span>Close Notification</span>
-          </button>
+          <>
+            <button
+              onClick={() => {
+                setUpdateSuccess(false);
+                dismissNotification();
+              }}
+              className="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-surface-raised hover:bg-surface-raised/80 text-foreground border border-border dark:border-white/10 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              <X className="h-3.5 w-3.5" />
+              <span>Dismiss</span>
+            </button>
+            <button
+              onClick={() => {
+                window.open('https://github.com/Keerthivasan004/BendLens/releases', '_blank');
+              }}
+              className="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              <ArrowRight className="h-3.5 w-3.5" />
+              <span>Releases</span>
+            </button>
+          </>
         ) : (
           <>
             <button

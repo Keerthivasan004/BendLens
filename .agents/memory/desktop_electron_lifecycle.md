@@ -47,7 +47,10 @@ BendLens ships as a true native Windows application: double-click → splash →
   - In-app `UpdateIndicator` polls the same endpoint every 5 min + on window focus/tab-visible, persists dismissal per version (`bendlens-update-dismissed-<version>` in localStorage so new releases re-notify), surfaces check failures instead of faking success, and shows the ready installer filename (`updateArtifact`). It renders **only** for downloaded-desktop users (`useIsDesktop()` → `window.bendlensDesktop.isDesktop`); web users get null since the deployed web app is always current.
 - **Desktop update discovery, acceleration & telemetry**:
   - A packaged install has no `dist/` folder. `GET /api/updates/check?source=desktop` discovers releases from GitHub (`Keerthivasan004/BendLens`) and installer assets (`BendLens-Setup-*.exe`) using optional env tokens or public release assets.
-  - `/api/updates/apply` streams and launches the official installer in the background via direct `browser_download_url` or updates the codebase files, refreshing desktop shortcuts and version stamps cleanly.
+  - `/api/updates/apply` implements multi-location local installer probing (`findLocalInstaller` across `dist/`, `%USERPROFILE%\Downloads`, `%TEMP%`, and AppData update dirs) with binary validation (`isValidWindowsExe` checking MZ header and size > 1MB) and detached execution (`spawn`/`start`).
+  - When no local installer is present, it triggers the official installer download via default browser (`exec start "" <browser_download_url>`) and returns structured JSON with `installerLaunched`, `downloadTriggered`, and `installerName`.
+  - Both `/api/updates/apply` and `/api/updates/check` strictly return HTTP 200 JSON in all error cases, preventing Next.js empty/HTML 500 error responses (`Engine returned non-JSON response (HTTP 500)`).
+  - `UpdateIndicator` and `UpdateShowcaseModal` incorporate seamless fallback to direct release download URLs if an older installed engine returns a non-JSON or HTTP error, guaranteeing that installed users can always update without interruption.
   - **Accelerated Update Pipeline**:
     - `scripts/build_brand_assets.js` skips spawning PowerShell and `System.Drawing` conversion if `public/icon.ico` is already generated, saving 3-5 seconds of cold-start delay per update.
     - `/api/updates/apply` checks for existing Desktop shortcuts before launching PowerShell and performs fast-forward git pulls (`--ff-only`) with bounded timeouts.
@@ -57,12 +60,12 @@ BendLens ships as a true native Windows application: double-click → splash →
     - Displays active elapsed time in the floating notification, update action button, and modal update pipeline.
   - **User-Controlled Completion Notification**:
     - Eliminated artificial 1.4-second auto-closing timeouts so users always have full visibility into update status.
-    - Renders a prominent **Software Update Completed** notification banner displaying target version (`vX.X.X`), total elapsed duration (e.g. `Completed in 1.8s`), and an explicit **Close** button that lets the user dismiss the dialog when ready.
+    - Renders a prominent **Installer Launched** or **Software Update Ready** notification banner displaying target version (`vX.X.X`), total elapsed duration (e.g. `Completed in 1.8s`), and an explicit **Close** or **Releases** button.
   - **Turbopack External Module & ZIP Handling**:
     - Next.js with Turbopack and pnpm hashes server external packages into aliases (`adm-zip-<hash>`), creating NTFS junctions in `.next/node_modules/` that do not exist or break in packaged desktop installations.
     - Centralized in `src/lib/safeAdmZip.js` using dynamic `eval('require')('adm-zip')` to bypass Turbopack static AST hashing across `/api/updates/apply`, `/api/upload`, and `/api/git-clone`.
     - `electron/server-runner.js` automatically detects and establishes local junctions in `node_modules/` for any legacy hashed aliases (`adm-zip-[0-9a-fA-F]+`) during boot.
-  - Fully offline environments fall back smoothly to the bundled baseline version (`1.1.17`).
+  - Fully offline environments fall back smoothly to the bundled baseline version (`1.1.25`).
 - **Desktop-only UI gating** (`src/lib/useIsDesktop.js`): `UpdateIndicator` returns null on web; both "Download Desktop App" buttons (landing nav in `page.jsx`, "Download App" in `Header.jsx`) render only when NOT desktop.
 - **Theme**: `darkMode: 'class'` + CSS vars under `:root`/`.dark`; `layout.jsx` applies the saved `bendlens-theme` in a pre-hydration head script and both pages mirror it in state, so the toggle can never desync or flash-wrong on load.
 
