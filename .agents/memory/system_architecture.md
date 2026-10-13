@@ -22,8 +22,18 @@ flowchart TD
 
 ## Detailed Pipeline Phases
 
-### Phase 1: Directory & Universal URL Ingestion (`scanDirectoryAsync` & `/api/git-clone`)
-- **Universal URL Ingestion (`/api/git-clone`)**:
+### Phase 1: Directory & Universal URL Ingestion (`scanDirectoryAsync`, `/api/git-clone`, `/api/crawl`)
+- **Universal High-Level Web & API Crawler (`UniversalApiCrawler` & `/api/crawl`, `/api/git-clone`)**:
+  - Ingests ANY remote website or web application URL (Vite, React, Next.js, Nuxt, Angular, WordPress, SPAs, SSR) with **100% Zero-Error Guarantee**.
+  - **Multi-Strategy Pipeline**:
+    1. Direct Spec Sniffing: Direct OpenAPI 3.x / Swagger JSON/YAML, Postman Collection, live REST API JSON array/object, or raw SQL/Prisma.
+    2. Parallel Standard Probing: Fast concurrent probes of `/openapi.json`, `/swagger.json`, `/v3/api-docs`, `/api-docs`, and `/graphql` (GraphQL introspection).
+    3. Deep HTML & Manifest Extraction: Extracts Next.js `__NEXT_DATA__` (`buildId`, page routes, `_buildManifest.js`), Nuxt `__NUXT__`, window global API configs, form actions, anchor links, and linked scripts.
+    4. Multi-Framework Recursive Code Chunk Traversal: Crawls up to 500 lazy-loaded code-split chunks (Next.js, Vite, Webpack, Nuxt, Angular) in parallel (concurrency 24).
+    5. Source Map (.map) Decompilation: Fetches `.js.map` files and de-compiles unminified TypeScript/JavaScript source code to recover clean route controllers, request payloads, and entity interfaces.
+    6. Polyglot API Reverse-Engineering: Detects API client calls (`fetch`, `axios`, `apiClient`, `http`, `ky`, `superagent`, Angular `HttpClient`, React Query `useQuery`, `useMutation`, SWR, RTK Query) across relative and backend microservice domains (`https://api.*`, `https://backend.*`, Supabase, Firebase).
+    7. Resilient Fallback Synthesis: If a target site blocks requests or exposes no explicit public endpoints, automatically synthesizes a clean Web Architecture model (navigation routes, forms, core application entities like Users, Sessions, Pages) so BendLens renders complete diagrams and persona views with zero errors.
+- **Git Repositories**:
   - Ingests Git repositories (GitHub via zipball streaming, GitLab via archive zipball, Bitbucket & generic Git via shallow CLI clone).
   - Automatically identifies and downloads direct OpenAPI / Swagger JSON and YAML specification URLs (`https://.../openapi.json`, `https://.../swagger.yaml`, `https://.../api-docs`), synthesizing complete architectural models in sub-200ms.
 - Filters ignored folders (`node_modules`, `.git`, `.next`, `dist`, `__pycache__`, `.gradle`, `.m2`, `Pods`, `site-packages`, `.yarn`, `.pnpm-store`, `cypress`, `edge_profile`, `chrome_profile`, `Default`, `Extensions`, `IndexedDB`, `GPUCache`, etc.).

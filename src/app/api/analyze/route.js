@@ -38,6 +38,33 @@ export async function POST(request) {
       targetPath = getSampleProjectPath();
     }
 
+    if (targetPath.startsWith('http://') || targetPath.startsWith('https://')) {
+      const UniversalApiCrawler = require('@/lib/universalApiCrawler');
+      const crawlResult = await UniversalApiCrawler.crawl(targetPath, { maxChunks: 500, concurrency: 24 });
+      const uploadsDir = path.join(os.tmpdir(), 'bendlens_temp_scans');
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      const scanId = `crawl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const cloneDir = path.join(uploadsDir, scanId);
+      fs.mkdirSync(cloneDir, { recursive: true });
+
+      if (crawlResult.openApiSpec) {
+        fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
+      }
+      if (crawlResult.sqlSchema) {
+        fs.writeFileSync(path.join(cloneDir, 'schema.sql'), crawlResult.sqlSchema, 'utf-8');
+      }
+
+      const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
+      result.projectName = crawlResult.projectName;
+      result.crawlerTelemetry = crawlResult.telemetry;
+      saveToHistory(result);
+
+      return NextResponse.json(
+        { success: true, data: result },
+        { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+      );
+    }
+
     // Always run fresh analysis asynchronously with cooperative event-loop yields
     const result = await ProjectAnalyzer.analyzeAsync(targetPath);
     saveToHistory(result);

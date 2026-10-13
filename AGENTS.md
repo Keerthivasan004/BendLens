@@ -37,6 +37,7 @@ Before performing any analysis, refactoring, or code generation, review the cent
    - [`blast-radius-simulator`](file:///d:/BCBUZZ_Side_Project/data-project/.agents/skills/blast-radius-simulator/SKILL.md)
    - [`persona-view-architect`](file:///d:/BCBUZZ_Side_Project/data-project/.agents/skills/persona-view-architect/SKILL.md)
    - [`electron-desktop-packager`](file:///d:/BCBUZZ_Side_Project/data-project/.agents/skills/electron-desktop-packager/SKILL.md)
+   - [`universal-api-crawler`](file:///d:/BCBUZZ_Side_Project/data-project/.agents/skills/universal-api-crawler/SKILL.md)
 
 ## Core Architectural Guardrails
 - **MANDATORY**: Whenever any update or modification is made in the code, update the `.agents/` folder in the skills and memory sections.

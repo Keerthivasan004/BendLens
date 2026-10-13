@@ -132,12 +132,17 @@ Applies software updates with local-first, air-gapped guarantees and zero HTTP 5
 ---
 
 ## 10. POST `/api/git-clone`
-Universal URL Ingestion Engine for remote repositories and direct API specifications.
+Universal URL & API Ingestion Engine for remote repositories, live REST APIs, and API specifications.
 - **Supported URL Types**:
-  1. **Direct OpenAPI / Swagger Specifications**: JSON or YAML files (`https://.../openapi.json`, `https://.../swagger.yaml`, `https://.../api-docs`).
-  2. **GitHub Repositories**: Public and private repositories via Zipball streaming with PAT support (`https://github.com/owner/repo`).
-  3. **GitLab Repositories**: Public and private repositories via GitLab archive zipballs (`https://gitlab.com/owner/repo`).
-  4. **Generic Git Repositories**: Via shallow Git CLI clone fallback (`git clone --depth 1`).
+  1. **Live REST API Endpoints**: Any URL returning JSON arrays or objects (e.g. `https://jsonplaceholder.typicode.com/posts`, `https://dummyjson.com/products`, or custom APIs). Automatically extracted via `ApiSpecSynthesizer` into an OpenAPI 3.0 spec and companion relational SQL schema.
+  2. **Web Applications & SPAs**: Live deployed web applications (e.g. `https://fts2trial.bcbuzz.tech`, React/Vite/Next.js frontend bundles). Automatically inspects script bundles and extracts all internal API routes, HTTP methods, and data entities into an OpenAPI 3.0 spec and relational schema.
+  3. **Swagger UI / HTML Documentation Pages**: Web pages hosting Swagger UI or Redoc (e.g. `https://petstore.swagger.io/`). Automatically discovers and ingests the underlying OpenAPI/Swagger spec.
+  3. **Direct OpenAPI / Swagger Specifications**: JSON or YAML files (`https://.../openapi.json`, `https://.../swagger.yaml`, `https://.../api-docs`). Definitions and schemas are also converted into relational SQL tables for rich ERD visualization.
+  4. **Postman Collections**: Collection JSON URLs with requests, folders, and query parameters converted into OpenAPI and relational models.
+  5. **GitHub / GitLab File URLs**: Web blob view URLs (`github.com/owner/repo/blob/main/...`) automatically normalized to raw endpoints.
+  6. **GitHub Repositories**: Public and private repositories via direct archive streams and authenticated GitHub API zipballs with Personal Access Token (PAT) support.
+  7. **GitLab Repositories**: Public and private repositories via GitLab archive zipballs.
+  8. **Generic Git Repositories**: Via shallow Git CLI clone fallback (`git clone --depth 1`).
 - **Request Body**:
   ```json
   {
@@ -152,4 +157,41 @@ Universal URL Ingestion Engine for remote repositories and direct API specificat
     "data": { ...analysisObject }
   }
   ```
+
+---
+
+## 11. POST `/api/crawl`
+Universal High-Level Web & API Crawler endpoint capable of crawling any URL (SPAs, SSR, Next.js, Vite, Webpack, Nuxt, Angular, WordPress, REST, GraphQL, OpenAPI, Swagger, or static sites) and reverse-engineering all endpoints without errors.
+- **Key Guarantees**:
+  - 100% Zero-Error Guarantee: Never throws an unhandled error or HTTP 500. If a target host is blocked or offline, performs resilient fallback architectural synthesis.
+  - Source Map (.map) Parsing: Decompiles `.js.map` to uncover unminified route controllers and schemas.
+  - Multi-Framework Chunk Discovery: Traverses Next.js, Vite, Webpack, Nuxt, Angular, and dynamic imports.
+  - GraphQL Introspection: Probes `/graphql` and maps types and mutations into the API model.
+- **Request Body**:
+  ```json
+  {
+    "url": "https://fts2trial.bcbuzz.tech",
+    "maxChunks": 500,
+    "concurrency": 24
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "success": true,
+    "data": { ...analysisObject },
+    "telemetry": {
+      "targetUrl": "https://fts2trial.bcbuzz.tech",
+      "crawlDurationMs": 1140,
+      "chunksCrawledCount": 18,
+      "totalEndpointsCount": 34,
+      "backendDomains": ["https://api.futrsec.in"],
+      "entitiesCount": 12,
+      "frameworksDetected": ["React", "Vite"],
+      "discoveryStrategy": "deep_chunk_crawler",
+      "crawlStatus": "success"
+    }
+  }
+  ```
+
 

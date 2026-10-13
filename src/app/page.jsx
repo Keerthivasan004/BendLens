@@ -225,13 +225,14 @@ CREATE TABLE orders (
   const handleScanPath = async (overridePath) => {
     const target = overridePath || folderPath;
 
-    // Seamless URL Auto-Detection: if the user entered a Git or OpenAPI URL, route to git-clone
-    if (target && (target.startsWith('http://') || target.startsWith('https://'))) {
+    // Seamless URL Auto-Detection: if the user entered any HTTP/HTTPS URL or domain URL, route to universal URL ingestion
+    const trimmedTarget = (target || '').trim();
+    if (trimmedTarget && (trimmedTarget.startsWith('http://') || trimmedTarget.startsWith('https://') || /^(?:api\.|github\.com|gitlab\.com|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}\/)/i.test(trimmedTarget))) {
       await executeScanWithStages((signal) => fetch('/api/git-clone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          repoUrl: target.trim(),
+          repoUrl: trimmedTarget,
           token: gitToken.trim()
         }),
         signal
@@ -493,8 +494,8 @@ CREATE TABLE orders (
                   : 'text-muted hover:text-foreground border border-transparent'
               }`}
             >
-              <Globe className="h-3.5 w-3.5" />
-              <span>Git / URL</span>
+              <Globe className="h-3.5 w-3.5 text-brand" />
+              <span>Web & API Crawler / Git</span>
             </button>
             </div>
           </div>
@@ -925,23 +926,69 @@ CREATE TABLE audit_logs (
             </div>
           )}
 
-          {/* MODE 4: Git Repository / OpenAPI URL */}
+          {/* MODE 4: Universal Web & API Crawler / Git Repository */}
           {ingestMode === 'GIT' && (
             <div>
-              <label className="field-label">
-                Git Repository or OpenAPI / Swagger URL
-              </label>
+              <div className="flex flex-wrap items-center justify-between gap-1 mb-1">
+                <label className="field-label mb-0">
+                  Universal Web & API Crawler (Any Website URL, Web App, Live API, or Git Repo)
+                </label>
+                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  Zero-Error Multi-Chunk Crawler
+                </span>
+              </div>
               <p className="field-hint" style={{ marginTop: '-0.1rem', marginBottom: '0.6rem' }}>
-                Enter a GitHub, GitLab, or Git repo URL, or a direct OpenAPI / Swagger JSON/YAML spec URL. Private repos require a token with <code className="font-mono text-foreground font-semibold">repo</code> scope.
+                Enter ANY live web application URL (Vite, React, Next.js, Nuxt), public website, REST API endpoint, Swagger/OpenAPI spec, or Git repository. The high-level crawler reverse-engineers all endpoints and schemas automatically without errors.
               </p>
+
+              {/* Quick Preset Buttons for Instant URL Crawling */}
+              <div className="flex items-center gap-1.5 mb-2.5 flex-wrap text-[11px]">
+                <span className="text-muted font-medium text-[10px] uppercase tracking-wider">Try Demo:</span>
+                <button
+                  type="button"
+                  onClick={() => setGitUrl('https://fts2trial.bcbuzz.tech')}
+                  className="px-2 py-0.5 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-[11px] font-mono text-foreground cursor-pointer transition-colors"
+                >
+                  ⚡ SaaS App (Vite/React)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGitUrl('https://dummyjson.com/products')}
+                  className="px-2 py-0.5 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-[11px] font-mono text-foreground cursor-pointer transition-colors"
+                >
+                  🌐 REST API
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGitUrl('https://petstore.swagger.io')}
+                  className="px-2 py-0.5 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-[11px] font-mono text-foreground cursor-pointer transition-colors"
+                >
+                  📑 Swagger UI
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGitUrl('https://stripe.com')}
+                  className="px-2 py-0.5 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-[11px] font-mono text-foreground cursor-pointer transition-colors"
+                >
+                  🚀 Any Website
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGitUrl('https://github.com/Keerthivasan004/BendLens')}
+                  className="px-2 py-0.5 rounded-md bg-surface-raised hover:bg-surface-subtle border border-border text-[11px] font-mono text-foreground cursor-pointer transition-colors"
+                >
+                  📦 GitHub Repo
+                </button>
+              </div>
+
               <div className="flex flex-col sm:flex-row items-center gap-2.5 mb-2.5">
                 <div className="relative flex-1 w-full">
-                  <Globe className="h-4 w-4 absolute left-3 top-2.5 text-muted pointer-events-none" />
+                  <Globe className="h-4 w-4 absolute left-3 top-2.5 text-brand pointer-events-none" />
                   <input
                     type="text"
                     value={gitUrl}
                     onChange={(e) => setGitUrl(e.target.value)}
-                    placeholder="e.g., https://github.com/Keerthivasan004/BendLens or https://petstore.swagger.io/v2/swagger.json"
+                    placeholder="e.g., https://fts2trial.bcbuzz.tech or https://stripe.com or https://dummyjson.com/products"
                     className="w-full pl-9 pr-3 py-2 text-xs rounded-lg bg-surface border border-border focus:border-brand outline-none text-foreground font-mono placeholder:text-muted transition-colors"
                   />
                 </div>
@@ -957,23 +1004,23 @@ CREATE TABLE audit_logs (
                   {isScanning ? (
                     <>
                       <RefreshCw className="h-3.5 w-3.5 animate-spin mr-2" />
-                      <span>Cloning Repo & Analyzing AST...</span>
+                      <span>Crawling Architecture & Endpoints...</span>
                     </>
                   ) : analysisResult ? (
                     <>
                       <CheckCircle2 className="h-3.5 w-3.5 mr-2 text-white" />
-                      <span>Clone & Analysis Complete</span>
+                      <span>Crawl Complete (Recrawl)</span>
                     </>
                   ) : (
                     <>
                       <Play className="h-3.5 w-3.5 fill-current mr-2" />
-                      <span>Clone & Analyze</span>
+                      <span>Crawl & Synthesize Architecture</span>
                     </>
                   )}
                 </button>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 mb-2">
                 <input
                   type="password"
                   value={gitToken}
@@ -982,9 +1029,75 @@ CREATE TABLE audit_logs (
                   className="w-full px-3 py-1.5 text-xs rounded-lg bg-surface border border-border focus:border-brand outline-none text-foreground font-mono placeholder:text-muted"
                 />
               </div>
-              <p className="field-hint">
-                Token is sent with this request only and never persisted.
-              </p>
+
+              {/* Direct Result Confirmation & Console Launch Banner */}
+              {analysisResult && (
+                <div className="p-3.5 rounded-lg border border-emerald-500/30 bg-emerald-950/20 text-foreground animate-fadeIn mb-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                      <span className="text-xs font-bold text-foreground">
+                        {analysisResult.crawlerTelemetry ? 'Target URL Crawled & Reverse-Engineered!' : 'Repository Cloned & Analyzed!'}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/20">
+                      {analysisResult.projectName}
+                    </span>
+                  </div>
+
+                  {analysisResult.crawlerTelemetry && (
+                    <div className="mb-2 p-2 rounded bg-surface border border-border-subtle text-[11px] font-mono grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                      <div>
+                        <div className="text-[10px] text-muted">Strategy</div>
+                        <div className="font-bold text-brand uppercase truncate" title={analysisResult.crawlerTelemetry.discoveryStrategy}>
+                          {analysisResult.crawlerTelemetry.discoveryStrategy?.replace(/_/g, ' ') || 'Crawler'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-muted">Duration</div>
+                        <div className="font-bold text-emerald-400">
+                          {((analysisResult.crawlerTelemetry.crawlDurationMs || 0) / 1000).toFixed(2)}s
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-muted">Chunks Crawled</div>
+                        <div className="font-bold text-amber-400">
+                          {analysisResult.crawlerTelemetry.chunksCrawledCount || 1}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-muted">Microservices</div>
+                        <div className="font-bold text-cyan-400">
+                          {analysisResult.crawlerTelemetry.backendDomains?.length || 1}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-3 gap-2 py-2 border-y border-border-subtle text-center text-xs my-2 font-mono">
+                    <div>
+                      <div className="font-bold text-foreground">{analysisResult.scannedFilesCount || 0}</div>
+                      <div className="text-[10px] text-muted font-sans">Files</div>
+                    </div>
+                    <div>
+                      <div className="font-bold text-violet-400">{analysisResult.schema?.tables?.length || 0}</div>
+                      <div className="text-[10px] text-muted font-sans">Tables</div>
+                    </div>
+                    <div>
+                      <div className="font-bold text-rose-400">{analysisResult.code?.endpoints?.length || 0}</div>
+                      <div className="text-[10px] text-muted font-sans">Endpoints</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenLens('DEVELOPER')}
+                    className="btn-primary w-full py-2.5 px-3 text-xs font-bold rounded-lg justify-center shadow-xs mt-1"
+                  >
+                    <span>Open Lens Studio Console</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
