@@ -221,9 +221,27 @@ CREATE TABLE orders (
     }
   };
 
-  // 1. Analyze by Local Folder Path
+  // 1. Analyze by Local Folder Path (with Auto-URL Detection)
   const handleScanPath = async (overridePath) => {
     const target = overridePath || folderPath;
+
+    // Seamless URL Auto-Detection: if the user entered a Git or OpenAPI URL, route to git-clone
+    if (target && (target.startsWith('http://') || target.startsWith('https://'))) {
+      await executeScanWithStages((signal) => fetch('/api/git-clone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          repoUrl: target.trim(),
+          token: gitToken.trim()
+        }),
+        signal
+      }), (data) => {
+        setAnalysisResult(data);
+        fetchLocalHistory();
+        handleOpenLens('DEVELOPER');
+      });
+      return;
+    }
 
     if (!isLocalApp && !isDesktop && target && (target.includes(':/') || target.includes(':\\') || target.startsWith('/Users/') || target.startsWith('/home/') || target.startsWith('C:') || target.startsWith('D:') || target.startsWith('E:') || target.startsWith('F:'))) {
       setErrorMessage('Browser Security Notice: Web browsers cannot access host disk paths directly. Download the BendLens Desktop App for direct folder scans, or use ZIP Upload, Paste Schema, or Git Clone.');
@@ -538,6 +556,13 @@ CREATE TABLE orders (
                         >
                           Paste SQL / Schema
                         </button>
+                        <button
+                          onClick={() => setIngestMode('GIT')}
+                          className="btn-secondary text-xs py-2 px-3 text-brand border-brand/30"
+                        >
+                          <Globe className="h-3 w-3 mr-1 inline" />
+                          Git / OpenAPI URL
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -545,19 +570,30 @@ CREATE TABLE orders (
               )}
 
               <label className="field-label">
-                Local Codebase Directory Path
+                Codebase Path or Remote URL
               </label>
               <p className="field-hint" style={{ marginTop: '-0.1rem', marginBottom: '0.6rem' }}>
-                Absolute path on the machine running BendLens. Requires the Desktop app — browsers cannot read disk paths.
+                Local path (Desktop App) or Git / OpenAPI URL (works everywhere: GitHub, GitLab, OpenAPI specs).
               </p>
               <div className="flex flex-col sm:flex-row items-center gap-2.5 mb-3">
                 <div className="relative flex-1 w-full">
-                  <FolderSearch className="h-4 w-4 absolute left-3 top-2.5 text-muted pointer-events-none" />
+                  {(folderPath || '').startsWith('http') ? (
+                    <Globe className="h-4 w-4 absolute left-3 top-2.5 text-brand pointer-events-none" />
+                  ) : (
+                    <FolderSearch className="h-4 w-4 absolute left-3 top-2.5 text-muted pointer-events-none" />
+                  )}
                   <input
                     type="text"
                     value={folderPath}
-                    onChange={(e) => setFolderPath(cleanInputPath(e.target.value))}
-                    placeholder="e.g., C:/Projects/my-backend or D:/BCBUZZ_Side_Project/data-project/sample_project"
+                    onChange={(e) => {
+                      const clean = cleanInputPath(e.target.value);
+                      setFolderPath(clean);
+                      if (clean.startsWith('http://') || clean.startsWith('https://')) {
+                        setGitUrl(clean);
+                        setIngestMode('GIT');
+                      }
+                    }}
+                    placeholder="e.g., C:/Projects/repo or https://github.com/owner/repo or https://api.com/openapi.json"
                     className="w-full pl-9 pr-3 py-2 text-xs rounded-lg bg-surface border border-border focus:border-brand outline-none text-foreground font-mono placeholder:text-muted transition-colors"
                   />
                 </div>

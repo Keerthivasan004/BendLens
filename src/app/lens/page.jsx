@@ -121,7 +121,7 @@ export default function LensDashboard() {
   const handleAnalyze = async (folderPath) => {
     const sanitized = cleanInputPath(folderPath);
     if (!sanitized) {
-      setErrorMessage('Enter a folder path to scan.');
+      setErrorMessage('Enter a folder path or URL to scan.');
       return;
     }
     // Clear stale model first so a rescan can never flash the same old
@@ -137,18 +137,23 @@ export default function LensDashboard() {
     }, 50);
 
     try {
-      const res = await fetch(`/api/analyze?t=${Date.now()}`, {
+      const isRemoteUrl = sanitized.startsWith('http://') || sanitized.startsWith('https://');
+      const endpoint = isRemoteUrl ? '/api/git-clone' : `/api/analyze?t=${Date.now()}`;
+      const payload = isRemoteUrl ? { repoUrl: sanitized } : { path: sanitized };
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
         cache: 'no-store',
-        body: JSON.stringify({ path: sanitized })
+        body: JSON.stringify(payload)
       });
       const result = await res.json();
       if (result.success) {
         setAnalysisData(result.data);
-        setCurrentPath(result.data.projectPath);
+        const resolvedPath = result.data.projectName || result.data.projectPath || sanitized;
+        setCurrentPath(resolvedPath);
         try {
-          localStorage.setItem('bendlens-path', result.data.projectPath);
+          localStorage.setItem('bendlens-path', resolvedPath);
         } catch {}
       } else {
         setErrorMessage(result.error || 'Analysis failed');

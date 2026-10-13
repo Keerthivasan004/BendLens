@@ -8,7 +8,7 @@ import useIsDesktop from '@/lib/useIsDesktop';
 import {
   FolderSearch, Play, Download, Sparkles, Database,
   FileCode, Cpu, CheckCircle2, RefreshCw,
-  Activity, ChevronRight
+  Activity, ChevronRight, Globe
 } from 'lucide-react';
 
 export default function Header({
@@ -27,6 +27,7 @@ export default function Header({
   const hasAnalysis = !!analysisData;
   // Downloaded (Electron) users already have the app: never offer it again.
   const isDesktop = useIsDesktop();
+  const isUrl = (currentPath || '').startsWith('http://') || (currentPath || '').startsWith('https://');
 
   return (
     <header className="sticky top-0 z-50 border-b border-border chrome-bar px-4 sm:px-6 py-3 transition-colors">
@@ -50,7 +51,11 @@ export default function Header({
           {/* Path input + primary actions */}
           <div className="w-full sm:flex-1 flex items-center gap-2 max-w-2xl">
             <div className="relative flex-1 min-w-0">
-              <FolderSearch className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+              {isUrl ? (
+                <Globe className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-brand pointer-events-none" />
+              ) : (
+                <FolderSearch className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+              )}
               <input
                 type="text"
                 value={currentPath}
@@ -61,7 +66,7 @@ export default function Header({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') onAnalyze(currentPath);
                 }}
-                placeholder="Path to backend codebase (e.g., C:/Projects/repo)…"
+                placeholder="Path to backend codebase or Git / OpenAPI URL (https://…)…"
                 className="w-full pl-9 pr-3 py-2 text-xs rounded-lg bg-surface-subtle border border-border focus:border-brand outline-none text-foreground font-mono placeholder:text-muted transition-all shadow-subtle"
               />
             </div>
