@@ -44,6 +44,16 @@ jobs:
       - name: Build Next.js application
         run: pnpm run build
 
+      - name: Synchronize package version with Git tag
+        shell: bash
+        run: |
+          RAW_TAG="${{ github.ref_name }}"
+          CLEAN_VER="${RAW_TAG#v}"
+          if [[ -n "$CLEAN_VER" && "$CLEAN_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "Synchronizing package.json version to release tag: $CLEAN_VER"
+            npm version "$CLEAN_VER" --no-git-tag-version --allow-same-version
+          fi
+
       - name: Build Electron app (Windows)
         run: pnpm run dist
         env:

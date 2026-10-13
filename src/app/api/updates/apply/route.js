@@ -150,7 +150,7 @@ export async function POST(request) {
 
     // 3. Fallback for non-git / installed packaged desktop app: trigger direct installer download
     let setupDownloadUrl = null;
-    const targetVer = targetVersion || '1.1.25';
+    const targetVer = targetVersion || '1.1.30';
     let setupArtifactName = `BendLens-Setup-${targetVer}.exe`;
 
     if (!installerLaunched && !isGitRepo) {
