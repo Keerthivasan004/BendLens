@@ -172,11 +172,12 @@ class ProjectAnalyzer {
     const categorize = (fullPath, priority) => {
       if (priority) {
         if (schemaFiles.length < MAX_SCHEMA_FILES) schemaFiles.push(fullPath);
-      } else if (ProjectAnalyzer.isCodeCandidate(fullPath)) {
+      }
+      if (ProjectAnalyzer.isCodeCandidate(fullPath)) {
         if (codeFiles.length < MAX_FILES) codeFiles.push(fullPath);
       } else if (ProjectAnalyzer.isInfraTarget(fullPath)) {
         if (infraFiles.length < MAX_FILES) infraFiles.push(fullPath);
-      } else if (otherFiles.length < MAX_FILES) {
+      } else if (!priority && otherFiles.length < MAX_FILES) {
         otherFiles.push(fullPath);
       }
     };
@@ -351,11 +352,12 @@ class ProjectAnalyzer {
 
               if (priority) {
                 if (schemaFiles.length < MAX_SCHEMA_FILES) schemaFiles.push(fullPath);
-              } else if (ProjectAnalyzer.isCodeCandidate(fullPath)) {
+              }
+              if (ProjectAnalyzer.isCodeCandidate(fullPath)) {
                 if (codeFiles.length < MAX_FILES) codeFiles.push(fullPath);
               } else if (ProjectAnalyzer.isInfraTarget(fullPath)) {
                 if (infraFiles.length < MAX_FILES) infraFiles.push(fullPath);
-              } else if (otherFiles.length < MAX_FILES) {
+              } else if (!priority && otherFiles.length < MAX_FILES) {
                 otherFiles.push(fullPath);
               }
             } catch {}
@@ -450,6 +452,25 @@ class ProjectAnalyzer {
     const infraParser = new InfraParser();
     const infraData = infraParser.parseDirectory(absPath, infraTargetFiles);
     await yieldEventLoop();
+
+    // Merge external APIs discovered from OpenAPI / Swagger specs if not already present in code
+    if (infraData && infraData.externalAPIs && infraData.externalAPIs.length > 0) {
+      const existingKeys = new Set(codeData.endpoints.map(e => `${(e.method || 'GET').toUpperCase()} ${e.path}`));
+      for (const api of infraData.externalAPIs) {
+        const key = `${(api.method || 'GET').toUpperCase()} ${api.path}`;
+        if (!existingKeys.has(key)) {
+          existingKeys.add(key);
+          const epObj = {
+            method: (api.method || 'GET').toUpperCase(),
+            path: api.path,
+            module: path.relative(absPath, api.source).replace(/\\/g, '/'),
+            source: 'OpenAPI/Swagger Spec'
+          };
+          codeData.endpoints.push(epObj);
+          if (codeData.stats) codeData.stats.totalEndpoints = codeData.endpoints.length;
+        }
+      }
+    }
 
     // 2. Build Bi-Directional In-Memory Knowledge Graph
     const graph = new KnowledgeGraph();
@@ -569,6 +590,25 @@ class ProjectAnalyzer {
 
     const infraParser = new InfraParser();
     const infraData = infraParser.parseDirectory(absPath, infraTargetFiles);
+
+    // Merge external APIs discovered from OpenAPI / Swagger specs if not already present in code
+    if (infraData && infraData.externalAPIs && infraData.externalAPIs.length > 0) {
+      const existingKeys = new Set(codeData.endpoints.map(e => `${(e.method || 'GET').toUpperCase()} ${e.path}`));
+      for (const api of infraData.externalAPIs) {
+        const key = `${(api.method || 'GET').toUpperCase()} ${api.path}`;
+        if (!existingKeys.has(key)) {
+          existingKeys.add(key);
+          const epObj = {
+            method: (api.method || 'GET').toUpperCase(),
+            path: api.path,
+            module: path.relative(absPath, api.source).replace(/\\/g, '/'),
+            source: 'OpenAPI/Swagger Spec'
+          };
+          codeData.endpoints.push(epObj);
+          if (codeData.stats) codeData.stats.totalEndpoints = codeData.endpoints.length;
+        }
+      }
+    }
 
     // 2. Build Bi-Directional In-Memory Knowledge Graph
     const graph = new KnowledgeGraph();

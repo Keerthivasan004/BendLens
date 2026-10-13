@@ -8,9 +8,21 @@ BendLens features a multi-persona intelligence translation layer (`src/lib/gener
 - **Primary Objective**: Low-level code hygiene, AST symbol exploration, API contracts, and schema diagnostics.
 - **Key Metrics**:
   - `totalTables`: Total database entities detected.
-  - `totalEndpoints`: Total REST/GraphQL endpoints discovered.
+  - `totalEndpoints`: Total REST/GraphQL/WebSocket endpoints discovered.
   - `totalFunctions` & `totalClasses`: Code AST breakdown.
   - `linesOfCode`: Total scanned source lines.
+  - `apiIntelligence`:
+    - `high`: Count of High-Level APIs (Business Orchestration, Multi-table mutations, Composite transactions, Gateway).
+    - `medium`: Count of Medium-Level APIs (Domain Resource CRUD & entity services).
+    - `low`: Count of Low-Level APIs (System diagnostics, health checks, telemetry, metadata lookups).
+    - `connected`: Count of endpoints with explicit database entity dependencies.
+    - `byKind`: Protocol distribution (`REST`, `WEBSOCKET`, `AUTH`, `STORAGE`, `ADMIN`, `WEBHOOK`, `SYSTEM`, `GRAPHQL`).
+- **Interactive Multi-Tier API Topology**:
+  - Architectural Level filter chips & segregation blocks.
+  - Protocol Kind pills with dedicated badges and icons.
+  - Entity Connection tags (`📖 READ`, `✍️ WRITE`, `🔄 STREAM`) with direct schema preview.
+  - Interactive End-to-End Execution Pipeline (Client -> Ingress -> Controller -> Tables -> Downstream Blast).
+  - Instant cURL and route path copying with developer tool actions.
 - **Diagnostics & Alerts**:
   - Referential integrity checks (e.g., missing index warnings on foreign key columns).
   - API route surface exposure (e.g., public unauthenticated endpoints without rate limiting).

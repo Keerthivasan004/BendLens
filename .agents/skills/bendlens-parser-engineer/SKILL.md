@@ -25,12 +25,30 @@ Use this skill when you need to:
    - Cross-file DDL data-flow (`indexFileForCrossFile()` + `resolveCrossFileDDL()`): index every code file's exports/imports/declared types (`collectFileExports`, `parseFileImports`, `collectDeclaredTypes`), resolve specifiers (`resolveImportPath`), chase barrels (`lookupExport`), search classes/packages (`findClassFile`, `findGoPackage`), resolve executor args (`resolveCrossFileArg` — bare, `NS.X`, `Q['k']`, `NS.X['k']`) and parse with defining-file provenance. Rule: only executor-reached constants register.
    - ALTER TABLE (`parseAlterTables`/`applyAlterAction`, shared `buildColumnFromDef`): merge `ADD COLUMN`/`ADD CONSTRAINT` across all DDL paths. EF Fluent API (`parseFluentAPI`/`resolveFluentAPI` over `_csClasses`, `splitTopLevel(str, ';')` for statements). Python class models: `Model` base, `table_name`/`db_table`, module-prefixed fields, class-form and `'app.Model'` FKs.
 2. **`PolyglotParser` (`src/lib/parsers/polyglotParser.js`)**:
-   - Analyzes source code files across JS/TS, Python, Java, Go, C#.
-   - Extracts REST endpoints, database query access sites, function names, and class hierarchies.
+   - Analyzes source code files across JS/TS, Python, Java, Go, C#, PHP, Ruby.
+   - Extracts complete REST endpoints, WebSockets, database query access sites, function names, and class hierarchies.
+   - Modern framework support:
+     - Express / Fastify / Koa / Router: handles single paths, array of paths (e.g. `router.get(["/path1", "/api/path1"], ...)`), multiline handler declarations, chained routing (`router.route('/path').get(...).post(...)`), and object routes.
+     - Next.js App Router (`app/**/route.ts` with `export async function GET` / `export const GET`) and Pages Router (`pages/api/**`).
+     - NestJS: controller classes (`@Controller('prefix')`) combined with method mappings (`@Get`, `@Post`, etc.).
+     - WebSockets: `WS_PATH`, `WebSocketServer`, upgrade paths.
+     - Python: FastAPI (`@app.get`, `@router.api_route`), Flask (`@app.route`, `add_url_rule`), Django (`path()`, `re_path()`), DRF (`@api_view`, `@action`).
+     - Java: Spring Boot (combining class-level `@RequestMapping` with method mappings) and JAX-RS (`@Path`, `@GET`).
+     - Go: Gin, Fiber, Echo, Chi, Mux (`r.GET`, `r.Get`, `http.HandleFunc`).
+     - C#: ASP.NET Core controllers (combining class-level `[Route]` with method `[HttpGet]`) and Minimal APIs (`app.MapGet`).
+     - PHP: Laravel (`Route::get`, `Route::resource`) and Symfony (`#[Route]`).
+     - Ruby: Rails and Sinatra (`get`, `post`, `resources`).
+   - Normalizes paths and deduplicates identical endpoints within the same module/scope.
+   - **Automated API Classification**:
+     - `classifyApiKind(method, path, source)`: Categorizes endpoints into `REST`, `WEBSOCKET`, `AUTH`, `STORAGE`, `ADMIN`, `WEBHOOK`, `SYSTEM`, or `GRAPHQL`.
+     - `classifyApiLevel(method, path, kind)`: Categorizes endpoints into `HIGH` (business orchestration, multi-table mutations), `MEDIUM` (domain CRUD), or `LOW` (system utilities).
 3. **`InfraParser` (`src/lib/parsers/infraParser.js`)**:
-   - Parses Dockerfiles, Docker Compose files, OpenAPI specs, and package manifests.
+   - Parses Dockerfiles, Docker Compose files, OpenAPI specs (both JSON and YAML formats), and package manifests.
+   - Discovered OpenAPI/Swagger endpoints merge seamlessly into `codeData.endpoints` during project analysis.
 4. **`KnowledgeGraph` (`src/lib/graph/knowledgeGraph.js`)**:
    - Ingests parsed output and builds nodes and bi-directional edges (`adjacency` / `reverseAdjacency`).
+   - Maps endpoints to connected database tables (`READS_FROM`, `WRITES_TO`, `STREAMS_FROM`) using plural/singular variant token matching and controller module bindings.
+   - Populates `ep.connectedTables = [ { name, action, type, isDirect }, ... ]` on every endpoint and refines `ep.level` dynamically.
 
 ---
 

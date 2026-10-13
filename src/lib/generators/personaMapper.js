@@ -45,6 +45,24 @@ class PersonaMapper {
       });
     }
 
+    // Compute comprehensive API Intelligence metrics
+    const highLevelEndpoints = endpoints.filter(e => e.level === 'HIGH');
+    const mediumLevelEndpoints = endpoints.filter(e => e.level === 'MEDIUM');
+    const lowLevelEndpoints = endpoints.filter(e => e.level === 'LOW');
+
+    const apiByKind = {
+      REST: endpoints.filter(e => e.kind === 'REST').length,
+      WEBSOCKET: endpoints.filter(e => e.kind === 'WEBSOCKET').length,
+      AUTH: endpoints.filter(e => e.kind === 'AUTH').length,
+      STORAGE: endpoints.filter(e => e.kind === 'STORAGE').length,
+      ADMIN: endpoints.filter(e => e.kind === 'ADMIN').length,
+      WEBHOOK: endpoints.filter(e => e.kind === 'WEBHOOK').length,
+      SYSTEM: endpoints.filter(e => e.kind === 'SYSTEM').length,
+      GRAPHQL: endpoints.filter(e => e.kind === 'GRAPHQL').length
+    };
+
+    const connectedEndpointsCount = endpoints.filter(e => e.connectedTables && e.connectedTables.length > 0).length;
+
     return {
       role: 'DEVELOPER',
       title: 'Developer Engineering Console',
@@ -54,7 +72,14 @@ class PersonaMapper {
         totalEndpoints: endpoints.length,
         totalFunctions: functions.length,
         totalClasses: classes.length,
-        linesOfCode: codeData.stats?.totalLinesOfCode || modules.reduce((acc, m) => acc + (m.linesOfCode || 0), 0)
+        linesOfCode: codeData.stats?.totalLinesOfCode || modules.reduce((acc, m) => acc + (m.linesOfCode || 0), 0),
+        apiIntelligence: {
+          highLevelCount: highLevelEndpoints.length,
+          mediumLevelCount: mediumLevelEndpoints.length,
+          lowLevelCount: lowLevelEndpoints.length,
+          connectedCount: connectedEndpointsCount,
+          byKind: apiByKind
+        }
       },
       tables,
       relations,
@@ -62,6 +87,13 @@ class PersonaMapper {
       classes,
       functions,
       modules,
+      apiIntelligence: {
+        high: highLevelEndpoints.length,
+        medium: mediumLevelEndpoints.length,
+        low: lowLevelEndpoints.length,
+        connected: connectedEndpointsCount,
+        byKind: apiByKind
+      },
       breakingChangeWarnings: warnings
     };
   }

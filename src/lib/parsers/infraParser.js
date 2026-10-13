@@ -140,17 +140,55 @@ class InfraParser {
       if (spec.paths) {
         for (const [pathUrl, methods] of Object.entries(spec.paths)) {
           for (const [method, details] of Object.entries(methods)) {
-            this.externalAPIs.push({
-              path: pathUrl,
-              method: method.toUpperCase(),
-              summary: details.summary || details.description || '',
-              source: filePath
-            });
+            if (['get', 'post', 'put', 'delete', 'patch', 'options', 'head'].includes(method.toLowerCase())) {
+              this.externalAPIs.push({
+                path: pathUrl,
+                method: method.toUpperCase(),
+                summary: (details && (details.summary || details.description)) || '',
+                source: filePath
+              });
+            }
+          }
+        }
+        return;
+      }
+    } catch {
+      // not JSON, attempt line-based YAML parsing
+    }
+
+    if (content.includes('paths:')) {
+      const lines = content.split('\n');
+      let inPaths = false;
+      let currentPath = null;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^paths\s*:/i.test(line)) {
+          inPaths = true;
+          continue;
+        }
+        if (inPaths && /^[a-zA-Z0-9_-]+\s*:/i.test(line) && !line.startsWith(' ')) {
+          inPaths = false;
+          break;
+        }
+        if (inPaths) {
+          const pathMatch = line.match(/^\s{2,4}(\/[^:\s]+)\s*:/);
+          if (pathMatch) {
+            currentPath = pathMatch[1];
+            continue;
+          }
+          if (currentPath) {
+            const methodMatch = line.match(/^\s{4,8}(get|post|put|delete|patch|options|head)\s*:/i);
+            if (methodMatch) {
+              this.externalAPIs.push({
+                path: currentPath,
+                method: methodMatch[1].toUpperCase(),
+                summary: '',
+                source: filePath
+              });
+            }
           }
         }
       }
-    } catch {
-      // not standard JSON
     }
   }
 

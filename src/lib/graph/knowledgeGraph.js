@@ -96,34 +96,95 @@ class KnowledgeGraph {
       });
     }
 
-    // Precompute lowercase table tokens for high-speed edge linking
-    const tableLookup = tables.map((t) => ({
-      name: t.name,
-      lower: (t.name || '').toLowerCase()
-    }));
+    // Precompute lowercase table tokens and linguistic variants for high-speed edge linking
+    const tableLookup = tables.map((t) => {
+      const lower = (t.name || '').toLowerCase();
+      const singular = lower.endsWith('ies')
+        ? lower.slice(0, -3) + 'y'
+        : lower.endsWith('s')
+        ? lower.slice(0, -1)
+        : lower;
+      const clean = lower.replace(/[^a-z0-9]/g, '');
+      return {
+        name: t.name,
+        lower,
+        singular,
+        clean
+      };
+    });
 
-    // 3. Add API Endpoints
+    // 3. Add API Endpoints & Connect to Entities
     for (const ep of endpoints) {
       const epId = `endpoint:${ep.method}_${ep.path}`;
+      const epPathLower = (ep.path || '').toLowerCase();
+      const epModLower = (ep.module || '').toLowerCase();
+      const cleanPath = epPathLower.replace(/[^a-z0-9]/g, '');
+
+      // Identify connected database tables via route path tokens and module bindings
+      const connectedTables = [];
+      const seenTableNames = new Set();
+
+      for (const t of tableLookup) {
+        if (!t.lower) continue;
+        const isPathMatch = (
+          epPathLower.includes(t.lower) ||
+          (t.singular.length >= 3 && epPathLower.includes(t.singular)) ||
+          (t.clean.length >= 4 && cleanPath.includes(t.clean))
+        );
+        const isModMatch = (
+          epModLower.includes(t.lower) ||
+          (t.singular.length >= 3 && epModLower.includes(t.singular))
+        );
+
+        if ((isPathMatch || isModMatch) && !seenTableNames.has(t.name)) {
+          seenTableNames.add(t.name);
+          const isRead = ep.method === 'GET' || ep.method === 'OPTIONS' || ep.method === 'HEAD';
+          const isStream = ep.method === 'WS';
+          const action = isRead ? 'READ' : (isStream ? 'STREAM' : 'WRITE');
+          const edgeType = isRead ? 'READS_FROM' : (isStream ? 'STREAMS_FROM' : 'WRITES_TO');
+
+          this.addEdge({
+            source: epId,
+            target: `table:${t.name}`,
+            type: edgeType,
+            label: action
+          });
+
+          connectedTables.push({
+            name: t.name,
+            action,
+            type: edgeType,
+            isDirect: isPathMatch
+          });
+        }
+      }
+
+      ep.connectedTables = connectedTables;
+
+      // Refine architectural level with real topological coupling
+      if (connectedTables.length >= 2 && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(ep.method)) {
+        ep.level = 'HIGH';
+      } else if (connectedTables.length >= 3) {
+        ep.level = 'HIGH';
+      } else if (!ep.level) {
+        ep.level = 'MEDIUM';
+      }
+
       this.addNode({
         id: epId,
         name: `${ep.method} ${ep.path}`,
         type: 'endpoint',
         group: 'api',
-        metadata: { method: ep.method, path: ep.path, module: ep.module }
-      });
-
-      // Link endpoint to related tables if name matches
-      const epPathLower = (ep.path || '').toLowerCase();
-      for (const t of tableLookup) {
-        if (epPathLower.includes(t.lower)) {
-          this.addEdge({
-            source: epId,
-            target: `table:${t.name}`,
-            type: ep.method === 'GET' ? 'READS_FROM' : 'WRITES_TO'
-          });
+        metadata: {
+          method: ep.method,
+          path: ep.path,
+          module: ep.module,
+          source: ep.source,
+          kind: ep.kind || 'REST',
+          level: ep.level || 'MEDIUM',
+          connectedTables: ep.connectedTables
         }
-      }
+      });
     }
 
     // 4. Add Code Functions & Classes

@@ -6,7 +6,9 @@ import {
   Terminal, Layers, ArrowRight, Table, Eye, X, FileSpreadsheet,
   Copy, Check, Search, ExternalLink, Hash, ArrowUpRight, Download, Filter,
   Sparkles, BookOpen, ShieldAlert, Network, GitFork, ChevronDown, ChevronUp,
-  Info, Cpu, Box, CheckCircle2, ChevronRight
+  Info, Cpu, Box, CheckCircle2, ChevronRight,
+  Radio, ShieldCheck, Webhook, HardDrive, Settings, Activity, Workflow, Zap,
+  Server, SlidersHorizontal, Share2, ArrowDownRight, Layers2
 } from 'lucide-react';
 
 /**
@@ -110,10 +112,114 @@ function analyzeSchemaArchitecture(tables) {
   };
 }
 
+/**
+ * Intelligently classifies an endpoint into:
+ * - API Kind (REST, WebSocket, Auth, Storage, Admin, Webhook, System, GraphQL)
+ * - Architectural Level (HIGH, MEDIUM, LOW)
+ * - Connected Database Tables (with READ / WRITE / STREAM actions)
+ */
+function enrichEndpoint(ep, tables, tableLookup) {
+  const method = String(ep.method || 'GET').toUpperCase();
+  const routePath = String(ep.path || '/');
+  const pLower = routePath.toLowerCase();
+  const modLower = String(ep.module || '').toLowerCase();
+  const sourceLower = String(ep.source || '').toLowerCase();
+
+  // 1. Identify Kind
+  let kind = ep.kind;
+  if (!kind) {
+    if (method === 'WS' || sourceLower.includes('websocket') || /(?:\/|^)(?:ws|socket|stream|subscriptions?)(?:\/|$)/.test(pLower)) {
+      kind = 'WEBSOCKET';
+    } else if (/(?:\/|^)(?:graphql)(?:\/|$)/.test(pLower)) {
+      kind = 'GRAPHQL';
+    } else if (/(?:webhook|callback|ipn|events?\/(?:incoming|receiver)|stripe|razorpay|paypal|github\/events)/.test(pLower)) {
+      kind = 'WEBHOOK';
+    } else if (/(?:auth|login|logout|signup|register|oauth|token|refresh|session|password|mfa|otp|verify|sso|credentials|me\b)/.test(pLower)) {
+      kind = 'AUTH';
+    } else if (/(?:upload|download|files?|avatars?|images?|media|exports?|imports?|pdf|assets?|signed-url|s3|blob|attachment|documents?)/.test(pLower)) {
+      kind = 'STORAGE';
+    } else if (/(?:admin|audit|governance|roles?|permissions?|settings|configs?|tenants?|system-config|sysadmin|access-control)/.test(pLower)) {
+      kind = 'ADMIN';
+    } else if (/(?:health|ping|status|metrics|version|heartbeat|live|ready|diagnostics?|telemetry|liveness|readiness)/.test(pLower)) {
+      kind = 'SYSTEM';
+    } else {
+      kind = 'REST';
+    }
+  }
+
+  // 2. Identify Connected Tables
+  let connectedTables = ep.connectedTables;
+  if (!Array.isArray(connectedTables) || connectedTables.length === 0) {
+    const matched = [];
+    const seen = new Set();
+    const cleanPath = pLower.replace(/[^a-z0-9]/g, '');
+
+    for (const t of tableLookup || []) {
+      if (!t.lower) continue;
+      const isPathMatch = (
+        pLower.includes(t.lower) ||
+        (t.singular.length >= 3 && pLower.includes(t.singular)) ||
+        (t.clean.length >= 4 && cleanPath.includes(t.clean))
+      );
+      const isModMatch = (
+        modLower.includes(t.lower) ||
+        (t.singular.length >= 3 && modLower.includes(t.singular))
+      );
+
+      if ((isPathMatch || isModMatch) && !seen.has(t.name)) {
+        seen.add(t.name);
+        const isRead = method === 'GET' || method === 'OPTIONS' || method === 'HEAD';
+        const isStream = method === 'WS';
+        matched.push({
+          name: t.name,
+          action: isRead ? 'READ' : (isStream ? 'STREAM' : 'WRITE'),
+          isDirect: isPathMatch
+        });
+      }
+    }
+    connectedTables = matched;
+  }
+
+  // 3. Identify Architectural Level (Tier)
+  let level = ep.level;
+  if (!level) {
+    if (kind === 'SYSTEM' || /(?:health|ping|status|metrics|version|heartbeat|live|ready|diagnostics?|telemetry)/.test(pLower)) {
+      level = 'LOW';
+    } else if (method === 'GET' && /(?:enums?|meta|version|time|ping|status|heartbeat|refresh|dropdown|constants)/.test(pLower)) {
+      level = 'LOW';
+    } else if (kind === 'WEBHOOK' || kind === 'ADMIN' || (connectedTables.length >= 2 && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method))) {
+      level = 'HIGH';
+    } else if (/(?:checkout|orders?|payments?|billings?|transactions?|invoices?|subscriptions?|drives?|assessments?|evaluations?|batches?|enrollments?|placements?|copilot|agents?|workflows?|pipelines?|sync|bulk|batch|dispatch|submit)/.test(pLower)) {
+      if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) || /(?:checkout|billing|report|analytics|summary|pipeline|workflow)/.test(pLower)) {
+        level = 'HIGH';
+      } else {
+        level = 'MEDIUM';
+      }
+    } else {
+      level = 'MEDIUM';
+    }
+  }
+
+  return {
+    ...ep,
+    method,
+    path: routePath,
+    kind,
+    level,
+    connectedTables
+  };
+}
+
 export default function DeveloperView({ data, onSelectForImpact }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTableFilter, setSelectedTableFilter] = useState('ALL');
   const [methodFilter, setMethodFilter] = useState('ALL');
+  const [apiLevelFilter, setApiLevelFilter] = useState('ALL'); // 'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'
+  const [apiKindFilter, setApiKindFilter] = useState('ALL'); // 'ALL' | 'REST' | 'WEBSOCKET' | 'AUTH' | 'STORAGE' | 'ADMIN' | 'WEBHOOK' | 'SYSTEM'
+  const [apiTableFilter, setApiTableFilter] = useState('ALL'); // 'ALL' | tableName
+  const [apiSearchQuery, setApiSearchQuery] = useState('');
+  const [expandedApiRoute, setExpandedApiRoute] = useState(null); // string (method + path)
+  const [copiedCurl, setCopiedCurl] = useState(null);
   const [schemaMode, setSchemaMode] = useState('FIELDS'); // 'FIELDS' | 'DDL'
   const [previewTable, setPreviewTable] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -130,6 +236,100 @@ export default function DeveloperView({ data, onSelectForImpact }) {
     ? tables.find((t) => t.name === inspectedTable) || tables[0]
     : tables[0];
 
+  const tableLookup = useMemo(() => {
+    return tables.map((t) => {
+      const lower = (t.name || '').toLowerCase();
+      const singular = lower.endsWith('ies')
+        ? lower.slice(0, -3) + 'y'
+        : lower.endsWith('s')
+        ? lower.slice(0, -1)
+        : lower;
+      const clean = lower.replace(/[^a-z0-9]/g, '');
+      return { name: t.name, lower, singular, clean };
+    });
+  }, [tables]);
+
+  const allEnrichedEndpoints = useMemo(() => {
+    return endpoints.map((ep) => enrichEndpoint(ep, tables, tableLookup));
+  }, [endpoints, tables, tableLookup]);
+
+  const apiStats = useMemo(() => {
+    const total = allEnrichedEndpoints.length;
+    const high = allEnrichedEndpoints.filter((e) => e.level === 'HIGH').length;
+    const medium = allEnrichedEndpoints.filter((e) => e.level === 'MEDIUM').length;
+    const low = allEnrichedEndpoints.filter((e) => e.level === 'LOW').length;
+    const connected = allEnrichedEndpoints.filter((e) => e.connectedTables && e.connectedTables.length > 0).length;
+
+    const kinds = {
+      REST: allEnrichedEndpoints.filter((e) => e.kind === 'REST').length,
+      WEBSOCKET: allEnrichedEndpoints.filter((e) => e.kind === 'WEBSOCKET').length,
+      AUTH: allEnrichedEndpoints.filter((e) => e.kind === 'AUTH').length,
+      STORAGE: allEnrichedEndpoints.filter((e) => e.kind === 'STORAGE').length,
+      ADMIN: allEnrichedEndpoints.filter((e) => e.kind === 'ADMIN').length,
+      WEBHOOK: allEnrichedEndpoints.filter((e) => e.kind === 'WEBHOOK').length,
+      SYSTEM: allEnrichedEndpoints.filter((e) => e.kind === 'SYSTEM').length,
+      GRAPHQL: allEnrichedEndpoints.filter((e) => e.kind === 'GRAPHQL').length,
+    };
+
+    return { total, high, medium, low, connected, kinds };
+  }, [allEnrichedEndpoints]);
+
+  const filteredApiEndpoints = useMemo(() => {
+    return allEnrichedEndpoints.filter((ep) => {
+      if (apiLevelFilter !== 'ALL' && ep.level !== apiLevelFilter) return false;
+      if (apiKindFilter !== 'ALL' && ep.kind !== apiKindFilter) return false;
+      if (methodFilter !== 'ALL' && ep.method !== methodFilter) return false;
+      if (apiTableFilter !== 'ALL') {
+        const touches = (ep.connectedTables || []).some((ct) => ct.name === apiTableFilter);
+        if (!touches) return false;
+      }
+      const q = (apiSearchQuery || searchQuery || '').trim().toLowerCase();
+      if (q) {
+        const matchesPath = ep.path.toLowerCase().includes(q);
+        const matchesModule = (ep.module || '').toLowerCase().includes(q);
+        const matchesKind = ep.kind.toLowerCase().includes(q);
+        const matchesLevel = ep.level.toLowerCase().includes(q);
+        const matchesTable = (ep.connectedTables || []).some((ct) => ct.name.toLowerCase().includes(q));
+        if (!matchesPath && !matchesModule && !matchesKind && !matchesLevel && !matchesTable) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [allEnrichedEndpoints, apiLevelFilter, apiKindFilter, methodFilter, apiTableFilter, apiSearchQuery, searchQuery]);
+
+  const segregatedByLevel = useMemo(() => {
+    return [
+      {
+        level: 'HIGH',
+        title: 'High-Level APIs (Business Orchestration & Gateway)',
+        badge: 'HIGH-LEVEL',
+        badgeColor: 'border-purple-500/30 bg-purple-500/10 text-purple-600 dark:text-purple-400',
+        dotColor: 'bg-purple-500',
+        hint: 'Mission-critical business workflows, transactions, composite coordinators, and gateway mutations',
+        list: filteredApiEndpoints.filter((e) => e.level === 'HIGH')
+      },
+      {
+        level: 'MEDIUM',
+        title: 'Medium-Level APIs (Domain Services & Resource CRUD)',
+        badge: 'MEDIUM-LEVEL',
+        badgeColor: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
+        dotColor: 'bg-cyan-500',
+        hint: 'Standard domain entity management, core resource queries, and feature endpoints',
+        list: filteredApiEndpoints.filter((e) => e.level === 'MEDIUM')
+      },
+      {
+        level: 'LOW',
+        title: 'Low-Level APIs (System Infrastructure & Diagnostics)',
+        badge: 'LOW-LEVEL',
+        badgeColor: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+        dotColor: 'bg-emerald-500',
+        hint: 'Health checks, telemetry, metrics, token refresh, and static lookup metadata',
+        list: filteredApiEndpoints.filter((e) => e.level === 'LOW')
+      }
+    ].filter((g) => apiLevelFilter === 'ALL' || g.level === apiLevelFilter);
+  }, [filteredApiEndpoints, apiLevelFilter]);
+
   const filteredTables = tables.filter((t) => {
     if (selectedTableFilter !== 'ALL' && t.name !== selectedTableFilter) {
       return false;
@@ -143,32 +343,21 @@ export default function DeveloperView({ data, onSelectForImpact }) {
     );
   });
 
-  const filteredEndpoints = endpoints.filter((ep) => {
-    const matchesMethod = methodFilter === 'ALL' || ep.method.toUpperCase() === methodFilter;
-    const matchesQuery = !searchQuery.trim() || 
-      ep.path.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (ep.module || '').toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesMethod && matchesQuery;
-  });
+  const filteredEndpoints = filteredApiEndpoints;
 
-  // Core APIs touch a known table (CRUD on domain models); everything else
-  // (health, auth, webhooks, misc) is grouped as Other APIs so no route hides
-  // in a single flat list.
-  const tableNameTokens = useMemo(
-    () => tables.map((t) => String(t.name || '').toLowerCase()).filter(Boolean),
-    [tables]
-  );
   const { coreEndpoints, otherEndpoints } = useMemo(() => {
-    const core = [];
-    const other = [];
-    for (const ep of filteredEndpoints) {
-      const p = String(ep.path || '').toLowerCase();
-      const hitsTable = tableNameTokens.some((t) => p.includes(t) || p.includes(t.replace(/s$/, '')));
-      if (hitsTable) core.push(ep);
-      else other.push(ep);
-    }
+    const core = filteredApiEndpoints.filter((e) => e.connectedTables && e.connectedTables.length > 0);
+    const other = filteredApiEndpoints.filter((e) => !e.connectedTables || e.connectedTables.length === 0);
     return { coreEndpoints: core, otherEndpoints: other };
-  }, [filteredEndpoints, tableNameTokens]);
+  }, [filteredApiEndpoints]);
+
+  const handleCopyCurl = (ep) => {
+    const key = `${ep.method}-${ep.path}`;
+    const cmd = `curl -X ${ep.method} "http://localhost:3000${ep.path}"`;
+    navigator.clipboard.writeText(cmd);
+    setCopiedCurl(key);
+    setTimeout(() => setCopiedCurl(null), 2000);
+  };
 
   const handleCopyTableJSON = (table) => {
     navigator.clipboard.writeText(JSON.stringify(table, null, 2));
@@ -800,61 +989,309 @@ export default function DeveloperView({ data, onSelectForImpact }) {
       </section>
 
       {/* ========================================================================= */}
-      {/* WHOLE SECTION: API Routes & Backend Handlers                              */}
+      {/* WHOLE SECTION: API Routes, Multi-Tier Classification & Connection Topology */}
       {/* ========================================================================= */}
-      <section className="p-5 sm:p-6 rounded-2xl border border-border bg-surface-card shadow-card w-full space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-border">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-600 dark:text-cyan-400 shrink-0">
-              <Code2 className="h-4 w-4" />
+      <section className="p-5 sm:p-6 rounded-2xl border border-border bg-surface-card shadow-card w-full space-y-5">
+        {/* Header & Synopsis */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-border">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-cyan-500/20 via-brand/20 to-purple-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-600 dark:text-cyan-400 shrink-0 shadow-xs">
+              <Workflow className="h-5 w-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-foreground">API Routes & Backend Handlers</h2>
-                <span className="text-xs font-mono px-2.5 py-0.5 rounded-full bg-surface-raised text-muted border border-border">
-                  {endpoints.length} Routes
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base sm:text-lg font-bold text-foreground">
+                  API Routes, Protocols & Multi-Tier Topology
+                </h2>
+                <span className="text-xs font-mono px-2.5 py-0.5 rounded-full bg-surface-raised text-foreground font-semibold border border-border">
+                  {allEnrichedEndpoints.length} Routes
+                </span>
+                <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                  {apiStats.connected} Connected to DB
                 </span>
               </div>
-              <p className="text-xs text-muted mt-0.5">
-                HTTP routing map, API controller bindings, and impact endpoints across your backend.
+              <p className="text-xs text-muted mt-1 leading-relaxed">
+                Segregated by architectural tier (<span className="text-purple-600 dark:text-purple-400 font-semibold">High</span>, <span className="text-cyan-600 dark:text-cyan-400 font-semibold">Medium</span>, <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Low</span>), protocol kind (REST, WebSockets, Webhooks, Auth), and connected database tables.
               </p>
             </div>
           </div>
 
-          {/* Method Filter Tabs */}
-          <div className="flex items-center gap-1 p-0.5 bg-surface-raised rounded-lg border border-border text-xs font-semibold font-mono">
-            {['ALL', 'GET', 'POST', 'PUT', 'DELETE'].map((m) => (
-              <button
-                key={m}
-                onClick={() => setMethodFilter(m)}
-                className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
-                  methodFilter === m ? 'bg-surface-card text-foreground shadow-xs' : 'text-muted hover:text-foreground'
-                }`}
-              >
-                {m}
-              </button>
-            ))}
+          {/* Quick Search inside APIs */}
+          <div className="flex items-center gap-2 w-full lg:w-auto">
+            <div className="relative flex-1 lg:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search path, module, table..."
+                value={apiSearchQuery}
+                onChange={(e) => setApiSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-7 py-1.5 text-xs rounded-lg border border-border bg-surface text-foreground placeholder:text-muted focus:outline-hidden focus:border-brand transition-colors"
+              />
+              {apiSearchQuery && (
+                <button
+                  onClick={() => setApiSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground text-xs"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="max-h-[500px] overflow-y-auto pr-1 space-y-4">
+        {/* ========================================================================= */}
+        {/* ARCHITECTURAL TIER METRICS STRIP                                         */}
+        {/* ========================================================================= */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {/* 1. High-Level Tier */}
+          <button
+            onClick={() => setApiLevelFilter(apiLevelFilter === 'HIGH' ? 'ALL' : 'HIGH')}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${
+              apiLevelFilter === 'HIGH'
+                ? 'bg-purple-500/15 border-purple-500/40 shadow-sm ring-1 ring-purple-500/30'
+                : 'bg-surface hover:bg-surface-raised border-border'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
+                <Layers className="h-3.5 w-3.5" />
+                <span>High-Level</span>
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold border border-purple-500/20">
+                {allEnrichedEndpoints.length ? Math.round((apiStats.high / allEnrichedEndpoints.length) * 100) : 0}%
+              </span>
+            </div>
+            <div className="text-xl font-extrabold text-foreground font-mono mt-1">
+              {apiStats.high}
+            </div>
+            <div className="text-[11px] text-muted truncate mt-0.5">
+              Business Orchestration & Gateway
+            </div>
+          </button>
+
+          {/* 2. Medium-Level Tier */}
+          <button
+            onClick={() => setApiLevelFilter(apiLevelFilter === 'MEDIUM' ? 'ALL' : 'MEDIUM')}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${
+              apiLevelFilter === 'MEDIUM'
+                ? 'bg-cyan-500/15 border-cyan-500/40 shadow-sm ring-1 ring-cyan-500/30'
+                : 'bg-surface hover:bg-surface-raised border-border'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400 flex items-center gap-1.5">
+                <Box className="h-3.5 w-3.5" />
+                <span>Medium-Level</span>
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 font-bold border border-cyan-500/20">
+                {allEnrichedEndpoints.length ? Math.round((apiStats.medium / allEnrichedEndpoints.length) * 100) : 0}%
+              </span>
+            </div>
+            <div className="text-xl font-extrabold text-foreground font-mono mt-1">
+              {apiStats.medium}
+            </div>
+            <div className="text-[11px] text-muted truncate mt-0.5">
+              Domain Services & Resource CRUD
+            </div>
+          </button>
+
+          {/* 3. Low-Level Tier */}
+          <button
+            onClick={() => setApiLevelFilter(apiLevelFilter === 'LOW' ? 'ALL' : 'LOW')}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${
+              apiLevelFilter === 'LOW'
+                ? 'bg-emerald-500/15 border-emerald-500/40 shadow-sm ring-1 ring-emerald-500/30'
+                : 'bg-surface hover:bg-surface-raised border-border'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                <Cpu className="h-3.5 w-3.5" />
+                <span>Low-Level</span>
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20">
+                {allEnrichedEndpoints.length ? Math.round((apiStats.low / allEnrichedEndpoints.length) * 100) : 0}%
+              </span>
+            </div>
+            <div className="text-xl font-extrabold text-foreground font-mono mt-1">
+              {apiStats.low}
+            </div>
+            <div className="text-[11px] text-muted truncate mt-0.5">
+              System Diagnostics & Utilities
+            </div>
+          </button>
+
+          {/* 4. Connected Entities */}
+          <button
+            onClick={() => setApiTableFilter(apiTableFilter === 'CONNECTED' ? 'ALL' : 'CONNECTED')}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${
+              apiTableFilter === 'CONNECTED'
+                ? 'bg-amber-500/15 border-amber-500/40 shadow-sm ring-1 ring-amber-500/30'
+                : 'bg-surface hover:bg-surface-raised border-border'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                <Network className="h-3.5 w-3.5" />
+                <span>DB Connected</span>
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20">
+                Active
+              </span>
+            </div>
+            <div className="text-xl font-extrabold text-foreground font-mono mt-1">
+              {apiStats.connected}
+            </div>
+            <div className="text-[11px] text-muted truncate mt-0.5">
+              Direct Schema Connections
+            </div>
+          </button>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* PROTOCOL KINDS QUICK PILLS                                               */}
+        {/* ========================================================================= */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+          <span className="text-[11px] font-bold text-muted uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
+            <Radio className="h-3 w-3" />
+            <span>Kind:</span>
+          </span>
           {[
-            { title: 'Core API Routes', hint: 'CRUD on detected tables', list: coreEndpoints },
-            { title: 'Other API Routes', hint: 'health, auth, webhooks, misc', list: otherEndpoints }
-          ].map((group) => (
-            <div key={group.title}>
-              <div className="flex items-center gap-2 px-2 pb-1.5">
-                <span className="text-[11px] font-bold text-foreground uppercase tracking-wider">{group.title}</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-raised text-muted border border-border">
-                  {group.list.length} Routes
+            { id: 'ALL', label: 'All Protocols', count: allEnrichedEndpoints.length, icon: Workflow },
+            { id: 'REST', label: 'REST API', count: apiStats.kinds.REST, icon: Code2 },
+            { id: 'WEBSOCKET', label: 'WebSockets', count: apiStats.kinds.WEBSOCKET, icon: Radio },
+            { id: 'AUTH', label: 'Auth & Security', count: apiStats.kinds.AUTH, icon: ShieldCheck },
+            { id: 'WEBHOOK', label: 'Webhooks', count: apiStats.kinds.WEBHOOK, icon: Webhook },
+            { id: 'STORAGE', label: 'Storage & Assets', count: apiStats.kinds.STORAGE, icon: HardDrive },
+            { id: 'ADMIN', label: 'Admin & Governance', count: apiStats.kinds.ADMIN, icon: Settings },
+            { id: 'SYSTEM', label: 'System Health', count: apiStats.kinds.SYSTEM, icon: Activity }
+          ].map((k) => {
+            const Icon = k.icon;
+            const isActive = apiKindFilter === k.id;
+            return (
+              <button
+                key={k.id}
+                onClick={() => setApiKindFilter(k.id)}
+                className={`px-2.5 py-1 rounded-lg border text-xs font-medium flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer ${
+                  isActive
+                    ? 'bg-brand/15 text-brand border-brand/40 font-semibold shadow-xs'
+                    : 'bg-surface hover:bg-surface-raised text-muted hover:text-foreground border-border'
+                }`}
+              >
+                <Icon className="h-3 w-3" />
+                <span>{k.label}</span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                  isActive ? 'bg-brand/20 text-brand' : 'bg-surface-raised text-muted'
+                }`}>
+                  {k.count}
                 </span>
-                <span className="text-[10px] text-muted hidden sm:inline">· {group.hint}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ========================================================================= */}
+        {/* FILTER CONTROLS BAR: LEVEL TABS, METHOD TABS, TABLE SELECTOR             */}
+        {/* ========================================================================= */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-surface-raised rounded-xl border border-border">
+          {/* Level Filter Tabs */}
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] font-bold text-muted uppercase tracking-wider mr-1 hidden md:inline">Tier:</span>
+            {[
+              { id: 'ALL', label: 'All Tiers' },
+              { id: 'HIGH', label: 'High-Level', color: 'text-purple-600 dark:text-purple-400' },
+              { id: 'MEDIUM', label: 'Medium-Level', color: 'text-cyan-600 dark:text-cyan-400' },
+              { id: 'LOW', label: 'Low-Level', color: 'text-emerald-600 dark:text-emerald-400' }
+            ].map((lvl) => (
+              <button
+                key={lvl.id}
+                onClick={() => setApiLevelFilter(lvl.id)}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+                  apiLevelFilter === lvl.id
+                    ? 'bg-surface-card text-foreground shadow-xs border border-border'
+                    : 'text-muted hover:text-foreground'
+                }`}
+              >
+                <span className={apiLevelFilter === lvl.id ? (lvl.color || '') : ''}>{lvl.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Table Connection Filter Dropdown */}
+            <div className="flex items-center gap-1.5">
+              <Database className="h-3 w-3 text-muted" />
+              <select
+                value={apiTableFilter}
+                onChange={(e) => setApiTableFilter(e.target.value)}
+                className="text-xs py-1 px-2.5 rounded-lg border border-border bg-surface text-foreground font-mono cursor-pointer focus:outline-hidden focus:border-brand"
+              >
+                <option value="ALL">All Tables (Any)</option>
+                <option value="CONNECTED">Only with DB Connections ({apiStats.connected})</option>
+                {tables.map((t) => (
+                  <option key={t.name} value={t.name}>
+                    Touches: {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Method Filter Tabs */}
+            <div className="flex items-center gap-0.5 p-0.5 bg-surface rounded-lg border border-border text-[11px] font-semibold font-mono">
+              {['ALL', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'WS'].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMethodFilter(m)}
+                  className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                    methodFilter === m
+                      ? 'bg-surface-card text-foreground shadow-xs font-bold'
+                      : 'text-muted hover:text-foreground'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* SEGREGATED ROUTES LIST & CONNECTION TOPOLOGY DISPLAY                      */}
+        {/* ========================================================================= */}
+        <div className="max-h-[600px] overflow-y-auto pr-1 space-y-5">
+          {segregatedByLevel.map((group) => (
+            <div key={group.level} className="space-y-2">
+              {/* Group Tier Section Header */}
+              <div className="flex items-center justify-between px-2 py-1 bg-surface-subtle/50 rounded-lg border border-border-subtle">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${group.dotColor}`} />
+                  <span className="text-xs font-bold text-foreground tracking-wide">
+                    {group.title}
+                  </span>
+                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border ${group.badgeColor}`}>
+                    {group.badge}
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-raised text-muted border border-border">
+                    {group.list.length} Routes
+                  </span>
+                </div>
+                <span className="text-[11px] text-muted hidden md:inline truncate max-w-sm">
+                  {group.hint}
+                </span>
               </div>
-              <div className="divide-y divide-border-subtle">
+
+              {/* Endpoints in this Tier */}
+              <div className="space-y-2">
                 {group.list.map((ep, idx) => {
+                  const epKey = `${ep.method}-${ep.path}-${idx}`;
+                  const isExpanded = expandedApiRoute === epKey;
+
                   const isGet = ep.method === 'GET';
                   const isPost = ep.method === 'POST';
                   const isPut = ep.method === 'PUT';
+                  const isPatch = ep.method === 'PATCH';
+                  const isDelete = ep.method === 'DELETE';
+                  const isWs = ep.method === 'WS';
 
                   const badgeColor = isGet
                     ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
@@ -862,39 +1299,355 @@ export default function DeveloperView({ data, onSelectForImpact }) {
                     ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
                     : isPut
                     ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
-                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20';
+                    : isPatch
+                    ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20'
+                    : isDelete
+                    ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+                    : 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20';
+
+                  const levelPillColor = ep.level === 'HIGH'
+                    ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/25'
+                    : ep.level === 'MEDIUM'
+                    ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/25'
+                    : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25';
+
+                  const KindIcon = ep.kind === 'WEBSOCKET' ? Radio
+                    : ep.kind === 'AUTH' ? ShieldCheck
+                    : ep.kind === 'WEBHOOK' ? Webhook
+                    : ep.kind === 'STORAGE' ? HardDrive
+                    : ep.kind === 'ADMIN' ? Settings
+                    : ep.kind === 'SYSTEM' ? Activity
+                    : Code2;
 
                   return (
                     <div
-                      key={`${group.title}-${idx}`}
-                      className="py-3 px-2 flex items-center justify-between hover:bg-surface-raised transition-colors rounded-lg"
+                      key={epKey}
+                      className={`p-3 rounded-xl border transition-all ${
+                        isExpanded
+                          ? 'border-brand/40 bg-surface-raised shadow-md'
+                          : 'border-border bg-surface hover:bg-surface-raised/80'
+                      }`}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className={`text-[10px] font-semibold px-2.5 py-1 rounded border font-mono shrink-0 ${badgeColor}`}>
-                          {ep.method}
-                        </span>
-                        <div className="min-w-0">
-                          <div className="font-mono text-xs text-foreground font-semibold truncate">{ep.path}</div>
-                          <div className="text-[11px] text-muted font-mono truncate">{ep.module}</div>
+                      {/* Top Row: Method, Path, Badges, Actions */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+                          {/* Method Badge */}
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded border font-mono shrink-0 shadow-xs ${badgeColor}`}>
+                            {ep.method}
+                          </span>
+
+                          {/* Level Badge */}
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded border font-mono shrink-0 flex items-center gap-1 ${levelPillColor}`}>
+                            {ep.level === 'HIGH' ? <Layers className="h-2.5 w-2.5" /> : ep.level === 'MEDIUM' ? <Box className="h-2.5 w-2.5" /> : <Cpu className="h-2.5 w-2.5" />}
+                            <span>{ep.level}</span>
+                          </span>
+
+                          {/* Kind Badge */}
+                          <span className="text-[9px] font-medium px-2 py-0.5 rounded border font-mono shrink-0 bg-surface-subtle text-muted border-border flex items-center gap-1">
+                            <KindIcon className="h-2.5 w-2.5 text-brand" />
+                            <span>{ep.kind}</span>
+                          </span>
+
+                          {/* Route Path & Module */}
+                          <div className="min-w-0 flex-1">
+                            <div className="font-mono text-xs text-foreground font-semibold truncate flex items-center gap-1.5">
+                              <span>{ep.path}</span>
+                            </div>
+                            <div className="text-[10px] text-muted font-mono truncate mt-0.5">
+                              {ep.module}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right: Actions */}
+                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                          {/* Inspect Topology / Connections Toggle */}
+                          <button
+                            onClick={() => setExpandedApiRoute(isExpanded ? null : epKey)}
+                            className={`text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 transition-colors cursor-pointer font-medium ${
+                              isExpanded
+                                ? 'bg-brand/15 text-brand border-brand/30 shadow-xs'
+                                : 'bg-surface-raised hover:bg-surface-subtle text-foreground border-border'
+                            }`}
+                            title="Inspect connected database entities and execution topology"
+                          >
+                            <Network className="h-3 w-3 text-brand" />
+                            <span className="text-[11px] font-semibold">
+                              {isExpanded ? 'Hide Map' : 'Connections'}
+                            </span>
+                            {isExpanded ? (
+                              <ChevronUp className="h-3 w-3 opacity-70" />
+                            ) : (
+                              <ChevronDown className="h-3 w-3 opacity-70" />
+                            )}
+                          </button>
+
+                          {/* Check Blast Radius */}
+                          <button
+                            onClick={() => onSelectForImpact && onSelectForImpact(ep.path, 'endpoint')}
+                            className="text-[11px] px-2.5 py-1 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/25 transition-colors cursor-pointer font-semibold shrink-0"
+                            title="Simulate architectural blast radius across database and services"
+                          >
+                            Check Blast
+                          </button>
                         </div>
                       </div>
-                      <button
-                        onClick={() => onSelectForImpact && onSelectForImpact(ep.path, 'endpoint')}
-                        className="text-xs px-3 py-1 rounded-md bg-surface-raised hover:bg-surface-subtle text-foreground border border-border cursor-pointer font-medium shrink-0 ml-3"
-                      >
-                        Check Blast
-                      </button>
+
+                      {/* Connection Chips Bar: Tables Read / Written */}
+                      <div className="mt-2.5 pt-2 border-t border-border-subtle flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-mono text-muted uppercase tracking-wider shrink-0 flex items-center gap-1">
+                          <Database className="h-3 w-3" />
+                          <span>Connected Entities:</span>
+                        </span>
+
+                        {ep.connectedTables && ep.connectedTables.length > 0 ? (
+                          ep.connectedTables.map((ct) => {
+                            const isRead = ct.action === 'READ';
+                            const isStream = ct.action === 'STREAM';
+                            const chipColor = isRead
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+                              : isStream
+                              ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20'
+                              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20';
+
+                            return (
+                              <button
+                                key={ct.name}
+                                onClick={() => {
+                                  const targetTable = tables.find((t) => t.name === ct.name);
+                                  if (targetTable) setPreviewTable(targetTable);
+                                }}
+                                className={`text-[10px] font-mono px-2 py-0.5 rounded border inline-flex items-center gap-1 transition-colors cursor-pointer ${chipColor}`}
+                                title={`Click to preview schema and sample values for table '${ct.name}' (${ct.action})`}
+                              >
+                                <span>{isRead ? '📖' : isStream ? '🔄' : '✍️'}</span>
+                                <span className="font-semibold">{ct.name}</span>
+                                <span className="text-[9px] opacity-75">({ct.action})</span>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-subtle text-muted border border-border-subtle">
+                            ⚡ Stateless Ingress / In-Memory Controller
+                          </span>
+                        )}
+                      </div>
+
+                      {/* ========================================================================= */}
+                      {/* INTERACTIVE EXPANDED TOPOLOGY DRAWER                                      */}
+                      {/* ========================================================================= */}
+                      {isExpanded && (
+                        <div className="mt-3.5 pt-3.5 border-t border-border space-y-3.5 animate-fadeIn">
+                          {/* Visual Multi-Tier Architecture Pipeline Flowchart */}
+                          <div className="p-3 rounded-xl bg-surface-subtle border border-border">
+                            <div className="text-[11px] font-bold text-foreground flex items-center justify-between mb-2">
+                              <span className="flex items-center gap-1.5">
+                                <Workflow className="h-3.5 w-3.5 text-brand" />
+                                <span>End-to-End Architectural Execution Pipeline</span>
+                              </span>
+                              <span className="text-[10px] font-mono text-muted">
+                                Multi-Tier Ingress Flow
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-center text-xs">
+                              {/* Step 1: Ingress Consumer */}
+                              <div className="p-2 rounded-lg bg-surface border border-border flex flex-col justify-center">
+                                <div className="text-[10px] font-bold text-muted uppercase">1. Client Ingress</div>
+                                <div className="font-semibold text-foreground text-xs mt-0.5">
+                                  {ep.kind === 'WEBSOCKET' ? 'WS Realtime Client' : ep.kind === 'WEBHOOK' ? 'External Webhook' : 'HTTP/1.1 Consumer'}
+                                </div>
+                                <div className="text-[10px] text-muted mt-0.5">Public / Secured</div>
+                              </div>
+
+                              {/* Step 2: API Route Binding */}
+                              <div className="p-2 rounded-lg bg-surface border border-brand/30 flex flex-col justify-center shadow-xs">
+                                <div className="text-[10px] font-bold text-brand uppercase">2. Route Binding</div>
+                                <div className="font-mono font-bold text-foreground text-[11px] truncate mt-0.5">
+                                  {ep.method} {ep.path}
+                                </div>
+                                <div className="text-[10px] text-brand font-mono mt-0.5">{ep.kind} Protocol</div>
+                              </div>
+
+                              {/* Step 3: Controller Handler */}
+                              <div className="p-2 rounded-lg bg-surface border border-border flex flex-col justify-center">
+                                <div className="text-[10px] font-bold text-muted uppercase">3. Handler Controller</div>
+                                <div className="font-mono text-[11px] text-foreground truncate mt-0.5">
+                                  {ep.module}
+                                </div>
+                                <div className="text-[10px] text-muted mt-0.5">{ep.level}-Level Tier</div>
+                              </div>
+
+                              {/* Step 4: Database Entities */}
+                              <div className="p-2 rounded-lg bg-surface border border-border flex flex-col justify-center">
+                                <div className="text-[10px] font-bold text-muted uppercase">4. Data Tier & Blast</div>
+                                <div className="font-semibold text-foreground text-xs mt-0.5 truncate">
+                                  {ep.connectedTables && ep.connectedTables.length > 0
+                                    ? ep.connectedTables.map((t) => t.name).join(', ')
+                                    : 'Stateless In-Memory'}
+                                </div>
+                                <div className="text-[10px] text-muted mt-0.5">
+                                  {ep.level === 'HIGH' ? 'Critical Impact' : ep.level === 'MEDIUM' ? 'Moderate Impact' : 'Minimal Impact'}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Connected Tables Detail & Actions */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {/* Connected Tables deep-dive */}
+                            <div className="p-3 rounded-xl bg-surface border border-border space-y-2">
+                              <div className="text-xs font-bold text-foreground flex items-center justify-between">
+                                <span className="flex items-center gap-1.5">
+                                  <Database className="h-3.5 w-3.5 text-cyan-500" />
+                                  <span>Relational Table Dependencies</span>
+                                </span>
+                                <span className="text-[10px] font-mono text-muted">
+                                  {ep.connectedTables?.length || 0} Tables
+                                </span>
+                              </div>
+
+                              {ep.connectedTables && ep.connectedTables.length > 0 ? (
+                                <div className="space-y-1.5">
+                                  {ep.connectedTables.map((ct) => {
+                                    const tObj = tables.find((t) => t.name === ct.name);
+                                    return (
+                                      <div
+                                        key={ct.name}
+                                        className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between"
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-mono text-xs font-bold text-foreground">
+                                            {ct.name}
+                                          </span>
+                                          <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ${
+                                            ct.action === 'READ'
+                                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                              : ct.action === 'STREAM'
+                                              ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
+                                              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                          }`}>
+                                            {ct.action}
+                                          </span>
+                                          {tObj && (
+                                            <span className="text-[10px] text-muted font-mono">
+                                              ({tObj.columns?.length || 0} cols)
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        {tObj && (
+                                          <button
+                                            onClick={() => setPreviewTable(tObj)}
+                                            className="text-[10px] px-2 py-0.5 rounded bg-surface text-brand hover:underline border border-border cursor-pointer font-medium"
+                                          >
+                                            Preview Schema
+                                          </button>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="text-xs text-muted py-3 text-center">
+                                  This endpoint is decoupled from direct database models (pure ingress handler, auth gatekeeper, or diagnostic telemetry).
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Classification Rational & Quick Developer Tools */}
+                            <div className="p-3 rounded-xl bg-surface border border-border space-y-2 flex flex-col justify-between">
+                              <div>
+                                <div className="text-xs font-bold text-foreground flex items-center gap-1.5 mb-1.5">
+                                  <Sparkles className="h-3.5 w-3.5 text-brand" />
+                                  <span>Architectural Classification Rationale</span>
+                                </div>
+                                <p className="text-[11px] text-muted leading-relaxed">
+                                  {ep.level === 'HIGH'
+                                    ? `Classified as HIGH-LEVEL because it mutates domain state, coordinates transactions, or touches critical business domains (${ep.connectedTables?.length || 0} connected entities).`
+                                    : ep.level === 'MEDIUM'
+                                    ? `Classified as MEDIUM-LEVEL as a standard domain service performing resource operations on backend models.`
+                                    : `Classified as LOW-LEVEL system utility endpoint governing telemetry, health checks, or metadata lookups.`}
+                                </p>
+                              </div>
+
+                              <div className="pt-2 border-t border-border-subtle flex flex-wrap items-center gap-2">
+                                {/* Copy cURL */}
+                                <button
+                                  onClick={() => handleCopyCurl(ep)}
+                                  className="text-xs px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface text-foreground border border-border flex items-center gap-1 cursor-pointer font-mono"
+                                  title="Copy cURL command to clipboard"
+                                >
+                                  {copiedCurl === `${ep.method}-${ep.path}` ? (
+                                    <>
+                                      <Check className="h-3 w-3 text-emerald-500" />
+                                      <span className="text-emerald-500 font-bold">Copied cURL!</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="h-3 w-3 text-muted" />
+                                      <span>Copy cURL</span>
+                                    </>
+                                  )}
+                                </button>
+
+                                {/* Copy Path */}
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(ep.path);
+                                  }}
+                                  className="text-xs px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface text-foreground border border-border flex items-center gap-1 cursor-pointer font-mono"
+                                >
+                                  <Copy className="h-3 w-3 text-muted" />
+                                  <span>Copy Path</span>
+                                </button>
+
+                                {/* Simulate Blast Radius */}
+                                <button
+                                  onClick={() => onSelectForImpact && onSelectForImpact(ep.path, 'endpoint')}
+                                  className="text-xs px-2.5 py-1 rounded-md btn-primary flex items-center gap-1 cursor-pointer font-bold ml-auto"
+                                >
+                                  <ArrowRight className="h-3 w-3" />
+                                  <span>Simulate Blast</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
+
                 {group.list.length === 0 && (
-                  <div className="text-center py-4 text-xs text-muted">No {group.title.toLowerCase()} match the current filter</div>
+                  <div className="text-center py-5 text-xs text-muted bg-surface/50 rounded-xl border border-dashed border-border">
+                    No {group.title.toLowerCase()} match the current filter selection
+                  </div>
                 )}
               </div>
             </div>
           ))}
-          {filteredEndpoints.length === 0 && (
-            <div className="text-center py-10 text-xs text-muted">No API endpoints match the current filter</div>
+
+          {filteredApiEndpoints.length === 0 && (
+            <div className="text-center py-12 px-4 rounded-xl border border-dashed border-border bg-surface-raised space-y-2">
+              <Code2 className="h-8 w-8 text-muted mx-auto opacity-60" />
+              <div className="text-xs font-semibold text-foreground">No API endpoints match the selected filters</div>
+              <p className="text-[11px] text-muted">
+                Try resetting tier, protocol kind, or database table filters to view all routes.
+              </p>
+              <button
+                onClick={() => {
+                  setApiLevelFilter('ALL');
+                  setApiKindFilter('ALL');
+                  setMethodFilter('ALL');
+                  setApiTableFilter('ALL');
+                  setApiSearchQuery('');
+                }}
+                className="mt-2 text-xs text-brand hover:underline font-medium cursor-pointer"
+              >
+                Reset all API filters
+              </button>
+            </div>
           )}
         </div>
       </section>

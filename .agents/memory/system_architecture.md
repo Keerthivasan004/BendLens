@@ -48,16 +48,23 @@ flowchart TD
    - Cross-file DDL data-flow (`indexFileForCrossFile()` per code file + `resolveCrossFileDDL()` driver after the scan): per-file export/import indexes (`collectFileExports` — ESM/CJS incl. `export *` barrels, Python modules, Java/C#/Go visibility; `parseFileImports` — named/default/namespace/require/from-import/static-import/using), path resolution (`resolveImportPath` — relative, `@/~/` aliases, bare/dotted suffix match), re-export chasing (`lookupExport`), class/package/module search (`findClassFile`/`findGoPackage`), dict/object member forms (`NS.X`, `Q['k']`). Executor args resolving to another file's DDL var are parsed with defining-file provenance. Only executor-reached constants register: never-imported, imported-but-unexecuted, and assigned-but-unexecuted strings all stay out.
    - ALTER TABLE (`parseAlterTables` + `applyAlterAction`, shared `buildColumnFromDef`): `ADD [COLUMN]`, `ADD CONSTRAINT ... PRIMARY KEY/FOREIGN KEY` merge into existing tables (or seed minimal entries) across `.sql`, embedded, variable-held and cross-file DDL. Python class models accept `Model`/`db_table`/`table_name`, Peewee/Django field forms incl. module-prefixed `sa.Column`, class-form `ForeignKey(Model)` and `'app.Model'` refs. C# Fluent API (`parseFluentAPI` + `resolveFluentAPI` driver over the global `_csClasses` index): `ToTable`/`HasKey`/`Property`+`IsRequired`/`HasColumnType`/`HasDefaultValue`/`HasOne`+`HasForeignKey`/`HasIndex`+`IsUnique`, typed from entity classes cross-file.
 2. **`PolyglotParser` (`src/lib/parsers/polyglotParser.js`)**:
-   - Regex- and AST-driven pattern scanner extracting classes, functions, imports, REST endpoints (`app.get`, `@app.route`, `@GetMapping`, etc.), and database access calls across JS/TS, Python, Java, Go, and C#. Fast route and DB keyword filters bypass unnecessary regex passes on generic files.
+   - Regex- and AST-driven pattern scanner extracting classes, functions, imports, REST endpoints (`app.get`, `@app.route`, `@GetMapping`, Next.js, NestJS, FastAPI, Laravel, Gin, etc.), and database access calls across JS/TS, Python, Java, Go, C#, PHP, and Ruby.
+   - Accurately captures multiline route handler declarations, arrays of paths (`["/route", "/api/route"]`), template literals, Express chained routes, Fastify/Hapi object routes, and WebSocket endpoints.
+   - **Automated API Classification**: Classifies every endpoint by protocol kind (`REST`, `WEBSOCKET`, `AUTH`, `STORAGE`, `ADMIN`, `WEBHOOK`, `SYSTEM`, `GRAPHQL`) and architectural tier (`HIGH`, `MEDIUM`, `LOW`).
+   - Fast route and DB keyword filters bypass unnecessary regex passes on generic files.
 3. **`InfraParser` (`src/lib/parsers/infraParser.js`)**:
-   - Extracts Docker containers, ports, environment bindings, Docker Compose services, and OpenAPI contracts.
+   - Extracts Docker containers, ports, environment bindings, Docker Compose services, and OpenAPI contracts (supporting both JSON and YAML OpenAPI specs).
+   - Seamlessly merges OpenAPI-declared endpoints into `codeData.endpoints` during project analysis.
 
 ### Phase 3: Bi-Directional Knowledge Graph (`KnowledgeGraph`)
 - In-memory directional graph constructed in `src/lib/graph/knowledgeGraph.js`.
 - Maintains node sets and bi-directional adjacency maps (`adjacency` and `reverseAdjacency`).
 - Connects disparate entities: Database tables <-> API routes <-> Services <-> Code modules.
+- **Entity Connection Linking & Action Typing**:
+  - Links endpoints directly to database tables (`READS_FROM`, `WRITES_TO`, `STREAMS_FROM`) using plural/singular variant token matching and controller module bindings.
+  - Refines architectural tier (`HIGH` for multi-table mutations and composite workflows, `MEDIUM` for single-model CRUD, `LOW` for system utilities).
 - **High-Scale Graph Optimization**:
-  - Uses precomputed lowercase table token mappings to eliminate redundant string allocations.
+  - Uses precomputed lowercase and clean table token mappings to eliminate redundant string allocations.
   - Caps function node injection at 500 (prioritizing table-linked functions) to eliminate $O(F \times T)$ bottlenecks across codebases with tens of thousands of functions while maintaining complete symbol telemetry.
 
 ### Phase 4: Downstream Generation Engines
