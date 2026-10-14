@@ -48,17 +48,21 @@ BendLens compiles architecture into 4 visual diagrams using Mermaid.js (`src/lib
 
 ## 3. Low-Level Component Call Graph (LLD)
 - **Header**: Starts with `flowchart LR\n`.
-- **Tier Structure** (max 12 nodes per tier; subgraph titles carry honest counts, e.g. `Controllers and API Endpoints (6)`, `(11 of 14)` when truncated; counts are also returned as `endpointsCount/endpointsShown/functionsCount/...`):
-  - `subgraph CONTROLLERS ["Controllers and API Endpoints"]`
-  - `subgraph SERVICES ["Domain Services"]`
-  - `subgraph REPOSITORIES ["Data Access and Models"]`
+- **Truthful Subgraph Rendering**:
+  - Only render subgraphs for tiers that actually exist in the project (`CONTROLLERS`, `SERVICES`, `REPOSITORIES`).
+  - If no components exist, render an honest empty placeholder node rather than fabricating synthetic entities.
+  - **Zero-Modulo Rule**: NEVER use modulo math (`fnIdx % tables.length`) to connect unrelated functions to tables. Only connect nodes that share genuine semantic tokens or entity names.
+  - Subgraph titles carry honest counts, e.g. `Controllers and API Endpoints (6)`, `(11 of 14)` when truncated; counts are also returned as `endpointsCount/endpointsShown/functionsCount/...`.
 - **Subgraph Connection Rule**:
   - **NEVER** link subgraphs directly (e.g., `CONTROLLERS --> SERVICES`).
-  - Always link concrete nodes within the subgraphs (e.g., `ctrl_users --> srv_users`).
+  - Always link concrete nodes within the subgraphs (e.g., `EP_0 --> FN_0`).
 
 ---
 
 ## 4. Execution Sequence Diagram
-- **Header**: Starts with `sequenceDiagram\n autonumber\n`.
-- **Participants**: Defines clean actor and system participant names (`actor User`, `participant Gateway`, `participant Service`, `participant Database`).
-- **Messages**: Standard arrows `User->>Gateway: POST /api/checkout` and dashed responses `Gateway-->>User: 200 OK`.
+- **Header**: Starts with `sequenceDiagram\n    autonumber\n`.
+- **Dynamic Entity & Method Mapping**:
+  - The sequence diagram dynamically adapts to the selected or first discovered endpoint (e.g., `GET /api/users`, `POST /auth/login`, `DELETE /items/:id`).
+  - **NEVER** hardcode sequence diagrams to `POST /api/checkout` or shopping cart billing flows.
+  - Correctly flows through `Client -> Gateway -> Controller -> Service -> Database -> Client` using verbs matched to the HTTP method (`SELECT` for GET, `INSERT` for POST, `UPDATE` for PUT/PATCH, `DELETE` for DELETE, and WebSocket upgrades for WS).
+  - Automatically identifies matching domain controllers, services, and real SQL tables.

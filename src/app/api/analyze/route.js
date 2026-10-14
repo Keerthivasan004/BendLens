@@ -41,6 +41,13 @@ export async function POST(request) {
     if (targetPath.startsWith('http://') || targetPath.startsWith('https://')) {
       const UniversalApiCrawler = require('@/lib/universalApiCrawler');
       const crawlResult = await UniversalApiCrawler.crawl(targetPath, { maxChunks: 500, concurrency: 24 });
+      if (crawlResult?.telemetry?.crawlStatus === 'failed') {
+        return NextResponse.json(
+          { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetPath}. Please verify the target URL and network connection.` },
+          { status: 400 }
+        );
+      }
+
       const uploadsDir = path.join(os.tmpdir(), 'bendlens_temp_scans');
       if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
       const scanId = `crawl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;

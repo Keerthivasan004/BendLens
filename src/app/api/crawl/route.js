@@ -61,6 +61,13 @@ export async function POST(request) {
     // Execute Enterprise Universal Crawler
     const crawlResult = await UniversalApiCrawler.crawl(targetUrl, { maxChunks, concurrency });
 
+    if (crawlResult?.telemetry?.crawlStatus === 'failed') {
+      return NextResponse.json(
+        { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetUrl}. Please verify the URL and network connection.` },
+        { status: 400 }
+      );
+    }
+
     // Materialize OpenAPI and Relational Schemas for AST Analysis
     if (crawlResult.openApiSpec) {
       fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
@@ -83,31 +90,9 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error('Universal Crawler Route Error:', error);
-    // Zero-error guarantee: fallback to resilient emergency synthesis
-    try {
-      const fallback = UniversalApiCrawler.emergencyFallback('https://unknown', 'Web Architecture', 'https://unknown', error, Date.now());
-      const uploadsDir = path.join(os.tmpdir(), 'bendlens_temp_scans');
-      const scanId = `crawl_err_${Date.now()}`;
-      const cloneDir = path.join(uploadsDir, scanId);
-      fs.mkdirSync(cloneDir, { recursive: true });
-
-      fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(fallback.openApiSpec, null, 2), 'utf-8');
-      if (fallback.sqlSchema) fs.writeFileSync(path.join(cloneDir, 'schema.sql'), fallback.sqlSchema, 'utf-8');
-
-      const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
-      result.projectName = fallback.projectName;
-      result.crawlerTelemetry = fallback.telemetry;
-
-      return NextResponse.json({
-        success: true,
-        data: result,
-        telemetry: fallback.telemetry
-      });
-    } catch {
-      return NextResponse.json(
-        { success: false, error: error.message || 'Crawl failed' },
-        { status: 500 }
-      );
-    }
+    return NextResponse.json(
+      { success: false, error: error.message || 'Crawl failed' },
+      { status: 500 }
+    );
   }
 }

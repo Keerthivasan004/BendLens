@@ -116,7 +116,9 @@ export default function DatabaseSchemaDiagram({
   if (visibleTables.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted font-medium">
-        No database tables or columns matched "{filterQuery}".
+        {filterQuery
+          ? `No database tables or columns matched "${filterQuery}".`
+          : 'No database tables available. (For external website URLs, server-side database schemas are private and unexposed over HTTP).'}
       </div>
     );
   }

@@ -136,7 +136,7 @@ export async function POST(request) {
               if (!hasMarkersNow) {
                 try {
                   const crawlResult = await UniversalApiCrawler.crawl(targetFetchUrl, { maxChunks: 500, concurrency: 24 });
-                  if (crawlResult && crawlResult.openApiSpec) {
+                  if (crawlResult && crawlResult.telemetry?.crawlStatus === 'success' && crawlResult.openApiSpec) {
                     fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
                     if (crawlResult.sqlSchema) {
                       fs.writeFileSync(path.join(cloneDir, 'schema.sql'), crawlResult.sqlSchema, 'utf-8');
@@ -427,7 +427,7 @@ export async function POST(request) {
     // Final Zero-Error Fallback: Run Universal Web & API Crawler
     try {
       const crawlResult = await UniversalApiCrawler.crawl(repoUrl, { maxChunks: 500, concurrency: 24 });
-      if (crawlResult && crawlResult.openApiSpec) {
+      if (crawlResult && crawlResult.telemetry?.crawlStatus === 'success' && (Object.keys(crawlResult.openApiSpec?.paths || {}).length > 0 || crawlResult.sqlSchema)) {
         fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
         if (crawlResult.sqlSchema) {
           fs.writeFileSync(path.join(cloneDir, 'schema.sql'), crawlResult.sqlSchema, 'utf-8');
@@ -436,6 +436,9 @@ export async function POST(request) {
         result.projectName = crawlResult.projectName;
         result.crawlerTelemetry = crawlResult.telemetry;
         return NextResponse.json({ success: true, data: result });
+      }
+      if (crawlResult?.telemetry?.error && !lastError) {
+        lastError = crawlResult.telemetry.error;
       }
     } catch (finalCrawlErr) {
       console.warn('Final crawl fallback error:', finalCrawlErr.message);

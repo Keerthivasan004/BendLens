@@ -16,8 +16,8 @@ export async function POST(request) {
     const pathToAnalyze = (targetPath && fs.existsSync(targetPath)) ? targetPath : getSampleProjectPath();
     const analysis = await ProjectAnalyzer.analyzeAsync(pathToAnalyze);
 
-    const targetName = body.targetName || body.tableName || 'orders';
-    const targetType = body.targetType || 'table';
+    const targetName = body.targetName || body.tableName || analysis.schema?.tables?.[0]?.name || analysis.code?.endpoints?.[0]?.path || null;
+    const targetType = body.targetType || (analysis.schema?.tables?.length > 0 ? 'table' : analysis.code?.endpoints?.length > 0 ? 'endpoint' : 'none');
     const changeType = body.changeType || (body.columnName ? 'column_name' : body.keyName ? 'key' : 'table_name');
     const columnName = body.columnName || null;
     const keyName = body.keyName || null;

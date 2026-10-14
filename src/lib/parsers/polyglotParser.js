@@ -69,6 +69,40 @@ class PolyglotParser {
     return 'MEDIUM';
   }
 
+  static isTestFile(relPath) {
+    if (!relPath) return false;
+    const p = String(relPath).replace(/\\/g, '/').toLowerCase();
+    return (
+      /(?:^|\/)(?:tests?|__tests__|spec|specs|test-fixtures|fixtures)(?:\/|$)/.test(p) ||
+      /\.(?:test|spec|cy|e2e)\.[jt]sx?$/.test(p) ||
+      /_test\.(?:py|go|rb|rs)$/.test(p) ||
+      /test_.*\.py$/.test(p)
+    );
+  }
+
+  static isInternalGeneratorFile(relPath) {
+    if (!relPath) return false;
+    const p = String(relPath).replace(/\\/g, '/').toLowerCase();
+    return (
+      /(?:^|\/)(?:generators?|mock|mocks|fixtures?|templates?|stub|stubs)(?:\/|$)/.test(p) &&
+      !/(?:controllers?|routes?|endpoints?|views?|api)(?:\/|$)/.test(p)
+    );
+  }
+
+  static stripComments(code) {
+    if (!code || typeof code !== 'string') return '';
+    return code
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/[^\r\n]*/g, '$1');
+  }
+
+  static stripPythonComments(code) {
+    if (!code || typeof code !== 'string') return '';
+    return code
+      .replace(/"""[\s\S]*?"""|'''[\s\S]*?'''/g, '')
+      .replace(/(^|[^"'])#[^\r\n]*/g, '$1');
+  }
+
   registerEndpoint(ep, moduleInfo) {
     if (!ep || !ep.path) return;
     let normPath = String(ep.path).trim();
@@ -224,12 +258,16 @@ class PolyglotParser {
     }
 
     // 4. API Endpoints (Express, Fastify, Next.js, NestJS, .NET minimal APIs, Hapi/Koa, WebSockets)
-    if (/(?:app|router|server|fastify|api|export|Controller|Map|method|WebSocket|WS_PATH)\b/i.test(content)) {
+    // Only analyze real application modules, skipping test suites and internal generator helpers
+    const isTestOrHelper = PolyglotParser.isTestFile(moduleInfo.relativePath) || PolyglotParser.isInternalGeneratorFile(moduleInfo.relativePath);
+    const cleanContent = PolyglotParser.stripComments(content);
+
+    if (!isTestOrHelper && /(?:app|router|server|fastify|api|export|Controller|Map|method|WebSocket|WS_PATH)\b/i.test(cleanContent)) {
       // Express / Fastify / Koa / Router method handlers
       // Supports single paths, array of paths, template literals, and multiline handler declarations
       const routeRegex = /(?:app|router|server|fastify|api)\s*\.\s*(get|post|put|delete|patch|options|head|all)\s*\(\s*(\[[^\]]+\]|`[^`]+`|'[^']+'|"[^"]+")/gis;
       let match;
-      while ((match = routeRegex.exec(content)) !== null) {
+      while ((match = routeRegex.exec(cleanContent)) !== null) {
         const method = match[1].toUpperCase();
         const raw = match[2].trim();
         let paths = [];
@@ -251,9 +289,9 @@ class PolyglotParser {
       // Express chained routes: router.route('/path').get(...).post(...)
       const routeChainRegex = /(?:app|router|server|fastify|api)\s*\.\s*route\s*\(\s*(`[^`]+`|'[^']+'|"[^"]+")\s*\)/gis;
       let routeMatch;
-      while ((routeMatch = routeChainRegex.exec(content)) !== null) {
+      while ((routeMatch = routeChainRegex.exec(cleanContent)) !== null) {
         const basePath = routeMatch[1].replace(/^[`'"]|[`'"]$/g, '');
-        const chainSection = content.slice(routeMatch.index + routeMatch[0].length, routeMatch.index + routeMatch[0].length + 600);
+        const chainSection = cleanContent.slice(routeMatch.index + routeMatch[0].length, routeMatch.index + routeMatch[0].length + 600);
         const methodMatches = [...chainSection.matchAll(/\.(get|post|put|delete|patch|options|head|all)\s*\(/gi)];
         for (const mm of methodMatches) {
           this.registerEndpoint({
@@ -268,9 +306,9 @@ class PolyglotParser {
       // Fastify / Hapi / Koa object route registrations: fastify.route({ method: 'GET', url: '/x' })
       const objRouteRegex = /(?:fastify|server|app|router)\s*\.\s*route\s*\(\s*\{([^}]+)\}/gis;
       let objMatch;
-      while ((objMatch = objRouteRegex.exec(content)) !== null) {
+      while ((objMatch = objRouteRegex.exec(cleanContent)) !== null) {
         const block = objMatch[1];
-        const pathM = block.match(/(?:url|path)\s*:\s*[`'"]([^`'"]+)[`'"]/i);
+        const pathM = block.match(/(?:url|path)\s*:\s*[`'"]([^'"]+)[`'"]/i);
         const methodM = block.match(/method\s*:\s*(?:\[([^\]]+)\]|[`'"]([^`'"]+)[`'"])/i);
         if (pathM) {
           const routePath = pathM[1];
@@ -297,7 +335,7 @@ class PolyglotParser {
       if (/(?:api[\\/]|app[\\/]).*route\.[jt]sx?$/i.test(moduleInfo.relativePath)) {
         const nextRouteRegex = /export\s+(?:(?:async\s+)?function|(?:const|let|var))\s+(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b/g;
         let nm;
-        while ((nm = nextRouteRegex.exec(content)) !== null) {
+        while ((nm = nextRouteRegex.exec(cleanContent)) !== null) {
           let routePath = moduleInfo.relativePath
             .replace(/\\/g, '/')
             .replace(/^(?:src\/)?(?:app\/)?/, '/')
@@ -315,7 +353,7 @@ class PolyglotParser {
 
       // Next.js Pages Router (pages/api/**/*)
       if (/(?:^|[\\/])(?:src[\\/])?pages[\\/]api[\\/].*\.[jt]sx?$/i.test(moduleInfo.relativePath)) {
-        if (/export\s+default\s+/i.test(content)) {
+        if (/export\s+default\s+/i.test(cleanContent)) {
           let routePath = moduleInfo.relativePath
             .replace(/\\/g, '/')
             .replace(/^(?:src\/)?pages\//, '/')
@@ -331,12 +369,12 @@ class PolyglotParser {
       }
 
       // NestJS Controllers (@Controller + @Get, @Post, etc.)
-      if (content.includes('@Controller')) {
-        const ctrlMatch = content.match(/@Controller\s*\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/);
+      if (cleanContent.includes('@Controller')) {
+        const ctrlMatch = cleanContent.match(/@Controller\s*\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/);
         const prefix = ctrlMatch && ctrlMatch[1] ? ('/' + ctrlMatch[1].replace(/^\/|\/$/g, '')) : '';
         const nestMethodRegex = /@(Get|Post|Put|Delete|Patch|Options|Head|All)\s*\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/gi;
         let nm;
-        while ((nm = nestMethodRegex.exec(content)) !== null) {
+        while ((nm = nestMethodRegex.exec(cleanContent)) !== null) {
           const subPath = nm[2] ? ('/' + nm[2].replace(/^\/|\/$/g, '')) : '';
           const fullPath = (prefix + subPath) || '/';
           this.registerEndpoint({
@@ -349,10 +387,10 @@ class PolyglotParser {
       }
 
       // WebSockets in Node.js / Express
-      if (content.includes('WebSocket') || content.includes('WS_PATH') || content.includes('/ws')) {
+      if (cleanContent.includes('WebSocket') || cleanContent.includes('WS_PATH') || cleanContent.includes('/ws')) {
         const wsPathRegex = /(?:path\s*:\s*|WS_PATH\s*=\s*|pathname\s*===?\s*|url\s*===?\s*)['"`](\/(?:ws|api\/ws|stream)[^'"`]*)['"`]/gi;
         let wm;
-        while ((wm = wsPathRegex.exec(content)) !== null) {
+        while ((wm = wsPathRegex.exec(cleanContent)) !== null) {
           this.registerEndpoint({
             method: 'WS',
             path: wm[1],
@@ -364,11 +402,12 @@ class PolyglotParser {
 
       // .NET minimal APIs: app.MapGet/MapPost/MapPut/MapDelete/MapPatch('/x', ...)
       const mapRegex = /\.(?:MapGet|MapPost|MapPut|MapDelete|MapPatch)\s*\(\s*['"]([^'"]+)['"]/gi;
-      while ((match = mapRegex.exec(content)) !== null) {
-        const m = match[0].match(/Map(Get|Post|Put|Delete|Patch)/i);
+      let mm;
+      while ((mm = mapRegex.exec(cleanContent)) !== null) {
+        const m = mm[0].match(/Map(Get|Post|Put|Delete|Patch)/i);
         this.registerEndpoint({
           method: (m ? m[1] : 'GET').toUpperCase(),
-          path: match[1],
+          path: mm[1],
           module: moduleInfo.relativePath,
           source: '.NET Minimal API'
         }, moduleInfo);
@@ -376,28 +415,32 @@ class PolyglotParser {
 
       // Hapi / Koa legacy style: method: 'GET', path: '/x'
       const hapiRegex = /method\s*:\s*['"](GET|POST|PUT|DELETE|PATCH|ALL)['"]\s*,\s*path\s*:\s*['"]([^'"]+)['"]/gi;
-      while ((match = hapiRegex.exec(content)) !== null) {
+      let hm;
+      while ((hm = hapiRegex.exec(cleanContent)) !== null) {
         this.registerEndpoint({
-          method: match[1].toUpperCase(),
-          path: match[2],
+          method: hm[1].toUpperCase(),
+          path: hm[2],
           module: moduleInfo.relativePath,
           source: 'Hapi/Koa route'
         }, moduleInfo);
       }
     }
 
-    // 5. DB Queries & ORM accesses
-    if (/(?:db|prisma|sequelize|knex|mongoose|model|User|Order|Payment|Product)\./i.test(content)) {
-      const dbRegex = /(?:db|prisma|sequelize|knex|mongoose|model|User|Order|Payment|Product)\.([A-Za-z0-9_]+)\s*\(/gi;
-      let match;
-      while ((match = dbRegex.exec(content)) !== null) {
-        moduleInfo.dbAccesses.push(match[0]);
+    // 5. DB Queries & Dynamic ORM accesses
+    if (/(?:db|prisma|sequelize|knex|mongoose|repository|repo|context)\.|\b[A-Z][A-Za-z0-9_]+\.(?:find|create|update|delete|save|query|where|select|insert|execute)\b/i.test(cleanContent)) {
+      const dbRegex = /(?:db|prisma|sequelize|knex|mongoose|repository|repo|context)\.([A-Za-z0-9_]+)\s*\(|\b([A-Z][A-Za-z0-9_]+)\.(?:find|create|update|delete|save|query|where|select|insert|execute)\s*\(/g;
+      let dbMatch;
+      while ((dbMatch = dbRegex.exec(cleanContent)) !== null) {
+        moduleInfo.dbAccesses.push(dbMatch[0]);
       }
     }
   }
 
   parsePython(content, moduleInfo) {
     let match;
+    const isTestOrHelper = PolyglotParser.isTestFile(moduleInfo.relativePath) || PolyglotParser.isInternalGeneratorFile(moduleInfo.relativePath);
+    const cleanContent = PolyglotParser.stripPythonComments(content);
+
     // 1. Imports
     if (content.includes('import')) {
       const importRegex = /(?:from\s+([A-Za-z0-9_.]+)\s+import|import\s+([A-Za-z0-9_.]+))/g;
@@ -441,11 +484,11 @@ class PolyglotParser {
     }
 
     // 4. FastAPI / Flask / Django Endpoints
-    if (/@(?:app|router|api|api_router|blueprint|bp)\b/i.test(content) || /(?:path|re_path|add_url_rule)\s*\(/i.test(content)) {
+    if (!isTestOrHelper && (/@(?:app|router|api|api_router|blueprint|bp)\b/i.test(cleanContent) || /(?:path|re_path|add_url_rule)\s*\(/i.test(cleanContent))) {
       // FastAPI / Starlette decorators (supports multiline)
       const apiRegex = /@(?:app|router|api|api_router)\.(get|post|put|delete|patch|options|head)\s*\(\s*['"]([^'"]+)['"]/gis;
       let match;
-      while ((match = apiRegex.exec(content)) !== null) {
+      while ((match = apiRegex.exec(cleanContent)) !== null) {
         this.registerEndpoint({
           method: match[1].toUpperCase(),
           path: match[2],
@@ -456,7 +499,7 @@ class PolyglotParser {
 
       // FastAPI @router.api_route('/x', methods=['GET', 'POST'])
       const apiRouteRegex = /@(?:app|router|api|api_router)\.api_route\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*methods\s*=\s*\[([^\]]+)\])?/gis;
-      while ((match = apiRouteRegex.exec(content)) !== null) {
+      while ((match = apiRouteRegex.exec(cleanContent)) !== null) {
         const routePath = match[1];
         const methods = match[2]
           ? match[2].split(',').map((m) => m.replace(/['"\s]/g, '').toUpperCase()).filter(Boolean)
@@ -473,7 +516,7 @@ class PolyglotParser {
 
       // Flask @app.route('/path', methods=['GET', 'POST'])
       const flaskRouteRegex = /@(?:app|blueprint|bp|router|api)\.route\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*methods\s*=\s*\[([^\]]+)\])?/gis;
-      while ((match = flaskRouteRegex.exec(content)) !== null) {
+      while ((match = flaskRouteRegex.exec(cleanContent)) !== null) {
         const routePath = match[1];
         const methods = match[2] 
           ? match[2].split(',').map(m => m.replace(/['"\s]/g, '').toUpperCase()).filter(Boolean)
@@ -491,7 +534,7 @@ class PolyglotParser {
 
       // Django path('url', view) / re_path(r'^url', view)
       const djangoPathRegex = /(?:path|re_path)\s*\(\s*r?['"]([^'"]*)['"]/g;
-      while ((match = djangoPathRegex.exec(content)) !== null) {
+      while ((match = djangoPathRegex.exec(cleanContent)) !== null) {
         const cleanPath = '/' + match[1].replace(/^\/|\/$/g, '');
         this.registerEndpoint({
           method: 'ALL',
@@ -503,9 +546,9 @@ class PolyglotParser {
 
       // Django REST framework: @api_view(['GET','POST']) / @action(methods=[...])
       const drfRegex = /@(?:api_view|action)\s*\(\s*(?:methods\s*=\s*)?\[([^\]]+)\]/gi;
-      while ((match = drfRegex.exec(content)) !== null) {
+      while ((match = drfRegex.exec(cleanContent)) !== null) {
         const methods = match[1].split(',').map((s) => s.replace(/['"\s]/g, '').toUpperCase()).filter(Boolean);
-        const fnAfter = content.slice(match.index + match[0].length, match.index + match[0].length + 300).match(/def\s+([A-Za-z0-9_]+)/);
+        const fnAfter = cleanContent.slice(match.index + match[0].length, match.index + match[0].length + 300).match(/def\s+([A-Za-z0-9_]+)/);
         for (const m of methods.length ? methods : ['GET']) {
           this.registerEndpoint({
             method: m,
@@ -518,7 +561,7 @@ class PolyglotParser {
 
       // Flask add_url_rule('/x', ..., methods=[...])
       const urlRuleRegex = /add_url_rule\s*\(\s*['"]([^'"]+)['"](?:[^)]*methods\s*=\s*\[([^\]]+)\])?/gi;
-      while ((match = urlRuleRegex.exec(content)) !== null) {
+      while ((match = urlRuleRegex.exec(cleanContent)) !== null) {
         const methods = match[2]
           ? match[2].split(',').map((s) => s.replace(/['"\s]/g, '').toUpperCase()).filter(Boolean)
           : ['GET'];
@@ -556,7 +599,8 @@ class PolyglotParser {
     }
 
     // Spring Boot & JAX-RS Endpoints (incl. class-level @RequestMapping / @Path prefix)
-    if (content.includes('Mapping') || content.includes('@Path') || content.includes('@GET')) {
+    const isTestOrHelper = PolyglotParser.isTestFile(moduleInfo.relativePath) || PolyglotParser.isInternalGeneratorFile(moduleInfo.relativePath);
+    if (!isTestOrHelper && (content.includes('Mapping') || content.includes('@Path') || content.includes('@GET'))) {
       const classReq = content.match(/@RequestMapping\s*\(\s*(?:(?:value|path)\s*=\s*)?['"]([^'"]+)['"]/);
       const classPrefix = classReq ? ('/' + classReq[1].replace(/^\/|\/$/g, '')) : '';
 
@@ -620,16 +664,19 @@ class PolyglotParser {
     }
 
     // Gin / Fiber / Echo / Chi / Mux routes
-    const ginRegex = /(?:\w+)\.(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|Get|Post|Put|Delete|Patch|Options|Head|HandleFunc|Handle)\s*\(\s*['"]([^'"]+)['"]/g;
-    while ((match = ginRegex.exec(content)) !== null) {
-      let method = match[1].toUpperCase();
-      if (method === 'HANDLEFUNC' || method === 'HANDLE') method = 'ALL';
-      this.registerEndpoint({
-        method,
-        path: match[2],
-        module: moduleInfo.relativePath,
-        source: 'Go Web Framework'
-      }, moduleInfo);
+    const isTestOrHelper = PolyglotParser.isTestFile(moduleInfo.relativePath) || PolyglotParser.isInternalGeneratorFile(moduleInfo.relativePath);
+    if (!isTestOrHelper) {
+      const ginRegex = /(?:\w+)\.(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|Get|Post|Put|Delete|Patch|Options|Head|HandleFunc|Handle)\s*\(\s*['"]([^'"]+)['"]/g;
+      while ((match = ginRegex.exec(content)) !== null) {
+        let method = match[1].toUpperCase();
+        if (method === 'HANDLEFUNC' || method === 'HANDLE') method = 'ALL';
+        this.registerEndpoint({
+          method,
+          path: match[2],
+          module: moduleInfo.relativePath,
+          source: 'Go Web Framework'
+        }, moduleInfo);
+      }
     }
   }
 
@@ -647,30 +694,33 @@ class PolyglotParser {
       this.classes.push(cls);
     }
 
-    const classRouteMatch = content.match(/\[Route\s*\(\s*['"]([^'"]+)['"]\s*\)\]/);
-    const classPrefix = classRouteMatch ? ('/' + classRouteMatch[1].replace(/^\/|\/$/g, '')) : '';
+    const isTestOrHelper = PolyglotParser.isTestFile(moduleInfo.relativePath) || PolyglotParser.isInternalGeneratorFile(moduleInfo.relativePath);
+    if (!isTestOrHelper) {
+      const classRouteMatch = content.match(/\[Route\s*\(\s*['"]([^'"]+)['"]\s*\)\]/);
+      const classPrefix = classRouteMatch ? ('/' + classRouteMatch[1].replace(/^\/|\/$/g, '')) : '';
 
-    const routeRegex = /\[Http(Get|Post|Put|Delete|Patch|Head|Options)\s*(?:\(['"]([^'"]*)['"]\))?\]/g;
-    while ((match = routeRegex.exec(content)) !== null) {
-      const sub = match[2] ? ('/' + match[2].replace(/^\/|\/$/g, '')) : '';
-      const fullPath = (classPrefix + sub) || '/';
-      this.registerEndpoint({
-        method: match[1].toUpperCase(),
-        path: fullPath,
-        module: moduleInfo.relativePath,
-        source: 'ASP.NET Core'
-      }, moduleInfo);
-    }
+      const routeRegex = /\[Http(Get|Post|Put|Delete|Patch|Head|Options)\s*(?:\(['"]([^'"]*)['"]\))?\]/g;
+      while ((match = routeRegex.exec(content)) !== null) {
+        const sub = match[2] ? ('/' + match[2].replace(/^\/|\/$/g, '')) : '';
+        const fullPath = (classPrefix + sub) || '/';
+        this.registerEndpoint({
+          method: match[1].toUpperCase(),
+          path: fullPath,
+          module: moduleInfo.relativePath,
+          source: 'ASP.NET Core'
+        }, moduleInfo);
+      }
 
-    const mapRegex = /\.(?:MapGet|MapPost|MapPut|MapDelete|MapPatch)\s*\(\s*['"]([^'"]+)['"]/gi;
-    while ((match = mapRegex.exec(content)) !== null) {
-      const m = match[0].match(/Map(Get|Post|Put|Delete|Patch)/i);
-      this.registerEndpoint({
-        method: (m ? m[1] : 'GET').toUpperCase(),
-        path: match[1],
-        module: moduleInfo.relativePath,
-        source: '.NET Minimal API'
-      }, moduleInfo);
+      const mapRegex = /\.(?:MapGet|MapPost|MapPut|MapDelete|MapPatch)\s*\(\s*['"]([^'"]+)['"]/gi;
+      while ((match = mapRegex.exec(content)) !== null) {
+        const m = match[0].match(/Map(Get|Post|Put|Delete|Patch)/i);
+        this.registerEndpoint({
+          method: (m ? m[1] : 'GET').toUpperCase(),
+          path: match[1],
+          module: moduleInfo.relativePath,
+          source: '.NET Minimal API'
+        }, moduleInfo);
+      }
     }
   }
 
@@ -696,35 +746,38 @@ class PolyglotParser {
       this.functions.push(fn);
     }
 
-    // Laravel: Route::get/post/put/patch/delete/options/any('/path', ...)
-    const routeRegex = /Route\s*::\s*(get|post|put|patch|delete|options|any)\s*\(\s*['"]([^'"]+)['"]/gi;
-    while ((match = routeRegex.exec(content)) !== null) {
-      this.registerEndpoint({
-        method: match[1].toUpperCase(),
-        path: match[2],
-        module: moduleInfo.relativePath,
-        source: 'Laravel Route'
-      }, moduleInfo);
-    }
-
-    // Laravel resource routes expand to conventional REST endpoints
-    const resRegex = /Route\s*::\s*(?:apiR|r)esource\s*\(\s*['"]([^'"]+)['"]/gi;
-    while ((match = resRegex.exec(content)) !== null) {
-      const base = '/' + match[1].replace(/^\/|\/$/g, '');
-      for (const [m, p] of [['GET', base], ['POST', base], ['GET', `${base}/{id}`], ['PUT', `${base}/{id}`], ['DELETE', `${base}/{id}`]]) {
-        this.registerEndpoint({ method: m, path: p, module: moduleInfo.relativePath, source: 'Laravel Resource' }, moduleInfo);
+    const isTestOrHelper = PolyglotParser.isTestFile(moduleInfo.relativePath) || PolyglotParser.isInternalGeneratorFile(moduleInfo.relativePath);
+    if (!isTestOrHelper) {
+      // Laravel: Route::get/post/put/patch/delete/options/any('/path', ...)
+      const routeRegex = /Route\s*::\s*(get|post|put|patch|delete|options|any)\s*\(\s*['"]([^'"]+)['"]/gi;
+      while ((match = routeRegex.exec(content)) !== null) {
+        this.registerEndpoint({
+          method: match[1].toUpperCase(),
+          path: match[2],
+          module: moduleInfo.relativePath,
+          source: 'Laravel Route'
+        }, moduleInfo);
       }
-    }
 
-    // Symfony #[Route('/path', methods: ['GET', 'POST'])]
-    const symfonyRegex = /#\[Route\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*methods:\s*\[([^\]]+)\])?/gi;
-    while ((match = symfonyRegex.exec(content)) !== null) {
-      const pathUrl = match[1];
-      const methods = match[2]
-        ? match[2].split(',').map((s) => s.replace(/['"\s]/g, '').toUpperCase()).filter(Boolean)
-        : ['GET'];
-      for (const m of methods) {
-        this.registerEndpoint({ method: m, path: pathUrl, module: moduleInfo.relativePath, source: 'Symfony Route' }, moduleInfo);
+      // Laravel resource routes expand to conventional REST endpoints
+      const resRegex = /Route\s*::\s*(?:apiR|r)esource\s*\(\s*['"]([^'"]+)['"]/gi;
+      while ((match = resRegex.exec(content)) !== null) {
+        const base = '/' + match[1].replace(/^\/|\/$/g, '');
+        for (const [m, p] of [['GET', base], ['POST', base], ['GET', `${base}/{id}`], ['PUT', `${base}/{id}`], ['DELETE', `${base}/{id}`]]) {
+          this.registerEndpoint({ method: m, path: p, module: moduleInfo.relativePath, source: 'Laravel Resource' }, moduleInfo);
+        }
+      }
+
+      // Symfony #[Route('/path', methods: ['GET', 'POST'])]
+      const symfonyRegex = /#\[Route\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*methods:\s*\[([^\]]+)\])?/gi;
+      while ((match = symfonyRegex.exec(content)) !== null) {
+        const pathUrl = match[1];
+        const methods = match[2]
+          ? match[2].split(',').map((s) => s.replace(/['"\s]/g, '').toUpperCase()).filter(Boolean)
+          : ['GET'];
+        for (const m of methods) {
+          this.registerEndpoint({ method: m, path: pathUrl, module: moduleInfo.relativePath, source: 'Symfony Route' }, moduleInfo);
+        }
       }
     }
   }
@@ -746,23 +799,26 @@ class PolyglotParser {
       this.functions.push(fn);
     }
 
-    // Rails routes.rb + Sinatra: get/post/put/patch/delete '/path'
-    const routeRegex = /^\s*(get|post|put|patch|delete)\s+['"]([^'"]+)['"]/gim;
-    while ((match = routeRegex.exec(content)) !== null) {
-      this.registerEndpoint({
-        method: match[1].toUpperCase(),
-        path: match[2],
-        module: moduleInfo.relativePath,
-        source: 'Rails Route'
-      }, moduleInfo);
-    }
+    const isTestOrHelper = PolyglotParser.isTestFile(moduleInfo.relativePath) || PolyglotParser.isInternalGeneratorFile(moduleInfo.relativePath);
+    if (!isTestOrHelper) {
+      // Rails routes.rb + Sinatra: get/post/put/patch/delete '/path'
+      const routeRegex = /^\s*(get|post|put|patch|delete)\s+['"]([^'"]+)['"]/gim;
+      while ((match = routeRegex.exec(content)) !== null) {
+        this.registerEndpoint({
+          method: match[1].toUpperCase(),
+          path: match[2],
+          module: moduleInfo.relativePath,
+          source: 'Rails Route'
+        }, moduleInfo);
+      }
 
-    // Rails `resources :things` expands to conventional REST endpoints
-    const resRegex = /^\s*resources\s+:([a-z_]+)/gm;
-    while ((match = resRegex.exec(content)) !== null) {
-      const base = '/' + match[1];
-      for (const [m, p] of [['GET', base], ['POST', base], ['GET', `${base}/{id}`], ['PUT', `${base}/{id}`], ['DELETE', `${base}/{id}`]]) {
-        this.registerEndpoint({ method: m, path: p, module: moduleInfo.relativePath, source: 'Rails Resources' }, moduleInfo);
+      // Rails `resources :things` expands to conventional REST endpoints
+      const resRegex = /^\s*resources\s+:([a-z_]+)/gm;
+      while ((match = resRegex.exec(content)) !== null) {
+        const base = '/' + match[1];
+        for (const [m, p] of [['GET', base], ['POST', base], ['GET', `${base}/{id}`], ['PUT', `${base}/{id}`], ['DELETE', `${base}/{id}`]]) {
+          this.registerEndpoint({ method: m, path: p, module: moduleInfo.relativePath, source: 'Rails Resources' }, moduleInfo);
+        }
       }
     }
   }

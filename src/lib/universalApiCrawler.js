@@ -128,6 +128,16 @@ class UniversalApiCrawler {
         }
       }
 
+      if (!initRes.ok) {
+        return this.emergencyFallback(
+          targetUrl,
+          hostname,
+          origin,
+          new Error(initRes.statusText || `Could not establish connection to ${targetUrl}`),
+          startTime
+        );
+      }
+
       const rawText = initRes.text || '';
       const contentType = initRes.contentType || '';
 
@@ -152,21 +162,21 @@ class UniversalApiCrawler {
             projectName = parsedSpec.info.title;
           }
 
-          const companionSql = parsedSpec ? ApiSpecSynthesizer.synthesizeSqlFromOpenApi(parsedSpec) : '';
           return {
             projectName,
             openApiSpec: parsedSpec || { openapi: '3.0.0', info: { title: projectName, version: '1.0.0' }, paths: {} },
-            sqlSchema: companionSql,
+            sqlSchema: '',
             telemetry: {
               targetUrl,
               crawlDurationMs: Date.now() - startTime,
               chunksCrawledCount: 1,
               totalEndpointsCount: parsedSpec?.paths ? Object.keys(parsedSpec.paths).length : 1,
               backendDomains: [origin],
-              entitiesCount: Object.keys(parsedSpec?.components?.schemas || parsedSpec?.definitions || {}).length,
+              entitiesCount: 0,
               frameworksDetected: ['OpenAPI/Swagger Spec'],
               discoveryStrategy: 'direct_openapi_spec',
-              crawlStatus: 'success'
+              crawlStatus: 'success',
+              notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
             }
           };
         } catch {}
@@ -182,17 +192,18 @@ class UniversalApiCrawler {
             return {
               projectName: syn.projectName || projectName,
               openApiSpec: syn.openApiSpec,
-              sqlSchema: syn.sqlSchema,
+              sqlSchema: '',
               telemetry: {
                 targetUrl,
                 crawlDurationMs: Date.now() - startTime,
                 chunksCrawledCount: 1,
                 totalEndpointsCount: syn.totalEndpoints || 1,
                 backendDomains: [origin],
-                entitiesCount: Object.keys(syn.openApiSpec?.components?.schemas || {}).length,
+                entitiesCount: 0,
                 frameworksDetected: ['Postman Collection'],
                 discoveryStrategy: 'direct_postman_collection',
-                crawlStatus: 'success'
+                crawlStatus: 'success',
+                notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
               }
             };
           }
@@ -203,17 +214,18 @@ class UniversalApiCrawler {
             return {
               projectName: syn.projectName || projectName,
               openApiSpec: syn.openApiSpec,
-              sqlSchema: syn.sqlSchema,
+              sqlSchema: '',
               telemetry: {
                 targetUrl,
                 crawlDurationMs: Date.now() - startTime,
                 chunksCrawledCount: 1,
                 totalEndpointsCount: syn.totalEndpoints || 1,
                 backendDomains: [origin],
-                entitiesCount: Object.keys(syn.openApiSpec?.components?.schemas || {}).length,
+                entitiesCount: 0,
                 frameworksDetected: ['Live REST API'],
                 discoveryStrategy: 'live_api_endpoint',
-                crawlStatus: 'success'
+                crawlStatus: 'success',
+                notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
               }
             };
           }
@@ -224,6 +236,7 @@ class UniversalApiCrawler {
       // STAGE 2: Parallel Standard OpenAPI / Swagger & GraphQL Discovery Probes
       // =========================================================================
       const standardProbes = [
+        '/spec.json',
         '/openapi.json',
         '/openapi.yaml',
         '/swagger.json',
@@ -234,13 +247,17 @@ class UniversalApiCrawler {
         '/api/openapi.json',
         '/api/swagger.json',
         '/api/v3/api-docs',
+        '/api/spec.json',
+        '/swagger/v1/swagger.json',
+        '/docs/openapi.json',
+        '/q/openapi',
         '/api/v1'
       ];
 
       const probePromises = standardProbes.map(async (probePath) => {
         try {
           const pUrl = new URL(probePath, origin).href;
-          const pRes = await this.safeFetch(pUrl, { timeout: 3500 });
+          const pRes = await this.safeFetch(pUrl, { timeout: 6000 });
           if (pRes.ok && (pRes.text.includes('"swagger"') || pRes.text.includes('"openapi"') || pRes.text.includes('paths:'))) {
             return { url: pUrl, text: pRes.text };
           }
@@ -256,7 +273,7 @@ class UniversalApiCrawler {
             method: 'POST',
             headers: { ...this.getHeaders(), 'Content-Type': 'application/json' },
             body: JSON.stringify({ query: '{ __schema { types { name kind } } }' }),
-            timeout: 3500
+            timeout: 4000
           });
           if (gqlRes.ok && gqlRes.text.includes('__schema')) {
             return { url: gqlUrl, data: JSON.parse(gqlRes.text) };
@@ -277,21 +294,21 @@ class UniversalApiCrawler {
           let parsed = null;
           if (!isYaml) parsed = JSON.parse(foundSpec.text);
           if (parsed && parsed.paths) {
-            const compSql = ApiSpecSynthesizer.synthesizeSqlFromOpenApi(parsed);
             return {
               projectName: parsed.info?.title || projectName,
               openApiSpec: parsed,
-              sqlSchema: compSql,
+              sqlSchema: '',
               telemetry: {
                 targetUrl,
                 crawlDurationMs: Date.now() - startTime,
                 chunksCrawledCount: 2,
                 totalEndpointsCount: Object.keys(parsed.paths).length,
                 backendDomains: [origin],
-                entitiesCount: Object.keys(parsed.components?.schemas || parsed.definitions || {}).length,
+                entitiesCount: 0,
                 frameworksDetected: ['OpenAPI Probed Spec'],
                 discoveryStrategy: 'probed_openapi_spec',
-                crawlStatus: 'success'
+                crawlStatus: 'success',
+                notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
               }
             };
           }
@@ -321,7 +338,43 @@ class UniversalApiCrawler {
         projectName = pageTitle;
       }
 
-      // 2. Framework Detection
+      // 2. Embedded Documentation / Spec Discovery (Swagger UI, Redoc, RapiDoc)
+      const docSpecMatch = html.match(/(?:SwaggerUIBundle|SwaggerUI)\s*\(\s*\{[\s\S]*?url\s*:\s*["']([^"']+)["']/i) ||
+        html.match(/["'](?:spec-url|specUrl)["']\s*[:=]\s*["']([^"']+)["']/i) ||
+        html.match(/url\s*:\s*["']([^"']*(?:swagger|openapi|spec|api-docs)[^"']*\.(?:json|yaml|yml)[^"']*)["']/i);
+
+      if (docSpecMatch && docSpecMatch[1]) {
+        try {
+          const specUrl = new URL(docSpecMatch[1], origin).href;
+          const specRes = await this.safeFetch(specUrl, { timeout: 8000 });
+          if (specRes.ok && (specRes.text.includes('"paths"') || specRes.text.includes('paths:'))) {
+            const isYaml = !specRes.text.trim().startsWith('{');
+            let parsed = null;
+            if (!isYaml) parsed = JSON.parse(specRes.text);
+            if (parsed && parsed.paths && Object.keys(parsed.paths).length > 0) {
+              return {
+                projectName: parsed.info?.title || projectName,
+                openApiSpec: parsed,
+                sqlSchema: '',
+                telemetry: {
+                  targetUrl,
+                  crawlDurationMs: Date.now() - startTime,
+                  chunksCrawledCount: 1,
+                  totalEndpointsCount: Object.keys(parsed.paths).length,
+                  backendDomains: [origin],
+                  entitiesCount: 0,
+                  frameworksDetected: ['Swagger/OpenAPI UI'],
+                  discoveryStrategy: 'swagger_ui_spec',
+                  crawlStatus: 'success',
+                  notice: 'Authentic OpenAPI specification extracted directly from API documentation.'
+                }
+              };
+            }
+          }
+        } catch {}
+      }
+
+      // 3. Framework Detection
       if (html.includes('__NEXT_DATA__') || html.includes('/_next/')) frameworksDetected.add('Next.js');
       if (html.includes('__NUXT__') || html.includes('/_nuxt/')) frameworksDetected.add('Nuxt');
       if (html.includes('data-reactroot') || html.includes('react')) frameworksDetected.add('React');
@@ -501,16 +554,24 @@ class UniversalApiCrawler {
       }
 
       // =========================================================================
-      // STAGE 5: Bulletproof Fallback Synthesis (Zero-Error Guarantee)
-      // If no explicit APIs were exposed, synthesize from discovered routes and application entities
+      // STAGE 5: Authentic Fallback Strategy
+      // If no explicit APIs were exposed, record actual discovered client routes
+      // without hallucinating fake backend endpoints or fake database models.
       // =========================================================================
       if (allEndpoints.size === 0) {
-        discoveryStrategy = 'synthesized_web_architecture';
-        this.synthesizeFallbackEndpoints(discoveredPages, hostname, allEndpoints, distinctEntities);
+        discoveryStrategy = 'web_surface_scan';
+        if (discoveredPages.size > 0) {
+          for (const p of discoveredPages) {
+            const clean = p.replace(/\/+$/, '') || '/';
+            allEndpoints.set(clean, new Set(['GET']));
+          }
+        } else {
+          allEndpoints.set('/', new Set(['GET']));
+        }
       }
 
       // =========================================================================
-      // STAGE 6: OpenAPI 3.0 & Relational Architecture Synthesis
+      // STAGE 6: OpenAPI 3.0 & Relational Architecture Representation
       // =========================================================================
       const paths = {};
       for (const [ep, methods] of allEndpoints.entries()) {
@@ -524,7 +585,7 @@ class UniversalApiCrawler {
           paths[ep][method] = {
             tags: [tag],
             summary: `${m} ${ep}`,
-            description: `Universal reverse-engineered API route for ${actionName}`,
+            description: `API route for ${actionName}`,
             responses: {
               '200': { description: 'Successful execution' }
             }
@@ -542,35 +603,17 @@ class UniversalApiCrawler {
         }
       }
 
-      // Synthesize relational SQL models for discovered entities
+      // External website URLs only expose client & API surfaces; server-side SQL database
+      // schemas are completely private and cannot be inspected over external HTTP requests.
       const sqlStatements = [];
       const schemas = {};
-
-      // Ensure at least core entities exist if empty
-      if (distinctEntities.size === 0) {
-        ['users', 'sessions', 'activities', 'settings'].forEach(e => distinctEntities.add(e));
-      }
-
-      for (const ent of distinctEntities) {
-        const cleanTable = ent.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
-        sqlStatements.push(`CREATE TABLE ${cleanTable} (\n  id INT PRIMARY KEY,\n  name VARCHAR(255),\n  status VARCHAR(50),\n  created_at TIMESTAMP\n);`);
-        schemas[this.capitalize(cleanTable)] = {
-          type: 'object',
-          properties: {
-            id: { type: 'integer' },
-            name: { type: 'string' },
-            status: { type: 'string' },
-            created_at: { type: 'string', format: 'date-time' }
-          }
-        };
-      }
 
       const openApiSpec = {
         openapi: '3.0.3',
         info: {
           title: projectName,
           version: '1.0.0',
-          description: `Universal API Architecture reverse-engineered from ${targetUrl}`
+          description: `API Architecture reverse-engineered from ${targetUrl}`
         },
         servers: [
           { url: origin, description: 'Live Origin Gateway' },
@@ -587,21 +630,21 @@ class UniversalApiCrawler {
       return {
         projectName,
         openApiSpec,
-        sqlSchema: sqlStatements.join('\n\n'),
+        sqlSchema: '',
         telemetry: {
           targetUrl,
           crawlDurationMs,
           chunksCrawledCount: visitedUrls.size,
           totalEndpointsCount: allEndpoints.size,
           backendDomains: Array.from(backendDomains),
-          entitiesCount: distinctEntities.size,
+          entitiesCount: 0,
           frameworksDetected: Array.from(frameworksDetected),
           discoveryStrategy,
-          crawlStatus: 'success'
+          crawlStatus: 'success',
+          notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
         }
       };
     } catch (unexpectedErr) {
-      // 100% Zero-Error Guarantee: Never crash or throw to the user
       return this.emergencyFallback(targetUrl, hostname, origin, unexpectedErr, startTime);
     }
   }
@@ -612,25 +655,29 @@ class UniversalApiCrawler {
   static extractEndpointsFromCode(code, scriptUrl, origin, allEndpoints, backendDomains, distinctEntities) {
     if (!code || typeof code !== 'string') return;
 
-    // Pattern 1: Explicit API client calls with methods
-    // Matches fetch(url, { method: '...' }), axios.get/post/put/delete, apiClient.get, etc.
-    const clientCallRegex = /(?:fetch|axios|apiClient|httpClient|request|client|http|superagent|ky|ce|api|useQuery|useMutation)\s*(?:\.([a-zA-Z]+))?\s*\(\s*([`'"][^`'"]+[`'"])(?:\s*,\s*\{([^}]*)\})?/gi;
+    // Pattern 1a: Standard fetch(url, { method: '...' })
+    const fetchRegex = /\bfetch\s*\(\s*([`'"][^`'"]+[`'"])(?:\s*,\s*\{([^}]*)\})?/gi;
+    let fm;
+    while ((fm = fetchRegex.exec(code)) !== null) {
+      let rawPath = fm[1].slice(1, -1);
+      const options = fm[2] || '';
+      const methodMatch = options.match(/method\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']/i);
+      const method = methodMatch ? methodMatch[1].toUpperCase() : this.inferMethodFromKeyword(rawPath);
+
+      const normalized = this.normalizeApiPath(rawPath);
+      if (normalized) {
+        if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
+        allEndpoints.get(normalized).add(method);
+        this.extractEntitiesFromPath(normalized, distinctEntities);
+      }
+    }
+
+    // Pattern 1b: HTTP Client calls with explicit method: axios.get, client.post, apiClient.put, etc.
+    const clientCallRegex = /(?:axios|apiClient|httpClient|client|http|api|superagent|ky)\s*\.\s*(get|post|put|delete|patch|head|options)\s*\(\s*([`'"][^`'"]+[`'"])/gi;
     let cm;
     while ((cm = clientCallRegex.exec(code)) !== null) {
-      const explicitMethodFromFn = cm[1] ? cm[1].toUpperCase() : '';
+      const method = cm[1].toUpperCase();
       let rawPath = cm[2].slice(1, -1);
-      const options = cm[3] || '';
-
-      const methodMatch = options.match(/method\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']/i);
-      let method = 'GET';
-      if (['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'].includes(explicitMethodFromFn)) {
-        method = explicitMethodFromFn;
-      } else if (methodMatch) {
-        method = methodMatch[1].toUpperCase();
-      } else {
-        method = this.inferMethodFromKeyword(rawPath);
-      }
-
       const normalized = this.normalizeApiPath(rawPath);
       if (normalized) {
         if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
@@ -654,8 +701,8 @@ class UniversalApiCrawler {
       }
     }
 
-    // Pattern 3: Domain resource routes (e.g. /users, /products, /orders, /billing)
-    const resourceRegex = /["'`]((\/(?:users|products|orders|billing|checkout|payments|webhooks|subscriptions|items|events|settings|search|notifications|reports|accounts|messages|devices|teams|organizations|posts|comments|profiles)\b[a-zA-Z0-9_\-\/\{\}\$]*))["'`]/g;
+    // Pattern 3: Domain REST endpoints with actions or parameters (e.g. /users/:id, /orders/{id})
+    const resourceRegex = /["'`]((\/(?:users|products|orders|billing|checkout|payments|webhooks|subscriptions|items|events|notifications|reports|accounts|messages|devices|teams|organizations|posts|comments|profiles)\/(?:\{[a-zA-Z0-9_]+\}|:[a-zA-Z0-9_]+|[0-9]+|[a-zA-Z0-9_\-]+)))["'`]/g;
     let rscMatch;
     while ((rscMatch = resourceRegex.exec(code)) !== null) {
       const normalized = this.normalizeApiPath(rscMatch[1]);
@@ -663,25 +710,26 @@ class UniversalApiCrawler {
         if (!allEndpoints.has(normalized)) {
           const method = this.inferMethodFromKeyword(normalized);
           allEndpoints.set(normalized, new Set([method]));
-          this.extractEntitiesFromPath(normalized, distinctEntities);
         }
       }
     }
 
     // Pattern 4: Absolute backend URLs (e.g. https://api.mycompany.com/v1/auth)
-    const absApiRegex = /["'`](https?:\/\/[a-zA-Z0-9_\-\.]+\/([a-zA-Z0-9_\-\/]+))["'`]/g;
+    const absApiRegex = /["'`](https?:\/\/[a-zA-Z0-9_\-\.]+(\/[a-zA-Z0-9_\-\/\{\}]+))["'`]/g;
     let absMatch;
     while ((absMatch = absApiRegex.exec(code)) !== null) {
       const fullUrl = absMatch[0].slice(1, -1);
       try {
         const u = new URL(fullUrl);
-        if (this.isBackendCandidateDomain(u.origin, origin)) {
+        // Only accept absolute URLs if they target a backend candidate domain AND have an API route prefix
+        const p = u.pathname;
+        const isApiRoute = p.startsWith('/api/') || p.startsWith('/v1/') || p.startsWith('/v2/') || p.startsWith('/v3/') || p.startsWith('/graphql') || p.startsWith('/rest/') || p.startsWith('/auth/');
+        if (isApiRoute && this.isBackendCandidateDomain(u.origin, origin)) {
           backendDomains.add(u.origin);
           const normalized = this.normalizeApiPath(u.pathname);
           if (normalized) {
             if (!allEndpoints.has(normalized)) {
               allEndpoints.set(normalized, new Set([this.inferMethodFromKeyword(normalized)]));
-              this.extractEntitiesFromPath(normalized, distinctEntities);
             }
           }
         }
@@ -690,87 +738,12 @@ class UniversalApiCrawler {
   }
 
   /**
-   * Synthesize rich fallback architecture when no explicit /api/ endpoints are declared in public assets.
-   */
-  static synthesizeFallbackEndpoints(discoveredPages, hostname, allEndpoints, distinctEntities) {
-    const defaultPages = discoveredPages.size > 1 ? Array.from(discoveredPages) : ['/', '/dashboard', '/profile', '/settings', '/auth/login', '/auth/register'];
-
-    for (const page of defaultPages) {
-      if (page && typeof page === 'string' && page.startsWith('/')) {
-        const clean = page.replace(/\/+$/, '') || '/';
-        const method = clean.includes('login') || clean.includes('register') || clean.includes('submit') ? 'POST' : 'GET';
-        allEndpoints.set(clean, new Set([method]));
-        this.extractEntitiesFromPath(clean, distinctEntities);
-      }
-    }
-
-    // Standard core application services
-    allEndpoints.set('/api/health', new Set(['GET']));
-    allEndpoints.set('/api/v1/status', new Set(['GET']));
-    allEndpoints.set('/api/v1/auth/session', new Set(['GET', 'POST']));
-
-    distinctEntities.add('users');
-    distinctEntities.add('sessions');
-    distinctEntities.add('activities');
-  }
-
-  /**
-   * Emergency fallback that guarantees ZERO errors even if target host is down, blocked, or invalid.
+   * Emergency fallback when a URL cannot be reached or fails to respond.
+   * Accurately reports failure without hallucinating fake endpoints or database tables.
    */
   static emergencyFallback(targetUrl, hostname, origin, err, startTime) {
-    const cleanName = hostname || 'Web Application';
-    const paths = {
-      '/': {
-        get: {
-          tags: ['Application Gateway'],
-          summary: `GET / (${cleanName} Ingress)`,
-          description: `Primary application entry point synthesized for ${targetUrl}`,
-          responses: { '200': { description: 'Healthy application response' } }
-        }
-      },
-      '/api/v1/health': {
-        get: {
-          tags: ['System'],
-          summary: 'GET /api/v1/health',
-          description: 'Healthcheck and diagnostic endpoint',
-          responses: { '200': { description: 'Operational status' } }
-        }
-      },
-      '/api/v1/auth/session': {
-        get: {
-          tags: ['Authentication'],
-          summary: 'GET /api/v1/auth/session',
-          description: 'User session verification',
-          responses: { '200': { description: 'Authenticated user profile' } }
-        },
-        post: {
-          tags: ['Authentication'],
-          summary: 'POST /api/v1/auth/session',
-          description: 'Establish secure credentials',
-          responses: { '200': { description: 'JWT / Session token issued' } }
-        }
-      },
-      '/api/v1/resources': {
-        get: {
-          tags: ['Resources'],
-          summary: 'GET /api/v1/resources',
-          description: 'Query resource collection',
-          responses: { '200': { description: 'List of entities' } }
-        },
-        post: {
-          tags: ['Resources'],
-          summary: 'POST /api/v1/resources',
-          description: 'Create new entity record',
-          responses: { '200': { description: 'Entity successfully created' } }
-        }
-      }
-    };
-
-    const sqlSchema = [
-      `CREATE TABLE users (\n  id INT PRIMARY KEY,\n  email VARCHAR(255) NOT NULL,\n  status VARCHAR(50) DEFAULT 'ACTIVE',\n  created_at TIMESTAMP\n);`,
-      `CREATE TABLE sessions (\n  id INT PRIMARY KEY,\n  user_id INT REFERENCES users(id),\n  token VARCHAR(255),\n  expires_at TIMESTAMP\n);`,
-      `CREATE TABLE resources (\n  id INT PRIMARY KEY,\n  name VARCHAR(255),\n  status VARCHAR(50),\n  created_at TIMESTAMP\n);`
-    ].join('\n\n');
+    const cleanName = hostname || 'Target';
+    const errorMsg = err?.message || String(err) || 'Failed to connect to target URL';
 
     return {
       projectName: cleanName,
@@ -779,30 +752,27 @@ class UniversalApiCrawler {
         info: {
           title: cleanName,
           version: '1.0.0',
-          description: `Resilient architectural synthesis for ${targetUrl} (Status: Ingested without errors)`
+          description: `Analysis for ${targetUrl} (Status: Unreachable)`
         },
         servers: [{ url: origin || 'https://localhost', description: 'Application Origin' }],
-        paths,
+        paths: {},
         components: {
-          schemas: {
-            User: { type: 'object', properties: { id: { type: 'integer' }, email: { type: 'string' } } },
-            Session: { type: 'object', properties: { id: { type: 'integer' }, user_id: { type: 'integer' } } },
-            Resource: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' } } }
-          }
+          schemas: {}
         }
       },
-      sqlSchema,
+      sqlSchema: '',
       telemetry: {
         targetUrl,
         crawlDurationMs: Date.now() - startTime,
-        chunksCrawledCount: 1,
-        totalEndpointsCount: Object.keys(paths).length,
-        backendDomains: [origin || 'https://localhost'],
-        entitiesCount: 3,
-        frameworksDetected: ['Universal Web Architecture'],
-        discoveryStrategy: 'resilient_synthesized_architecture',
-        crawlStatus: 'success',
-        notice: err ? err.message : 'Fallback synthesized'
+        chunksCrawledCount: 0,
+        totalEndpointsCount: 0,
+        backendDomains: [],
+        entitiesCount: 0,
+        frameworksDetected: [],
+        discoveryStrategy: 'unreachable_target',
+        crawlStatus: 'failed',
+        error: errorMsg,
+        notice: `Could not connect to ${targetUrl}: ${errorMsg}`
       }
     };
   }
@@ -821,17 +791,24 @@ class UniversalApiCrawler {
   }
 
   /**
-   * Filter out non-backend domains like social networks or font CDNs.
+   * Filter out non-backend domains like social networks, CDNs, or XML schema definitions.
    */
   static isBackendCandidateDomain(domain, appOrigin) {
     if (!domain || typeof domain !== 'string') return false;
+    const lower = domain.toLowerCase();
     const ignored = [
       'w3.org', 'react.dev', 'github.com', 'cloudflare.com', 'linkedin.com',
-      'google.com', 'youtube.com', 'vimeo.com', 'x.com', 'whatsapp.com',
+      'google.com', 'youtube.com', 'youtube-nocookie.com', 'vimeo.com', 'x.com', 'whatsapp.com',
       'fonts.googleapis.com', 'fonts.gstatic.com', 'jsdelivr.net', 'unpkg.com',
-      'facebook.com', 'instagram.com', 'twitter.com'
+      'facebook.com', 'instagram.com', 'twitter.com', 'wa.me', 'calendly.com',
+      'openxmlformats.org', 'microsoft.com', 'purl.org', 'purl.oclc.org', 'oclc.org',
+      'sheetjs.com', 'sheetjs.openxmlformats.org', 'oasis-open.org', 'openoffice.org',
+      'xml.org', 'schema.org', 'xmlns.com', 'iana.org', 'iso.org', 'apache.org',
+      'razorpay.com', 'rzp.io', 'fb.me', 'unsplash.com', 'images.unsplash.com',
+      'officeapps.live.com', 'view.officeapps.live.com', 'example.com', 'company.com',
+      'yourblog.io', 'yourportfolio.dev'
     ];
-    return !ignored.some(i => domain.includes(i));
+    return !ignored.some(i => lower.includes(i));
   }
 
   /**
@@ -841,14 +818,18 @@ class UniversalApiCrawler {
     if (!rawPath || typeof rawPath !== 'string') return null;
     let clean = rawPath.trim();
 
-    // Strip protocols or query parameters
+    // Strip anchor fragments (e.g. #/components/schemas, #section)
+    clean = clean.replace(/#[^`'"]*/g, '').trim();
+
+    // Strip protocols, origins, or query parameters
     clean = clean.replace(/^https?:\/\/[^\/]+/i, '');
     clean = clean.replace(/\?[^`'"]*/g, '');
-    // Convert template variables into {id}
+
+    // Convert template variables into {param}
     clean = clean.replace(/\$\{([^}]+)\}/g, '{$1}');
-    clean = clean.replace(/\/\{([^}]+)\}\/\{([^}]+)\}/g, '/{$1}/sub_{$2}');
     // Normalize consecutive parameters
-    clean = clean.replace(/\/([a-zA-Z0-9_\-]+)\{([^}]+)\}$/, '/$1');
+    clean = clean.replace(/\/\{[^}]+\}\/\{[^}]+\}/g, '/{id}/{subId}');
+    clean = clean.replace(/\/\{[^}]+\}\/sub_[^{]*/g, '/{id}');
     // Normalize Express route params: /users/:id -> /users/{id}
     clean = clean.replace(/:([a-zA-Z0-9_]+)/g, '{$1}');
     // Clean trailing slashes
@@ -856,15 +837,69 @@ class UniversalApiCrawler {
 
     if (!clean.startsWith('/')) clean = '/' + clean;
 
-    // Filter out asset files
-    if (/\.(?:js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|map)$/i.test(clean)) {
+    // Filter out asset files & non-API file extensions
+    if (/\.(?:js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map|wasm|webp|mp4|webm|avi|mp3|pdf|zip|tar|gz|txt|md|html)$/i.test(clean)) {
       return null;
     }
 
-    if (clean.length >= 2) {
-      return clean;
+    // Must contain alphanumeric characters (rejects /:, /{, /., />, /-, etc.)
+    if (!/[a-zA-Z0-9]/.test(clean)) {
+      return null;
     }
-    return null;
+
+    // Must be reasonable length
+    if (clean.length < 2 || clean.length > 180) {
+      return null;
+    }
+
+    // Disallow illegal URL / AST characters: %, <, >, [, ], \, ^, ~, *, (, ), ;, !, @, $, ,, quotes
+    if (/[%<>[\]\\^~*();!@$,'"`]/.test(clean)) {
+      return null;
+    }
+
+    const segments = clean.split('/').filter(Boolean);
+    if (segments.length === 0) return null;
+
+    // Reject single-letter leading segments (e.g. /e, /a - minified variable artifacts)
+    if (segments[0].length === 1 && !/^[0-9]$/.test(segments[0])) {
+      return null;
+    }
+
+    // Disallow UI / DOM / JS lifecycle tokens that appear in minified bundles
+    const forbiddenTokens = new Set([
+      'end', 'finish', 'close', 'cancel', 'stop', 'destroy',
+      'error', 'null', 'undefined', 'true', 'false',
+      'window', 'document', 'body', 'self', 'global',
+      'object', 'function', 'prototype', 'component',
+      'validator', 'schemas', 'components', 'definitions',
+      'tag', 'seq', 'yaml', 'spec'
+    ]);
+
+    if (segments.some(seg => forbiddenTokens.has(seg.toLowerCase()))) {
+      return null;
+    }
+
+    // Normalize and validate each segment:
+    // Minified parameters like {t}, {e}, {_}, {n}, {x} unify into {id}
+    const normalizedSegments = [];
+    let idCounter = 1;
+    for (const seg of segments) {
+      if (seg.startsWith('{') && seg.endsWith('}')) {
+        const paramName = seg.slice(1, -1);
+        if (!/^[a-zA-Z0-9_]+$/.test(paramName)) return null;
+        if (paramName.length <= 1 || paramName.startsWith('sub_') || paramName === 'id') {
+          normalizedSegments.push(idCounter === 1 ? '{id}' : `{id${idCounter}}`);
+          idCounter++;
+        } else {
+          normalizedSegments.push(`{${paramName}}`);
+        }
+      } else {
+        if (!/^[a-zA-Z0-9_\-\.]+$/.test(seg)) return null;
+        normalizedSegments.push(seg);
+      }
+    }
+
+    return '/' + normalizedSegments.join('/');
   }
 
   /**
@@ -889,15 +924,21 @@ class UniversalApiCrawler {
   }
 
   /**
-   * Extract entity identifiers from path segments.
+   * Extract entity identifiers ONLY from verified RESTful API resource collections (e.g. /api/v1/orders/{id}).
    */
   static extractEntitiesFromPath(path, entitySet) {
+    if (!path || typeof path !== 'string') return;
+    if (!path.startsWith('/api/') && !path.startsWith('/v1/') && !path.startsWith('/v2/') && !path.startsWith('/rest/')) return;
+
     const segments = path.split('/').filter(Boolean);
-    for (const seg of segments) {
-      if (!['api', 'v1', 'v2', 'v3', 'v4', 'me', 'submit', 'stream', 'graphql'].includes(seg) && 
-          !/^\d+$/.test(seg) && 
-          !seg.startsWith('{')) {
-        entitySet.add(seg.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const next = segments[i + 1];
+      // Must be a collection segment followed by an ID/parameter (e.g., /api/orders/{id} -> orders)
+      if (next && (next.startsWith('{') || next.startsWith(':') || /^\d+$/.test(next))) {
+        if (!['api', 'v1', 'v2', 'v3', 'v4', 'auth', 'oauth', 'admin', 'system'].includes(seg.toLowerCase())) {
+          entitySet.add(seg.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+        }
       }
     }
   }

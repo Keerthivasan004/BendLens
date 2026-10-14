@@ -10,7 +10,7 @@ class ImpactAnalyzer {
     this.codeData = codeData || {};
   }
 
-  static simulate(knowledgeGraph, targetOrOptions = 'orders', targetType = 'table', schemaData = {}, codeData = {}) {
+  static simulate(knowledgeGraph, targetOrOptions = null, targetType = 'table', schemaData = {}, codeData = {}) {
     const analyzer = new ImpactAnalyzer(knowledgeGraph, schemaData, codeData);
     if (typeof targetOrOptions === 'object' && targetOrOptions !== null) {
       return analyzer.analyzeModification(targetOrOptions);
@@ -18,14 +18,167 @@ class ImpactAnalyzer {
     return analyzer.analyzeModification(targetOrOptions, targetType);
   }
 
+  emptyImpactResult() {
+    return {
+      target: null,
+      blastRadius: {
+        totalAffectedComponents: 0,
+        riskScore: 0,
+        riskLevel: 'LOW',
+        directRelations: [],
+        affectedAPIs: [],
+        impactedTables: [],
+        impactedCode: [],
+        affectedNodes: []
+      },
+      personaInsights: {
+        developer: {
+          actionItems: ['No database models or endpoints were detected in this codebase.'],
+          affectedCallers: []
+        },
+        manager: {
+          overallRisk: 'LOW',
+          riskScore: 0,
+          estimatedRefactorEffort: 'None',
+          affectedTeams: [],
+          breakingChangeAlert: false
+        },
+        business: {
+          businessDomain: 'Not Specified',
+          userFacingImpact: 'No impact detected.',
+          revenueOrOperationRisk: 'None',
+          plainEnglishSummary: 'No database tables or API endpoints were detected to simulate blast radius.'
+        }
+      }
+    };
+  }
+
+  analyzeEndpointModification(targetName, action = 'drop', newValue = '', endpoints, functions, modules, tables) {
+    const targetEp = endpoints.find(
+      e => (e.path || '').toLowerCase() === (targetName || '').toLowerCase() ||
+           `${e.method} ${e.path}`.toLowerCase() === (targetName || '').toLowerCase()
+    ) || endpoints[0];
+
+    if (!targetEp) {
+      return this.emptyImpactResult();
+    }
+
+    const actualEpName = `${targetEp.method || 'GET'} ${targetEp.path}`;
+    const impactedCode = [];
+    const seen = new Set();
+
+    // 1. The endpoint itself
+    const epScore = action === 'drop' ? (targetEp.level === 'HIGH' ? 95 : targetEp.level === 'MEDIUM' ? 80 : 60) : 70;
+    impactedCode.push({
+      name: actualEpName,
+      type: 'API ROUTE',
+      module: targetEp.module || 'src/routes',
+      impactPercentage: epScore,
+      severity: this.getSeverity(epScore),
+      reason: `Direct endpoint target: ${action} operation modifies or breaks the API route.`,
+      lineOrRef: actualEpName,
+      mitigation: 'Update API routing, client SDKs, and API documentation.'
+    });
+    seen.add(actualEpName);
+
+    // 2. Module defining the endpoint
+    if (targetEp.module && !seen.has(targetEp.module)) {
+      seen.add(targetEp.module);
+      impactedCode.push({
+        name: targetEp.module,
+        type: 'SERVICE',
+        module: targetEp.module,
+        impactPercentage: Math.max(40, epScore - 15),
+        severity: this.getSeverity(Math.max(40, epScore - 15)),
+        reason: `Module containing the handler for '${actualEpName}'.`,
+        lineOrRef: targetEp.module,
+        mitigation: 'Refactor module export and handler implementation.'
+      });
+    }
+
+    // 3. Connected or mentioned tables
+    const impactedTables = [];
+    const epPathLower = (targetEp.path || '').toLowerCase();
+    for (const tbl of tables) {
+      const tblNameLower = tbl.name.toLowerCase();
+      if (epPathLower.includes(tblNameLower) || (targetEp.connectedTables || []).includes(tbl.name)) {
+        impactedTables.push({
+          name: tbl.name,
+          databaseType: tbl.databaseType || 'Relational SQL',
+          impactPercentage: 65,
+          severity: 'MEDIUM',
+          reason: `Database table '${tbl.name}' accessed or mutated by ${actualEpName}.`,
+          affectedColumns: (tbl.columns || []).slice(0, 3).map(c => c.name),
+          mitigation: 'Review queries and transactions initiated by this endpoint.'
+        });
+      }
+    }
+
+    const overallRiskScore = epScore;
+    const riskLevel = overallRiskScore >= 75 ? 'HIGH' : overallRiskScore >= 45 ? 'MEDIUM' : 'LOW';
+    const businessWorkflows = this.inferBusinessWorkflows(targetEp.path, [targetEp]);
+
+    return {
+      target: {
+        name: actualEpName,
+        type: 'endpoint',
+        changeType: 'endpoint_route',
+        columnName: null,
+        keyName: null,
+        action,
+        newValue,
+        node: { name: actualEpName, type: 'endpoint' }
+      },
+      blastRadius: {
+        totalAffectedComponents: impactedTables.length + impactedCode.length,
+        riskScore: overallRiskScore,
+        riskLevel,
+        directRelations: [],
+        affectedAPIs: [targetEp],
+        impactedTables,
+        impactedCode,
+        affectedNodes: impactedCode.map(c => ({ name: c.name, type: c.type, module: c.module }))
+      },
+      personaInsights: {
+        developer: {
+          actionItems: [
+            `Deprecate or refactor '${actualEpName}' in '${targetEp.module}'.`,
+            `Update consumer clients and automated API regression tests.`,
+            impactedTables.length > 0 ? `Verify queries against connected tables: ${impactedTables.map(t => t.name).join(', ')}.` : `Ensure downstream consumers handle 404/410 status codes gracefully.`
+          ],
+          affectedCallers: impactedCode.map(c => ({ name: c.name, type: c.type }))
+        },
+        manager: {
+          overallRisk: riskLevel,
+          riskScore: overallRiskScore,
+          estimatedRefactorEffort: overallRiskScore > 75 ? '2-3 Days (High Client Impact)' : '1 Day',
+          affectedTeams: this.inferAffectedTeams(impactedTables, impactedCode),
+          breakingChangeAlert: overallRiskScore > 60
+        },
+        business: {
+          businessDomain: businessWorkflows.domain,
+          userFacingImpact: businessWorkflows.userImpact,
+          revenueOrOperationRisk: businessWorkflows.financialRisk,
+          plainEnglishSummary: `Modifying endpoint [${actualEpName}] will affect ${impactedCode.length} code component(s) and ${impactedTables.length} table(s). Action '${action}' carries a computed severity of ${overallRiskScore}%.`
+        }
+      }
+    };
+  }
+
   /**
-   * Analyze modification on table, column, or key
+   * Analyze modification on table, column, key, or endpoint
    * Supports both object params or positional arguments
    */
   analyzeModification(target, targetType = 'table', changeType = 'table_name', columnName = null, keyName = null, action = 'rename', newValue = '') {
+    const tables = this.schemaData.tables || [];
+    const relations = this.schemaData.relations || [];
+    const endpoints = this.codeData.endpoints || [];
+    const functions = this.codeData.functions || [];
+    const modules = this.codeData.modules || [];
+
     // Normalize options
     let opts = {
-      targetName: 'orders',
+      targetName: null,
       targetType: 'table',
       changeType: 'table_name',
       columnName: null,
@@ -37,7 +190,7 @@ class ImpactAnalyzer {
     if (typeof target === 'object' && target !== null) {
       opts = { ...opts, ...target };
     } else {
-      opts.targetName = target || 'orders';
+      opts.targetName = target || null;
       opts.targetType = targetType || 'table';
       opts.changeType = changeType || 'table_name';
       opts.columnName = columnName;
@@ -46,19 +199,28 @@ class ImpactAnalyzer {
       opts.newValue = newValue || '';
     }
 
-    const { targetName, action: currentAction, newValue: currentNewValue } = opts;
+    // If neither tables nor endpoints exist, return clean empty result
+    if (tables.length === 0 && endpoints.length === 0) {
+      return this.emptyImpactResult();
+    }
+
+    // If targetType is endpoint, or no tables exist but endpoints do, simulate endpoint modification
+    if (opts.targetType === 'endpoint' || (tables.length === 0 && endpoints.length > 0)) {
+      const epTarget = opts.targetName || (endpoints[0] ? endpoints[0].path : null);
+      return this.analyzeEndpointModification(epTarget, opts.action, opts.newValue, endpoints, functions, modules, tables);
+    }
+
+    const { action: currentAction, newValue: currentNewValue } = opts;
     let { changeType: currentChangeType, columnName: currentColName, keyName: currentKeyName } = opts;
 
-    const tables = this.schemaData.tables || [];
-    const relations = this.schemaData.relations || [];
-    const endpoints = this.codeData.endpoints || [];
-    const functions = this.codeData.functions || [];
-    const modules = this.codeData.modules || [];
+    // Locate target table from real tables
+    const targetTable = (opts.targetName
+      ? tables.find(t => t.name.toLowerCase() === opts.targetName.toLowerCase())
+      : null) || tables[0];
 
-    // Locate target table
-    const targetTable = tables.find(
-      t => t.name.toLowerCase() === (targetName || '').toLowerCase()
-    ) || tables[0] || { name: targetName || 'orders', columns: [], foreignKeys: [] };
+    if (!targetTable) {
+      return this.emptyImpactResult();
+    }
 
     const actualTableName = targetTable.name;
 
@@ -82,7 +244,7 @@ class ImpactAnalyzer {
 
     const targetColumn = targetTable.columns?.find(
       c => c.name.toLowerCase() === (currentColName || '').toLowerCase()
-    ) || { name: currentColName || 'id', type: 'VARCHAR', isPrimaryKey: currentColName === 'id' };
+    ) || targetTable.columns?.[0] || { name: currentColName || 'id', type: 'VARCHAR', isPrimaryKey: currentColName === 'id' };
 
     // 1. Calculate Impact on Tables
     const impactedTables = this.calculateTableImpacts(
@@ -468,27 +630,17 @@ class ImpactAnalyzer {
     }
 
 
-    // If no code items detected yet (e.g. schema-only analysis), infer standard handlers
-    if (codeList.length === 0) {
+    // If no code items detected (e.g. pure schema-only analysis without source code files)
+    if (codeList.length === 0 && modules.length === 0) {
       codeList.push({
-        name: `Repository / ORM: ${tableName}`,
-        type: 'ORM MODEL',
-        module: `models/${lowerTable}.py`,
-        impactPercentage: 85,
+        name: `Schema Model: ${tableName}`,
+        type: 'DATA MODEL',
+        module: 'schema',
+        impactPercentage: 80,
         severity: 'HIGH',
-        reason: `Generated entity model for '${tableName}' requires field update.`,
-        lineOrRef: `models/${lowerTable}`,
-        mitigation: `Re-generate ORM schema definition and migration class.`
-      });
-      codeList.push({
-        name: `/api/${lowerTable}`,
-        type: 'API ROUTE',
-        module: `routes/${lowerTable}`,
-        impactPercentage: 75,
-        severity: 'HIGH',
-        reason: `REST endpoints serving '${tableName}' data must update serialization contract.`,
-        lineOrRef: `/api/${lowerTable}`,
-        mitigation: `Update endpoint response serializers and DTO types.`
+        reason: `Database entity definition for '${tableName}' requires DDL/ORM migration.`,
+        lineOrRef: tableName,
+        mitigation: 'Generate database migration script and update model annotations.'
       });
     }
 

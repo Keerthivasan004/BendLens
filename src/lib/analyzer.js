@@ -493,11 +493,12 @@ class ProjectAnalyzer {
     await yieldEventLoop();
     const lld = DiagramGenerator.generateLLD(codeData, schemaData);
     await yieldEventLoop();
-    const seq = DiagramGenerator.generateSequence(codeData.endpoints[0]?.path || '/api/checkout');
+    const seqTarget = codeData.endpoints[0] || (schemaData.tables[0] ? `/api/${schemaData.tables[0].name}` : null);
+    const seq = DiagramGenerator.generateSequence(seqTarget, codeData, schemaData);
     await yieldEventLoop();
 
     // 4. Default Sample What-If Blast Radius
-    let sampleTarget = 'orders';
+    let sampleTarget = null;
     let sampleType = 'table';
     if (schemaData.tables.length > 0) {
       sampleTarget = schemaData.tables[0].name;
@@ -634,10 +635,11 @@ class ProjectAnalyzer {
     const erd = DiagramGenerator.generateERD(schemaData);
     const hld = DiagramGenerator.generateHLD(infraData, codeData, schemaData);
     const lld = DiagramGenerator.generateLLD(codeData, schemaData);
-    const seq = DiagramGenerator.generateSequence(codeData.endpoints[0]?.path || '/api/checkout');
+    const seqTarget = codeData.endpoints[0] || (schemaData.tables[0] ? `/api/${schemaData.tables[0].name}` : null);
+    const seq = DiagramGenerator.generateSequence(seqTarget, codeData, schemaData);
 
     // 4. Default Sample What-If Blast Radius
-    let sampleTarget = 'orders';
+    let sampleTarget = null;
     let sampleType = 'table';
     if (schemaData.tables.length > 0) {
       sampleTarget = schemaData.tables[0].name;

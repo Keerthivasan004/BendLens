@@ -5,22 +5,28 @@ The Blast Radius Engine (`src/lib/generators/impactAnalyzer.js`) calculates the 
 ## 1. Simulation Targets & Actions
 The engine supports evaluating changes to:
 - **Target Types**:
-  - `table`: Changing table name or dropping a table.
-  - `column`: Renaming or deleting a column.
-  - `key`: Altering primary key, foreign key, or unique constraints.
-  - `endpoint`: Modifying or deprecating an API route.
+  - `table`: Changing table name, column, key constraint, or dropping a table.
+  - `endpoint`: Modifying, refactoring, or deprecating an API route.
+  - `none`: Clean empty state if neither database entities nor endpoints exist.
 - **Actions**: `rename`, `drop`, `type_change`, `constraint_change`.
 
-## 2. Graph Traversal & Ripple Node Calculation
+## 2. Authentic Target Selection (Zero Hallucination)
+- **Real Entity Grounding**:
+  - If `tables` exist in the schema, the engine targets a real discovered table (`tables[0]` or the user-selected table).
+  - The engine **NEVER** fabricates a synthetic `'orders'` table or fake risk score if the project does not contain an `'orders'` table.
+  - If no database models exist but API endpoints exist, the engine automatically simulates the blast radius of deprecating or refactoring the real API endpoint.
+  - If neither tables nor endpoints exist, the engine returns an honest 0% risk clean state (`emptyImpactResult()`) without hallucinating fake ORM models or routes.
+
+## 3. Graph Traversal & Ripple Node Calculation
 1. **Direct Dependents (1st Degree)**:
    - Foreign keys pointing to the target table/column.
-   - API endpoints whose path or query parameters reference the table/column.
-   - Code modules with explicit SQL queries or ORM calls targeting the entity.
+   - API endpoints whose path, parameters, or controller reference the entity.
+   - Real scanned code modules with active database queries or repository calls.
 2. **Cascading Ripple Nodes (Nth Degree)**:
-   - Traverses the `KnowledgeGraph`'s `adjacency` and `reverseAdjacency` sets up to a depth limit.
-   - For example: Renaming `users.id` impacts `orders.user_id`, which impacts `invoices.order_id`, which cascades to payment settlement handlers.
+   - Traverses the `KnowledgeGraph`'s relational dependencies up to depth limit.
+   - Maps cascading foreign key impact across dependent child tables.
 
-## 3. Risk Score Computation Formula
+## 4. Risk Score Computation Formula
 The overall Risk Score (0 - 100) is synthesized from:
 - **Base Action Weight**:
   - Drop table / Drop column: Highest baseline risk (70-85 points).
@@ -39,7 +45,7 @@ Scores map to distinct risk tiers:
 - `60 - 79`: **HIGH** (Cascading relational & API breaking change)
 - `80 - 100`: **CRITICAL** (Core architectural hub alteration; high regression probability)
 
-## 4. Automated Mitigation Checklist
+## 5. Automated Mitigation Checklist
 `ImpactAnalyzer` automatically compiles a step-by-step mitigation plan:
 - Required SQL migration commands (e.g., `ALTER TABLE ... RENAME COLUMN ...`).
 - Affected foreign key constraint drops and recreations.

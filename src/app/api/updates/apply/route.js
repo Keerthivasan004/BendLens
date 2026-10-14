@@ -46,6 +46,48 @@ function launchInstallerExe(exePath) {
   return false;
 }
 
+async function downloadAndLaunchInstaller(downloadUrl, artifactName) {
+  const destPath = path.join(os.tmpdir(), artifactName);
+  try {
+    // 1. If valid cached installer exists in temp, launch immediately
+    if (isValidWindowsExe(destPath)) {
+      if (launchInstallerExe(destPath)) {
+        return { success: true, path: destPath, fromCache: true };
+      }
+    }
+
+    // 2. Stream download directly
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000);
+    const res = await fetch(downloadUrl, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'BendLens-Updater/1.0' }
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} when downloading installer`);
+    }
+
+    const { Readable } = await import('stream');
+    const fileStream = fs.createWriteStream(destPath);
+    await new Promise((resolve, reject) => {
+      Readable.fromWeb(res.body)
+        .pipe(fileStream)
+        .on('finish', resolve)
+        .on('error', reject);
+    });
+
+    if (isValidWindowsExe(destPath)) {
+      const launched = launchInstallerExe(destPath);
+      return { success: launched, path: destPath, fromCache: false };
+    }
+  } catch (err) {
+    console.warn('[updates/apply] Direct download/launch failed:', err.message);
+  }
+  return { success: false, path: destPath };
+}
+
 function findLocalInstaller(projectRoot, targetVersion) {
   const searchDirs = [
     path.join(projectRoot, 'dist'),
@@ -148,10 +190,18 @@ export async function POST(request) {
       }
     }
 
-    // 3. Fallback for non-git / installed packaged desktop app: trigger direct installer download
+    // 3. Fallback for non-git / installed packaged desktop app: stream download installer & launch
     let setupDownloadUrl = null;
-    const targetVer = targetVersion || '1.1.30';
-    let setupArtifactName = `BendLens-Setup-${targetVer}.exe`;
+    let effective = null;
+    try {
+      effective = await getEffectiveLatest(projectRoot, { allowRemote: true });
+    } catch {}
+
+    const targetVer = targetVersion || effective?.latestVersion || '1.1.32';
+    let setupArtifactName = effective?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
+    if (!setupArtifactName.endsWith('.exe')) {
+      setupArtifactName = `BendLens-Setup-${targetVer}.exe`;
+    }
 
     if (!installerLaunched && !isGitRepo) {
       setupDownloadUrl = `https://github.com/Keerthivasan004/BendLens/releases/download/v${targetVer}/${setupArtifactName}`;
@@ -188,12 +238,19 @@ export async function POST(request) {
       }
 
       if (setupDownloadUrl && process.platform === 'win32') {
-        try {
-          exec(`start "" "${setupDownloadUrl}"`);
-          downloadTriggered = true;
-          output = `Opened official installer download (${setupArtifactName}). Run the installer once download finishes!`;
-        } catch (startErr) {
-          console.warn('[updates/apply] Failed to open download URL:', startErr.message);
+        const dlResult = await downloadAndLaunchInstaller(setupDownloadUrl, setupArtifactName);
+        if (dlResult.success) {
+          installerLaunched = true;
+          launchedPath = dlResult.path;
+          output = `Launched installer: ${path.basename(dlResult.path)}. Complete installation to finish updating!`;
+        } else {
+          try {
+            exec(`start "" "${setupDownloadUrl}"`);
+            downloadTriggered = true;
+            output = `Opened official installer download (${setupArtifactName}). Run the installer once download finishes!`;
+          } catch (startErr) {
+            console.warn('[updates/apply] Failed to open download URL:', startErr.message);
+          }
         }
       }
     }
@@ -217,21 +274,17 @@ export async function POST(request) {
     }
 
     // 5. Version Resolution and Persistence
-    let newVersion = targetVersion;
-    if (!newVersion) {
-      try {
-        const effective = await getEffectiveLatest(projectRoot, { allowRemote: false });
-        newVersion = effective?.latestVersion;
-      } catch {}
-    }
-    if (!newVersion) {
-      newVersion = getLocalVersion(projectRoot);
-    }
+    const newVersion = targetVersion || effective?.latestVersion || getLocalVersion(projectRoot);
 
-    try {
-      setLocalVersion(projectRoot, newVersion);
-    } catch (verErr) {
-      console.warn('[updates/apply] Version stamp warning:', verErr.message);
+    // IMPORTANT: Only update package.json if git pull completed in a git repo.
+    // For installed/packaged users, do NOT pre-emptively stamp newVersion before
+    // the installer actually replaces the application files!
+    if (isGitRepo && !installerLaunched && !downloadTriggered) {
+      try {
+        setLocalVersion(projectRoot, newVersion);
+      } catch (verErr) {
+        console.warn('[updates/apply] Version stamp warning:', verErr.message);
+      }
     }
 
     const durationMs = Date.now() - updateStartTime;
