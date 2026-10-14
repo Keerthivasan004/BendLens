@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Download, Copy, Check, FileText, Code2 } from 'lucide-react';
+import { X, Download, Copy, Check, FileText, Code2, Printer } from 'lucide-react';
+import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 
 export default function ExportModal({ isOpen, onClose, data }) {
   const [format, setFormat] = useState('markdown');
@@ -9,7 +10,40 @@ export default function ExportModal({ isOpen, onClose, data }) {
 
   if (!isOpen || !data) return null;
 
+  const isUrlScan = !!(data.isUrlCrawl || data.crawlerTelemetry || (data.schema?.tables?.length === 0 && (data.code?.endpoints?.length || 0) > 0));
+
   const generateMarkdown = () => {
+    if (isUrlScan) {
+      const endpoints = data.code?.endpoints || [];
+      return `# BendLens API Architecture & Inventory Assessment Report: ${data.projectName}
+Generated at: ${new Date(data.timestamp || Date.now()).toLocaleString()}
+Target Perimeter: ${data.crawlerTelemetry?.targetUrl || data.projectName}
+
+## 1. Executive Perimeter Summary
+- **Total Discovered API Routes**: ${endpoints.length}
+- **Scan Duration**: ${data.crawlerTelemetry?.crawlDurationMs ? `${(data.crawlerTelemetry.crawlDurationMs / 1000).toFixed(1)}s` : 'Real-Time'}
+- **Chunks Crawled**: ${data.crawlerTelemetry?.chunksCrawledCount || 1}
+- **Discovery Strategy**: ${data.crawlerTelemetry?.discoveryStrategy || 'deep_chunk_crawler'}
+- **Architecture Risk Level**: LOW (Isolated External Web Surface)
+
+## 2. API Execution Sequence Flow
+\`\`\`mermaid
+${data.diagrams?.sequence?.mermaid || data.diagrams?.hld?.mermaid || ''}
+\`\`\`
+
+## 3. High-Level Architecture Design (HLD)
+\`\`\`mermaid
+${data.diagrams?.hld?.mermaid || ''}
+\`\`\`
+
+## 4. Crawled Endpoints Inventory (${endpoints.length} Routes)
+| Method | Endpoint Path | Module | Architectural Tier |
+| :--- | :--- | :--- | :--- |
+${endpoints.slice(0, 100).map(e => `| **${(e.method || 'GET').toUpperCase()}** | \`${e.path}\` | ${e.module || 'Root'} | ${e.level || 'MEDIUM'} |`).join('\n')}
+${endpoints.length > 100 ? `\n> *...and ${endpoints.length - 100} more endpoints documented in full PDF report.*` : ''}
+`;
+    }
+
     return `# BendLens Architecture & Impact Report: ${data.projectName}
 Generated at: ${new Date(data.timestamp).toLocaleString()}
 
@@ -117,6 +151,14 @@ ${data.diagrams?.lld?.mermaid || ''}
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => openAndPrintApiReport(data)}
+              className="btn-primary text-xs py-1 px-3 flex items-center gap-1.5 shadow-sm cursor-pointer font-bold"
+              title="Download or Print Executive API PDF Assessment Report"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              <span>Download PDF Report</span>
+            </button>
+            <button
               onClick={handleCopy}
               className="btn-secondary text-xs py-1 px-2.5"
             >
@@ -125,7 +167,7 @@ ${data.diagrams?.lld?.mermaid || ''}
             </button>
             <button
               onClick={handleDownload}
-              className="btn-primary text-xs py-1 px-3"
+              className="btn-secondary text-xs py-1 px-3"
             >
               <Download className="h-3.5 w-3.5 mr-1.5" />
               <span>Download File</span>

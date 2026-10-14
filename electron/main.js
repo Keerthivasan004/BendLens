@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, Notification, dialog } = require('electron');
+const { app, BrowserWindow, shell, Notification, dialog, ipcMain } = require('electron');
 const path = require('path');
 const http = require('http');
 const net = require('net');
@@ -714,6 +714,22 @@ function checkForDesktopUpdates() {
     })
     .on('error', () => {});
 }
+
+// IPC handler to gracefully close background server and quit app when an installer is launched
+ipcMain.on('app-quit-and-update', () => {
+  console.log('[*] Received app-quit-and-update: closing background server and quitting for update installer...');
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.hide();
+    }
+  } catch {}
+  cleanupServer();
+  setTimeout(() => {
+    try {
+      app.quit();
+    } catch {}
+  }, 600);
+});
 
 app.whenReady().then(() => {
   createWindow();

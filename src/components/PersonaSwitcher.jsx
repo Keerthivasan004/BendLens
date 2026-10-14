@@ -3,7 +3,8 @@
 import React from 'react';
 import { Terminal, Users, Briefcase, Zap } from 'lucide-react';
 
-export default function PersonaSwitcher({ currentRole, setRole, data }) {
+export default function PersonaSwitcher({ currentRole, setRole, data, isUrlScan = false }) {
+  const isUrl = isUrlScan || data?.isUrlCrawl || !!data?.crawlerTelemetry || (data?.schema?.tables?.length === 0 && (data?.code?.endpoints?.length || 0) > 0);
   const tablesCount = data?.schema?.tables?.length || 0;
   const apisCount = data?.code?.endpoints?.length || 0;
   const debtCount = data?.personas?.manager?.techDebtHotspots?.length || 0;
@@ -15,8 +16,8 @@ export default function PersonaSwitcher({ currentRole, setRole, data }) {
       id: 'DEVELOPER',
       label: 'Developer',
       icon: Terminal,
-      badge: `${tablesCount} tables · ${apisCount} APIs`,
-      tag: 'AST · ERD · LLD',
+      badge: isUrl ? `${apisCount} APIs · Web Surface` : `${tablesCount} tables · ${apisCount} APIs`,
+      tag: isUrl ? 'API Architecture · Sequence' : 'AST · ERD · LLD',
       accent: 'text-blue-500',
     },
     {

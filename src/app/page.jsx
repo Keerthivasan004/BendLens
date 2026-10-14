@@ -239,7 +239,8 @@ CREATE TABLE orders (
       }), (data) => {
         setAnalysisResult(data);
         fetchLocalHistory();
-        handleOpenLens('DEVELOPER');
+        const initialTab = (data?.isUrlCrawl || data?.schema?.tables?.length === 0) ? 'sequence' : null;
+        handleOpenLens('DEVELOPER', initialTab);
       });
       return;
     }
@@ -325,7 +326,8 @@ CREATE TABLE orders (
     }), (data) => {
       setAnalysisResult(data);
       fetchLocalHistory();
-      handleOpenLens('DEVELOPER');
+      const initialTab = (data?.isUrlCrawl || data?.schema?.tables?.length === 0) ? 'sequence' : null;
+      handleOpenLens('DEVELOPER', initialTab);
     });
   };
 

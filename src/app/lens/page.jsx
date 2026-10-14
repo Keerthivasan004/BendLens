@@ -74,9 +74,12 @@ export default function LensDashboard() {
       const sessionDataRaw = sessionStorage.getItem('bendlens-current-data');
       if (sessionDataRaw) {
         const sessionData = JSON.parse(sessionDataRaw);
-        if (sessionData && sessionData.schema) {
+        if (sessionData) {
           setAnalysisData(sessionData);
-          setCurrentPath(sessionData.projectPath || '');
+          setCurrentPath(sessionData.projectPath || sessionData.projectName || '');
+          if (sessionData.isUrlCrawl || sessionData.crawlerTelemetry || sessionData.schema?.tables?.length === 0) {
+            setActiveDiagramTab('sequence');
+          }
           restoredFromSession = true;
         }
       }
@@ -92,6 +95,19 @@ export default function LensDashboard() {
       }
     }
   }, []);
+
+  const isUrlScan = !!(
+    analysisData?.isUrlCrawl ||
+    analysisData?.crawlerTelemetry ||
+    (currentPath && (currentPath.startsWith('http://') || currentPath.startsWith('https://'))) ||
+    (analysisData?.schema?.tables?.length === 0 && (analysisData?.code?.endpoints?.length || 0) > 0)
+  );
+
+  useEffect(() => {
+    if (isUrlScan && activeDiagramTab === 'erd') {
+      setActiveDiagramTab('sequence');
+    }
+  }, [isUrlScan, activeDiagramTab]);
 
   const toggleTheme = (explicitTheme) => {
     const newTheme = (typeof explicitTheme === 'string' && (explicitTheme === 'dark' || explicitTheme === 'light'))
@@ -152,6 +168,9 @@ export default function LensDashboard() {
         setAnalysisData(result.data);
         const resolvedPath = result.data.projectName || result.data.projectPath || sanitized;
         setCurrentPath(resolvedPath);
+        if (result.data.isUrlCrawl || result.data.crawlerTelemetry || isRemoteUrl || result.data.schema?.tables?.length === 0) {
+          setActiveDiagramTab('sequence');
+        }
         try {
           localStorage.setItem('bendlens-path', resolvedPath);
         } catch {}
@@ -340,6 +359,7 @@ export default function LensDashboard() {
           currentRole={currentRole}
           setRole={handleRoleChange}
           data={analysisData}
+          isUrlScan={isUrlScan}
         />
 
         {/* Diagram Canvas Section - Available across Developer, Manager, and Business Views */}
@@ -352,6 +372,7 @@ export default function LensDashboard() {
               onSelectForImpact={handleSelectForImpact}
               activeTab={activeDiagramTab}
               onTabChange={setActiveDiagramTab}
+              isUrlScan={isUrlScan}
             />
           </div>
         )}
@@ -362,6 +383,8 @@ export default function LensDashboard() {
             {currentRole === 'DEVELOPER' && (
               <DeveloperView
                 data={analysisData.personas?.developer}
+                rawAnalysisData={analysisData}
+                isUrlScan={isUrlScan}
                 onSelectForImpact={handleSelectForImpact}
               />
             )}

@@ -8,8 +8,9 @@ import useIsDesktop from '@/lib/useIsDesktop';
 import {
   FolderSearch, Play, Download, Sparkles, Database,
   FileCode, Cpu, CheckCircle2, RefreshCw,
-  Activity, ChevronRight, Globe
+  Activity, ChevronRight, Globe, Printer
 } from 'lucide-react';
+import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 
 export default function Header({
   onAnalyze,
@@ -94,6 +95,17 @@ export default function Header({
               <Sparkles className="h-3 w-3 text-brand" />
               <span className="hidden sm:inline">Sample</span>
             </button>
+
+            {hasAnalysis && (isUrl || analysisData?.isUrlCrawl || analysisData?.crawlerTelemetry) && (
+              <button
+                onClick={() => openAndPrintApiReport(analysisData)}
+                className="btn-primary text-xs py-2 px-3 whitespace-nowrap flex items-center gap-1.5 shadow-sm"
+                title="Download / Print Discovered APIs Assessment PDF Report"
+              >
+                <Printer className="h-3 w-3" />
+                <span>API PDF</span>
+              </button>
+            )}
 
             <button
               onClick={onExport}

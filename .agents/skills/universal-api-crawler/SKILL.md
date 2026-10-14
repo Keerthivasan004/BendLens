@@ -46,7 +46,13 @@ Use this skill when you need to:
   - `safeFetch(url, options)`: Timeout-bounded and error-neutral fetch wrapper.
   - `extractEndpointsFromCode(code, scriptUrl, origin, ...)`: Token and AST pattern extractor with strict regex patterns avoiding comments and generic strings.
   - `emergencyFallback(errorMsg, targetUrl)`: Crash-proof fallback generator reporting `crawlStatus: 'failed'` with zero synthetic models.
-- **`src/app/api/crawl/route.js`**: Dedicated crawler API route validating authentic status.
-- **`src/app/api/git-clone/route.js`**: Remote URL & Git repository ingestion with automatic crawler fallback.
-- **`src/app/api/analyze/route.js`**: Automatically detects URL paths and routes them through the crawler, checking for crawl failures before running graph analysis.
-- **`src/app/page.jsx`**: Web & API Crawler UI tab with presets and live telemetry HUD.
+- **`src/lib/generators/apiPdfReportGenerator.js`**: Enterprise API Architecture & Inventory PDF Report Generator.
+  - `generateApiReportHtml(analysisData)`: Builds an executive, print-ready HTML/PDF assessment report with KPI grid, architectural tier badges, method distribution, categorized route tables, and embedded `@media print` styling.
+  - `openAndPrintApiReport(analysisData)`: Client-side trigger that opens the report in a new tab with automatic `window.print()` for 1-click "Save as PDF" / printer export and fallback HTML download.
+- **`src/app/api/crawl/route.js`**: Dedicated crawler API route validating authentic status and stamping `result.isUrlCrawl = true` and `result.schema = { tables: [], relationships: [] }`.
+- **`src/app/api/git-clone/route.js`**: Remote URL & Git repository ingestion with automatic crawler fallback and `isUrlCrawl = true`.
+- **`src/app/api/analyze/route.js`**: Automatically detects URL paths, routes them through the crawler, and sets `isUrlCrawl = true`.
+- **`src/app/page.jsx`**: Web & API Crawler UI tab with presets, live telemetry HUD, and initialTab `'sequence'` routing.
+- **`src/app/lens/page.jsx` & `src/components/views/DeveloperView.jsx`**:
+  - Results page presentation rules: When `isUrlCrawl` is active, the database section (ERD canvas tab, DDL/attributes view, and table selector cards) is **COMPLETELY HIDDEN**.
+  - Only the authentic API Surface & Endpoint Architecture is presented to the user, with direct 1-click "Download API PDF Report" action in the hero header.

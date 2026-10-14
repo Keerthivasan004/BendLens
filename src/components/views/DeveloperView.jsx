@@ -8,8 +8,9 @@ import {
   Sparkles, BookOpen, ShieldAlert, Network, GitFork, ChevronDown, ChevronUp,
   Info, Cpu, Box, CheckCircle2, ChevronRight,
   Radio, ShieldCheck, Webhook, HardDrive, Settings, Activity, Workflow, Zap,
-  Server, SlidersHorizontal, Share2, ArrowDownRight, Layers2
+  Server, SlidersHorizontal, Share2, ArrowDownRight, Layers2, Printer
 } from 'lucide-react';
+import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 
 /**
  * Analyzes database tables and foreign keys to synthesize architectural breakdown.
@@ -210,7 +211,7 @@ function enrichEndpoint(ep, tables, tableLookup) {
   };
 }
 
-export default function DeveloperView({ data, onSelectForImpact }) {
+export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false, onSelectForImpact }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTableFilter, setSelectedTableFilter] = useState('ALL');
   const [methodFilter, setMethodFilter] = useState('ALL');
@@ -226,9 +227,11 @@ export default function DeveloperView({ data, onSelectForImpact }) {
   const [showExplanation, setShowExplanation] = useState(false);
   const [inspectedTable, setInspectedTable] = useState(null);
 
-  const tables = data?.tables || data?.schema?.tables || [];
-  const endpoints = data?.endpoints || data?.code?.endpoints || [];
+  const tables = data?.tables || data?.schema?.tables || rawAnalysisData?.schema?.tables || [];
+  const endpoints = data?.endpoints || data?.code?.endpoints || rawAnalysisData?.code?.endpoints || [];
   const warnings = data?.breakingChangeWarnings || [];
+
+  const isUrl = isUrlScan || rawAnalysisData?.isUrlCrawl || !!rawAnalysisData?.crawlerTelemetry || (tables.length === 0 && endpoints.length > 0);
 
   const architecture = useMemo(() => analyzeSchemaArchitecture(tables), [tables]);
 
@@ -396,45 +399,85 @@ export default function DeveloperView({ data, onSelectForImpact }) {
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      {/* Top Quick Metrics Ribbon (Retains exact labels for test compatibility) */}
+      {/* Top Quick Metrics Ribbon */}
       <div className="grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-border border-y border-border py-3">
-        <div className="py-2 sm:py-0 px-4">
-          <div className="text-2xl font-extrabold text-foreground font-mono">{tables.length}</div>
-          <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
-            <Database className="h-3 w-3 text-brand" />
-            <span>Database Tables</span>
-          </div>
-        </div>
+        {isUrl ? (
+          <>
+            <div className="py-2 sm:py-0 px-4">
+              <div className="text-2xl font-extrabold text-foreground font-mono">{endpoints.length}</div>
+              <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
+                <Code2 className="h-3 w-3 text-cyan-500" />
+                <span>Crawled API Routes</span>
+              </div>
+            </div>
 
-        <div className="py-2 sm:py-0 px-4">
-          <div className="text-2xl font-extrabold text-foreground font-mono">{endpoints.length}</div>
-          <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
-            <Code2 className="h-3 w-3 text-cyan-500" />
-            <span>API Endpoints</span>
-          </div>
-        </div>
+            <div className="py-2 sm:py-0 px-4">
+              <div className="text-2xl font-extrabold text-foreground font-mono">{apiStats.high}</div>
+              <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
+                <Layers className="h-3 w-3 text-purple-500" />
+                <span>High-Tier Routes</span>
+              </div>
+            </div>
 
-        <div className="py-2 sm:py-0 px-4">
-          <div className="text-2xl font-extrabold text-foreground font-mono">{data?.functions?.length || 0}</div>
-          <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
-            <Layers className="h-3 w-3 text-violet-500" />
-            <span>AST Functions</span>
-          </div>
-        </div>
+            <div className="py-2 sm:py-0 px-4">
+              <div className="text-2xl font-extrabold text-foreground font-mono">{apiStats.medium}</div>
+              <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
+                <Box className="h-3 w-3 text-blue-500" />
+                <span>Domain Endpoints</span>
+              </div>
+            </div>
 
-        <div className="py-2 sm:py-0 px-4">
-          <div className="text-2xl font-extrabold text-foreground font-mono">{data?.metrics?.linesOfCode || 0}</div>
-          <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
-            <Terminal className="h-3 w-3 text-emerald-500" />
-            <span>Lines of Code</span>
-          </div>
-        </div>
+            <div className="py-2 sm:py-0 px-4">
+              <div className="text-2xl font-extrabold text-foreground font-mono">{apiStats.low}</div>
+              <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
+                <Cpu className="h-3 w-3 text-emerald-500" />
+                <span>Diagnostic Endpoints</span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="py-2 sm:py-0 px-4">
+              <div className="text-2xl font-extrabold text-foreground font-mono">{tables.length}</div>
+              <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
+                <Database className="h-3 w-3 text-brand" />
+                <span>Database Tables</span>
+              </div>
+            </div>
+
+            <div className="py-2 sm:py-0 px-4">
+              <div className="text-2xl font-extrabold text-foreground font-mono">{endpoints.length}</div>
+              <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
+                <Code2 className="h-3 w-3 text-cyan-500" />
+                <span>API Endpoints</span>
+              </div>
+            </div>
+
+            <div className="py-2 sm:py-0 px-4">
+              <div className="text-2xl font-extrabold text-foreground font-mono">{data?.functions?.length || 0}</div>
+              <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
+                <Layers className="h-3 w-3 text-violet-500" />
+                <span>AST Functions</span>
+              </div>
+            </div>
+
+            <div className="py-2 sm:py-0 px-4">
+              <div className="text-2xl font-extrabold text-foreground font-mono">{data?.metrics?.linesOfCode || 0}</div>
+              <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
+                <Terminal className="h-3 w-3 text-emerald-500" />
+                <span>Lines of Code</span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ========================================================================= */}
       {/* WHOLE SECTION: Database Schemas & Developer Architecture                   */}
+      {/* (Only displayed for backend repositories with actual DB tables)          */}
       {/* ========================================================================= */}
-      {!showExplanation ? (
+      {!isUrl && tables.length > 0 && (
+        !showExplanation ? (
         <section className="p-8 sm:p-12 rounded-2xl border border-border bg-surface-card shadow-card text-center space-y-4 animate-fadeIn">
           <div className="h-14 w-14 rounded-2xl bg-brand/15 border border-brand/30 flex items-center justify-center text-brand mx-auto shadow-sm">
             <Sparkles className="h-7 w-7" />
@@ -987,6 +1030,9 @@ export default function DeveloperView({ data, onSelectForImpact }) {
           )}
         </div>
       </section>
+    </div>
+  )
+)}
 
       {/* ========================================================================= */}
       {/* WHOLE SECTION: API Routes, Multi-Tier Classification & Connection Topology */}
@@ -1006,26 +1052,52 @@ export default function DeveloperView({ data, onSelectForImpact }) {
                 <span className="text-xs font-mono px-2.5 py-0.5 rounded-full bg-surface-raised text-foreground font-semibold border border-border">
                   {allEnrichedEndpoints.length} Routes
                 </span>
-                <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
-                  {apiStats.connected} Connected to DB
-                </span>
+                {!isUrl ? (
+                  <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                    {apiStats.connected} Connected to DB
+                  </span>
+                ) : (
+                  <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-sky-400 border border-blue-500/25">
+                    Universal Web Surface Discovery
+                  </span>
+                )}
               </div>
               <p className="text-xs text-muted mt-1 leading-relaxed">
-                Segregated by architectural tier (<span className="text-purple-600 dark:text-purple-400 font-semibold">High</span>, <span className="text-cyan-600 dark:text-cyan-400 font-semibold">Medium</span>, <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Low</span>), protocol kind (REST, WebSockets, Webhooks, Auth), and connected database tables.
+                {!isUrl 
+                  ? <>Segregated by architectural tier (<span className="text-purple-600 dark:text-purple-400 font-semibold">High</span>, <span className="text-cyan-600 dark:text-cyan-400 font-semibold">Medium</span>, <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Low</span>), protocol kind (REST, WebSockets, Webhooks, Auth), and connected database tables.</>
+                  : <>Full perimeter API assessment segregated by architectural tier (<span className="text-purple-600 dark:text-purple-400 font-semibold">High</span>, <span className="text-cyan-600 dark:text-cyan-400 font-semibold">Medium</span>, <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Low</span>) and functional endpoints.</>
+                }
               </p>
             </div>
           </div>
 
-          {/* Quick Search inside APIs */}
-          <div className="flex items-center gap-2 w-full lg:w-auto">
-            <div className="relative flex-1 lg:w-64">
+          {/* Quick Search & Download PDF Report Button */}
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full lg:w-auto">
+            <button
+              onClick={() => {
+                const reportPayload = rawAnalysisData || {
+                  projectName: data?.projectName || 'Target Web Architecture',
+                  code: { endpoints },
+                  schema: { tables },
+                  crawlerTelemetry: data?.crawlerTelemetry
+                };
+                openAndPrintApiReport(reportPayload);
+              }}
+              className="px-3.5 py-2 text-xs rounded-xl font-bold btn-primary flex items-center gap-2 shadow-sm transition-all cursor-pointer whitespace-nowrap"
+              title="Download or Print Executive API Assessment PDF Report"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              <span>Download API PDF Report</span>
+            </button>
+
+            <div className="relative flex-1 sm:w-60">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted pointer-events-none" />
               <input
                 type="text"
-                placeholder="Search path, module, table..."
+                placeholder="Search path, module..."
                 value={apiSearchQuery}
                 onChange={(e) => setApiSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-7 py-1.5 text-xs rounded-lg border border-border bg-surface text-foreground placeholder:text-muted focus:outline-hidden focus:border-brand transition-colors"
+                className="w-full pl-9 pr-7 py-2 text-xs rounded-xl border border-border bg-surface text-foreground placeholder:text-muted focus:outline-hidden focus:border-brand transition-colors"
               />
               {apiSearchQuery && (
                 <button
@@ -1121,31 +1193,51 @@ export default function DeveloperView({ data, onSelectForImpact }) {
             </div>
           </button>
 
-          {/* 4. Connected Entities */}
-          <button
-            onClick={() => setApiTableFilter(apiTableFilter === 'CONNECTED' ? 'ALL' : 'CONNECTED')}
-            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${
-              apiTableFilter === 'CONNECTED'
-                ? 'bg-amber-500/15 border-amber-500/40 shadow-sm ring-1 ring-amber-500/30'
-                : 'bg-surface hover:bg-surface-raised border-border'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                <Network className="h-3.5 w-3.5" />
-                <span>DB Connected</span>
-              </span>
-              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20">
-                Active
-              </span>
+          {/* 4. Connected Entities or Universal Coverage */}
+          {!isUrl ? (
+            <button
+              onClick={() => setApiTableFilter(apiTableFilter === 'CONNECTED' ? 'ALL' : 'CONNECTED')}
+              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${
+                apiTableFilter === 'CONNECTED'
+                  ? 'bg-amber-500/15 border-amber-500/40 shadow-sm ring-1 ring-amber-500/30'
+                  : 'bg-surface hover:bg-surface-raised border-border'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                  <Network className="h-3.5 w-3.5" />
+                  <span>DB Connected</span>
+                </span>
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20">
+                  Active
+                </span>
+              </div>
+              <div className="text-xl font-extrabold text-foreground font-mono mt-1">
+                {apiStats.connected}
+              </div>
+              <div className="text-[11px] text-muted truncate mt-0.5">
+                Direct Schema Connections
+              </div>
+            </button>
+          ) : (
+            <div className="p-3.5 rounded-xl border text-left bg-surface border-border">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400 flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>Web Surface</span>
+                </span>
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20">
+                  Perimeter
+                </span>
+              </div>
+              <div className="text-xl font-extrabold text-foreground font-mono mt-1">
+                {allEnrichedEndpoints.length}
+              </div>
+              <div className="text-[11px] text-muted truncate mt-0.5">
+                Zero Cloud Leakage Discovery
+              </div>
             </div>
-            <div className="text-xl font-extrabold text-foreground font-mono mt-1">
-              {apiStats.connected}
-            </div>
-            <div className="text-[11px] text-muted truncate mt-0.5">
-              Direct Schema Connections
-            </div>
-          </button>
+          )}
         </div>
 
         {/* ========================================================================= */}
@@ -1218,23 +1310,25 @@ export default function DeveloperView({ data, onSelectForImpact }) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Table Connection Filter Dropdown */}
-            <div className="flex items-center gap-1.5">
-              <Database className="h-3 w-3 text-muted" />
-              <select
-                value={apiTableFilter}
-                onChange={(e) => setApiTableFilter(e.target.value)}
-                className="text-xs py-1 px-2.5 rounded-lg border border-border bg-surface text-foreground font-mono cursor-pointer focus:outline-hidden focus:border-brand"
-              >
-                <option value="ALL">All Tables (Any)</option>
-                <option value="CONNECTED">Only with DB Connections ({apiStats.connected})</option>
-                {tables.map((t) => (
-                  <option key={t.name} value={t.name}>
-                    Touches: {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Table Connection Filter Dropdown (Only for backend projects with DB tables) */}
+            {!isUrl && tables.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <Database className="h-3 w-3 text-muted" />
+                <select
+                  value={apiTableFilter}
+                  onChange={(e) => setApiTableFilter(e.target.value)}
+                  className="text-xs py-1 px-2.5 rounded-lg border border-border bg-surface text-foreground font-mono cursor-pointer focus:outline-hidden focus:border-brand"
+                >
+                  <option value="ALL">All Tables (Any)</option>
+                  <option value="CONNECTED">Only with DB Connections ({apiStats.connected})</option>
+                  {tables.map((t) => (
+                    <option key={t.name} value={t.name}>
+                      Touches: {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Method Filter Tabs */}
             <div className="flex items-center gap-0.5 p-0.5 bg-surface rounded-lg border border-border text-[11px] font-semibold font-mono">
@@ -1393,45 +1487,47 @@ export default function DeveloperView({ data, onSelectForImpact }) {
                         </div>
                       </div>
 
-                      {/* Connection Chips Bar: Tables Read / Written */}
-                      <div className="mt-2.5 pt-2 border-t border-border-subtle flex flex-wrap items-center gap-1.5">
-                        <span className="text-[10px] font-mono text-muted uppercase tracking-wider shrink-0 flex items-center gap-1">
-                          <Database className="h-3 w-3" />
-                          <span>Connected Entities:</span>
-                        </span>
-
-                        {ep.connectedTables && ep.connectedTables.length > 0 ? (
-                          ep.connectedTables.map((ct) => {
-                            const isRead = ct.action === 'READ';
-                            const isStream = ct.action === 'STREAM';
-                            const chipColor = isRead
-                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
-                              : isStream
-                              ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20'
-                              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20';
-
-                            return (
-                              <button
-                                key={ct.name}
-                                onClick={() => {
-                                  const targetTable = tables.find((t) => t.name === ct.name);
-                                  if (targetTable) setPreviewTable(targetTable);
-                                }}
-                                className={`text-[10px] font-mono px-2 py-0.5 rounded border inline-flex items-center gap-1 transition-colors cursor-pointer ${chipColor}`}
-                                title={`Click to preview schema and sample values for table '${ct.name}' (${ct.action})`}
-                              >
-                                <span>{isRead ? '📖' : isStream ? '🔄' : '✍️'}</span>
-                                <span className="font-semibold">{ct.name}</span>
-                                <span className="text-[9px] opacity-75">({ct.action})</span>
-                              </button>
-                            );
-                          })
-                        ) : (
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-subtle text-muted border border-border-subtle">
-                            ⚡ Stateless Ingress / In-Memory Controller
+                      {/* Connection Chips Bar: Tables Read / Written (Only for backend projects with DB tables) */}
+                      {!isUrl && tables.length > 0 && (
+                        <div className="mt-2.5 pt-2 border-t border-border-subtle flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-mono text-muted uppercase tracking-wider shrink-0 flex items-center gap-1">
+                            <Database className="h-3 w-3" />
+                            <span>Connected Entities:</span>
                           </span>
-                        )}
-                      </div>
+
+                          {ep.connectedTables && ep.connectedTables.length > 0 ? (
+                            ep.connectedTables.map((ct) => {
+                              const isRead = ct.action === 'READ';
+                              const isStream = ct.action === 'STREAM';
+                              const chipColor = isRead
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+                                : isStream
+                                ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20'
+                                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20';
+
+                              return (
+                                <button
+                                  key={ct.name}
+                                  onClick={() => {
+                                    const targetTable = tables.find((t) => t.name === ct.name);
+                                    if (targetTable) setPreviewTable(targetTable);
+                                  }}
+                                  className={`text-[10px] font-mono px-2 py-0.5 rounded border inline-flex items-center gap-1 transition-colors cursor-pointer ${chipColor}`}
+                                  title={`Click to preview schema and sample values for table '${ct.name}' (${ct.action})`}
+                                >
+                                  <span>{isRead ? '📖' : isStream ? '🔄' : '✍️'}</span>
+                                  <span className="font-semibold">{ct.name}</span>
+                                  <span className="text-[9px] opacity-75">({ct.action})</span>
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-subtle text-muted border border-border-subtle">
+                              ⚡ Stateless Ingress / In-Memory Controller
+                            </span>
+                          )}
+                        </div>
+                      )}
 
                       {/* ========================================================================= */}
                       {/* INTERACTIVE EXPANDED TOPOLOGY DRAWER                                      */}
@@ -1478,80 +1574,126 @@ export default function DeveloperView({ data, onSelectForImpact }) {
                                 <div className="text-[10px] text-muted mt-0.5">{ep.level}-Level Tier</div>
                               </div>
 
-                              {/* Step 4: Database Entities */}
+                              {/* Step 4: Database Entities or Perimeter Surface */}
                               <div className="p-2 rounded-lg bg-surface border border-border flex flex-col justify-center">
-                                <div className="text-[10px] font-bold text-muted uppercase">4. Data Tier & Blast</div>
+                                <div className="text-[10px] font-bold text-muted uppercase">
+                                  {isUrl ? '4. Perimeter Delivery' : '4. Data Tier & Blast'}
+                                </div>
                                 <div className="font-semibold text-foreground text-xs mt-0.5 truncate">
-                                  {ep.connectedTables && ep.connectedTables.length > 0
+                                  {isUrl 
+                                    ? 'Perimeter Ingress'
+                                    : ep.connectedTables && ep.connectedTables.length > 0
                                     ? ep.connectedTables.map((t) => t.name).join(', ')
                                     : 'Stateless In-Memory'}
                                 </div>
                                 <div className="text-[10px] text-muted mt-0.5">
-                                  {ep.level === 'HIGH' ? 'Critical Impact' : ep.level === 'MEDIUM' ? 'Moderate Impact' : 'Minimal Impact'}
+                                  {isUrl ? '100% Local Discovery' : ep.level === 'HIGH' ? 'Critical Impact' : ep.level === 'MEDIUM' ? 'Moderate Impact' : 'Minimal Impact'}
                                 </div>
                               </div>
                             </div>
                           </div>
 
-                          {/* Connected Tables Detail & Actions */}
+                          {/* Connected Tables Detail or Route Technical Specs */}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {/* Connected Tables deep-dive */}
+                            {/* Left Box: Connected Tables (for repos) or Route Technical Specs (for URLs) */}
                             <div className="p-3 rounded-xl bg-surface border border-border space-y-2">
-                              <div className="text-xs font-bold text-foreground flex items-center justify-between">
-                                <span className="flex items-center gap-1.5">
-                                  <Database className="h-3.5 w-3.5 text-cyan-500" />
-                                  <span>Relational Table Dependencies</span>
-                                </span>
-                                <span className="text-[10px] font-mono text-muted">
-                                  {ep.connectedTables?.length || 0} Tables
-                                </span>
-                              </div>
-
-                              {ep.connectedTables && ep.connectedTables.length > 0 ? (
-                                <div className="space-y-1.5">
-                                  {ep.connectedTables.map((ct) => {
-                                    const tObj = tables.find((t) => t.name === ct.name);
-                                    return (
-                                      <div
-                                        key={ct.name}
-                                        className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between"
-                                      >
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-mono text-xs font-bold text-foreground">
-                                            {ct.name}
-                                          </span>
-                                          <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ${
-                                            ct.action === 'READ'
-                                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                              : ct.action === 'STREAM'
-                                              ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
-                                              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                          }`}>
-                                            {ct.action}
-                                          </span>
-                                          {tObj && (
-                                            <span className="text-[10px] text-muted font-mono">
-                                              ({tObj.columns?.length || 0} cols)
-                                            </span>
-                                          )}
-                                        </div>
-
-                                        {tObj && (
-                                          <button
-                                            onClick={() => setPreviewTable(tObj)}
-                                            className="text-[10px] px-2 py-0.5 rounded bg-surface text-brand hover:underline border border-border cursor-pointer font-medium"
-                                          >
-                                            Preview Schema
-                                          </button>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
+                              {isUrl ? (
+                                <>
+                                  <div className="text-xs font-bold text-foreground flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5">
+                                      <Code2 className="h-3.5 w-3.5 text-cyan-500" />
+                                      <span>Route Perimeter Specifications</span>
+                                    </span>
+                                    <span className="text-[10px] font-mono text-muted">
+                                      {ep.kind} Protocol
+                                    </span>
+                                  </div>
+                                  <div className="space-y-1.5 text-xs">
+                                    <div className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between">
+                                      <span className="text-[11px] text-muted">Method &amp; Path:</span>
+                                      <span className="font-mono text-xs font-bold text-foreground truncate max-w-[220px]">
+                                        {ep.method} {ep.path}
+                                      </span>
+                                    </div>
+                                    <div className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between">
+                                      <span className="text-[11px] text-muted">Functional Module:</span>
+                                      <span className="font-mono text-xs font-semibold text-foreground">
+                                        {ep.module || 'Default Ingress'}
+                                      </span>
+                                    </div>
+                                    <div className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between">
+                                      <span className="text-[11px] text-muted">Tier Classification:</span>
+                                      <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
+                                        ep.level === 'HIGH' 
+                                          ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400' 
+                                          : ep.level === 'LOW' 
+                                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' 
+                                          : 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
+                                      }`}>
+                                        {ep.level}-LEVEL TIER
+                                      </span>
+                                    </div>
+                                  </div>
+                                </>
                               ) : (
-                                <div className="text-xs text-muted py-3 text-center">
-                                  This endpoint is decoupled from direct database models (pure ingress handler, auth gatekeeper, or diagnostic telemetry).
-                                </div>
+                                <>
+                                  <div className="text-xs font-bold text-foreground flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5">
+                                      <Database className="h-3.5 w-3.5 text-cyan-500" />
+                                      <span>Relational Table Dependencies</span>
+                                    </span>
+                                    <span className="text-[10px] font-mono text-muted">
+                                      {ep.connectedTables?.length || 0} Tables
+                                    </span>
+                                  </div>
+
+                                  {ep.connectedTables && ep.connectedTables.length > 0 ? (
+                                    <div className="space-y-1.5">
+                                      {ep.connectedTables.map((ct) => {
+                                        const tObj = tables.find((t) => t.name === ct.name);
+                                        return (
+                                          <div
+                                            key={ct.name}
+                                            className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between"
+                                          >
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-mono text-xs font-bold text-foreground">
+                                                {ct.name}
+                                              </span>
+                                              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ${
+                                                ct.action === 'READ'
+                                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                                  : ct.action === 'STREAM'
+                                                  ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
+                                                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                              }`}>
+                                                {ct.action}
+                                              </span>
+                                              {tObj && (
+                                                <span className="text-[10px] text-muted font-mono">
+                                                  ({tObj.columns?.length || 0} cols)
+                                                </span>
+                                              )}
+                                            </div>
+
+                                            {tObj && (
+                                              <button
+                                                onClick={() => setPreviewTable(tObj)}
+                                                className="text-[10px] px-2 py-0.5 rounded bg-surface text-brand hover:underline border border-border cursor-pointer font-medium"
+                                              >
+                                                Preview Schema
+                                              </button>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-muted py-3 text-center">
+                                      This endpoint is decoupled from direct database models (pure ingress handler, auth gatekeeper, or diagnostic telemetry).
+                                    </div>
+                                  )}
+                                </>
                               )}
                             </div>
 
@@ -1676,8 +1818,6 @@ export default function DeveloperView({ data, onSelectForImpact }) {
               </div>
             </section>
           )}
-        </div>
-      )}
 
       {/* Sample Data & Values Preview Modal */}
       {previewTable && (

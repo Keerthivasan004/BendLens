@@ -145,7 +145,12 @@ export default function UpdateIndicator() {
         setIsUpdating(false);
         setUpdateSuccess(true);
         if (data.installerLaunched) {
-          setUpdateStep(`Installer launched: ${data.installerName || targetArtifact}. Complete the setup wizard to update BendLens!`);
+          setUpdateStep(`Installer launched: ${data.installerName || targetArtifact}. BendLens Studio will close in 3 seconds so the setup wizard can finish updating cleanly.`);
+          setTimeout(() => {
+            if (typeof window !== 'undefined' && window.bendlensDesktop?.quitApp) {
+              window.bendlensDesktop.quitApp();
+            }
+          }, 3000);
         } else if (data.downloadTriggered) {
           setUpdateStep(`Downloading ${data.installerName || targetArtifact}. Run the installer once download finishes!`);
         } else {

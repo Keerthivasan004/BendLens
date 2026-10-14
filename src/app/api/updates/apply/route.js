@@ -28,39 +28,62 @@ function isValidWindowsExe(filePath) {
 
 function launchInstallerExe(exePath) {
   try {
+    if (!exePath || !fs.existsSync(exePath)) return false;
     if (process.platform === 'win32') {
+      // 1. Cmd start: invokes Windows ShellExecute which handles UAC elevation prompts cleanly
+      try {
+        exec(`start "" "${exePath}"`);
+        return true;
+      } catch (cmdErr) {
+        console.warn('[updates/apply] cmd start failed, trying powershell:', cmdErr.message);
+      }
+
+      // 2. PowerShell Start-Process fallback
+      try {
+        const psCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '${exePath.replace(/'/g, "''")}'"`;
+        exec(psCmd);
+        return true;
+      } catch (psErr) {
+        console.warn('[updates/apply] powershell Start-Process failed:', psErr.message);
+      }
+
+      // 3. Direct spawn fallback
       const child = spawn(exePath, [], {
         detached: true,
         stdio: 'ignore'
       });
+      child.on('error', (err) => console.warn('[updates/apply] spawn error:', err.message));
       child.unref();
       return true;
     }
   } catch (err) {
-    console.warn('[updates/apply] spawn error, falling back to start cmd:', err.message);
-    try {
-      exec(`start "" "${exePath}"`);
-      return true;
-    } catch {}
+    console.warn('[updates/apply] launchInstallerExe error:', err.message);
   }
   return false;
 }
 
 async function downloadAndLaunchInstaller(downloadUrl, artifactName) {
   const destPath = path.join(os.tmpdir(), artifactName);
+  const partPath = `${destPath}.part`;
   try {
-    // 1. If valid cached installer exists in temp, launch immediately
+    // 1. If valid cached installer exists in temp with full size (>= 25MB), launch immediately
     if (isValidWindowsExe(destPath)) {
-      if (launchInstallerExe(destPath)) {
-        return { success: true, path: destPath, fromCache: true };
+      const stat = fs.statSync(destPath);
+      if (stat.size >= 25 * 1024 * 1024) {
+        if (launchInstallerExe(destPath)) {
+          return { success: true, path: destPath, fromCache: true };
+        }
+      } else {
+        try { fs.unlinkSync(destPath); } catch {}
       }
     }
 
-    // 2. Stream download directly
+    // 2. Stream download directly to temporary .part file
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 60000);
+    const timer = setTimeout(() => ctrl.abort(), 180000);
     const res = await fetch(downloadUrl, {
       signal: ctrl.signal,
+      redirect: 'follow',
       headers: { 'User-Agent': 'BendLens-Updater/1.0' }
     });
     clearTimeout(timer);
@@ -69,8 +92,10 @@ async function downloadAndLaunchInstaller(downloadUrl, artifactName) {
       throw new Error(`HTTP ${res.status} when downloading installer`);
     }
 
+    const expectedLength = parseInt(res.headers.get('content-length') || '0', 10);
+
     const { Readable } = await import('stream');
-    const fileStream = fs.createWriteStream(destPath);
+    const fileStream = fs.createWriteStream(partPath);
     await new Promise((resolve, reject) => {
       Readable.fromWeb(res.body)
         .pipe(fileStream)
@@ -78,12 +103,26 @@ async function downloadAndLaunchInstaller(downloadUrl, artifactName) {
         .on('error', reject);
     });
 
-    if (isValidWindowsExe(destPath)) {
+    if (isValidWindowsExe(partPath)) {
+      const partStat = fs.statSync(partPath);
+      if (expectedLength > 0 && partStat.size !== expectedLength) {
+        throw new Error(`Incomplete installer: received ${partStat.size} bytes, expected ${expectedLength}`);
+      }
+      if (partStat.size < 25 * 1024 * 1024) {
+        throw new Error(`Installer file too small: ${partStat.size} bytes`);
+      }
+      try {
+        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+      } catch {}
+      fs.renameSync(partPath, destPath);
       const launched = launchInstallerExe(destPath);
       return { success: launched, path: destPath, fromCache: false };
+    } else {
+      try { if (fs.existsSync(partPath)) fs.unlinkSync(partPath); } catch {}
     }
   } catch (err) {
     console.warn('[updates/apply] Direct download/launch failed:', err.message);
+    try { if (fs.existsSync(partPath)) fs.unlinkSync(partPath); } catch {}
   }
   return { success: false, path: destPath };
 }
@@ -116,15 +155,20 @@ function findLocalInstaller(projectRoot, targetVersion) {
 
       if (candidates.length === 0) continue;
 
+      if (targetVersion) {
+        // Enforce that candidate strictly matches targetVersion to prevent accidental downgrades or running stale versions
+        const matching = candidates.filter((full) => path.basename(full).toLowerCase().includes(targetVersion.toLowerCase()));
+        if (matching.length > 0) {
+          matching.sort((a, b) => (/setup/i.test(path.basename(a)) ? -1 : 1));
+          return matching[0];
+        }
+        // If this directory doesn't have the target version, continue searching other directories
+        continue;
+      }
+
       candidates.sort((a, b) => {
         const baseA = path.basename(a).toLowerCase();
         const baseB = path.basename(b).toLowerCase();
-        if (targetVersion) {
-          const aHasVer = baseA.includes(targetVersion);
-          const bHasVer = baseB.includes(targetVersion);
-          if (aHasVer && !bHasVer) return -1;
-          if (!aHasVer && bHasVer) return 1;
-        }
         const aIsSetup = /setup/i.test(baseA);
         const bIsSetup = /setup/i.test(baseB);
         if (aIsSetup && !bIsSetup) return -1;
@@ -161,10 +205,19 @@ export async function POST(request) {
     let output = '';
     let installerLaunched = false;
     let downloadTriggered = false;
-    let launchedPath = null;
+    let effective = null;
+    try {
+      effective = await getEffectiveLatest(projectRoot, { allowRemote: true });
+    } catch {}
 
-    // 1. Check for any locally available installer first (dist, Downloads, Temp)
-    const localInstaller = findLocalInstaller(projectRoot, targetVersion);
+    const targetVer = targetVersion || effective?.latestVersion || getLocalVersion(projectRoot) || '1.1.33';
+    let setupArtifactName = effective?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
+    if (!setupArtifactName.endsWith('.exe')) {
+      setupArtifactName = `BendLens-Setup-${targetVer}.exe`;
+    }
+
+    // 1. Check for any locally available installer first (dist, Downloads, Temp) matching targetVer
+    const localInstaller = findLocalInstaller(projectRoot, targetVer);
     if (localInstaller) {
       const success = launchInstallerExe(localInstaller);
       if (success) {
@@ -192,16 +245,6 @@ export async function POST(request) {
 
     // 3. Fallback for non-git / installed packaged desktop app: stream download installer & launch
     let setupDownloadUrl = null;
-    let effective = null;
-    try {
-      effective = await getEffectiveLatest(projectRoot, { allowRemote: true });
-    } catch {}
-
-    const targetVer = targetVersion || effective?.latestVersion || '1.1.32';
-    let setupArtifactName = effective?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
-    if (!setupArtifactName.endsWith('.exe')) {
-      setupArtifactName = `BendLens-Setup-${targetVer}.exe`;
-    }
 
     if (!installerLaunched && !isGitRepo) {
       setupDownloadUrl = `https://github.com/Keerthivasan004/BendLens/releases/download/v${targetVer}/${setupArtifactName}`;

@@ -144,6 +144,8 @@ export async function POST(request) {
                     const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
                     result.projectName = crawlResult.projectName;
                     result.crawlerTelemetry = crawlResult.telemetry;
+                    result.isUrlCrawl = true;
+                    result.schema = { tables: [], relationships: [] };
                     return NextResponse.json({ success: true, data: result });
                   }
                 } catch (crawlErr) {

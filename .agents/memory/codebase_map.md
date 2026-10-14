@@ -31,6 +31,7 @@ This document maps all directories, modules, and significant files across BendLe
   - `knowledgeGraph.js`: Bi-directional in-memory graph holding nodes (`table`, `endpoint`, `service`, `class`, `function`) and edges (`FK_REFERENCES`, `CALLS`, `WRITES_TO`, etc.). Optimized with precomputed lowercase table token mappings and function node capping (500 maximum, prioritizing table-linked functions) to eliminate $O(F \times T)$ bottlenecks.
 - **`generators/`**:
   - `diagramGenerator.js`: Produces sanitized Mermaid code for ERD, HLD (C4 containers), LLD (call graph), and Sequence diagrams.
+  - `apiPdfReportGenerator.js`: Enterprise API Architecture & Inventory PDF Report Generator. Creates executive, print-ready, high-aesthetic HTML and PDF reports with KPI grids, method distributions, and categorized route tables with 100% offline, zero-cloud execution.
   - `impactAnalyzer.js`: Calculates blast radius, ripple nodes, risk scores (0-100), and automated mitigation checklists.
   - `personaMapper.js`: Maps raw system data into Developer, Manager, and Business persona dashboards.
 

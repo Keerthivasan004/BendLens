@@ -15,10 +15,22 @@ export default function DiagramCanvas({
   onSelectForImpact,
   activeTab: controlledActiveTab,
   onTabChange,
-  initialTab = 'erd'
+  initialTab = 'erd',
+  isUrlScan = false
 }) {
-  const [internalActiveTab, setInternalActiveTab] = useState(initialTab);
+  const hasTables = (schemaData?.tables?.length || 0) > 0;
+  const hideErd = isUrlScan || !hasTables;
+  const resolvedInitialTab = hideErd && initialTab === 'erd' ? 'sequence' : initialTab;
+
+  const [internalActiveTab, setInternalActiveTab] = useState(resolvedInitialTab);
   const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab;
+
+  useEffect(() => {
+    if (hideErd && activeTab === 'erd') {
+      setInternalActiveTab('sequence');
+      if (onTabChange) onTabChange('sequence');
+    }
+  }, [hideErd, activeTab, onTabChange]);
   const [erdMode, setErdMode] = useState('MERMAID'); // 'MERMAID' | 'INTERACTIVE'
   const [zoom, setZoom] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
@@ -443,12 +455,14 @@ export default function DiagramCanvas({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const tabs = [
+  const allTabs = [
     { id: 'erd', label: 'Database ERD', icon: Database, color: 'text-blue-900 dark:text-cyan-400' },
+    { id: 'sequence', label: 'API Execution Sequence', icon: GitCommit, color: 'text-amber-700 dark:text-amber-400' },
     { id: 'hld', label: 'High-Level Design (HLD)', icon: Box, color: 'text-violet-700 dark:text-violet-400' },
-    { id: 'lld', label: 'Low-Level Design (LLD)', icon: Cpu, color: 'text-emerald-700 dark:text-emerald-400' },
-    { id: 'sequence', label: 'Execution Sequence', icon: GitCommit, color: 'text-amber-700 dark:text-amber-400' }
+    { id: 'lld', label: 'Low-Level Design (LLD)', icon: Cpu, color: 'text-emerald-700 dark:text-emerald-400' }
   ];
+
+  const tabs = hideErd ? allTabs.filter((t) => t.id !== 'erd') : allTabs;
 
   return (
     <div
