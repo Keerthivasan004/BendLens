@@ -78,36 +78,69 @@ async function downloadAndLaunchInstaller(downloadUrl, artifactName) {
       }
     }
 
-    // 2. Stream download directly to temporary .part file
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 180000);
-    const res = await fetch(downloadUrl, {
-      signal: ctrl.signal,
-      redirect: 'follow',
-      headers: { 'User-Agent': 'BendLens-Updater/1.0' }
-    });
-    clearTimeout(timer);
+    let downloadSucceeded = false;
 
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} when downloading installer`);
+    // 2. High-performance native Windows curl.exe download (handles multi-redirect AWS/Azure blobs, Schannel SSL, and retry)
+    try {
+      if (fs.existsSync(partPath)) {
+        try { fs.unlinkSync(partPath); } catch {}
+      }
+      const curlCmd = `curl.exe -L -f -s -S --retry 3 --retry-delay 2 -o "${partPath}" "${downloadUrl}"`;
+      await execPromise(curlCmd, { timeout: 300000 });
+      if (isValidWindowsExe(partPath)) {
+        downloadSucceeded = true;
+      }
+    } catch (curlErr) {
+      console.warn('[updates/apply] curl.exe download attempt warning:', curlErr.message);
     }
 
-    const expectedLength = parseInt(res.headers.get('content-length') || '0', 10);
+    // 3. PowerShell Invoke-WebRequest fallback
+    if (!downloadSucceeded) {
+      try {
+        if (fs.existsSync(partPath)) {
+          try { fs.unlinkSync(partPath); } catch {}
+        }
+        const psCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '${downloadUrl.replace(/'/g, "''")}' -OutFile '${partPath.replace(/'/g, "''")}'"`;
+        await execPromise(psCmd, { timeout: 300000 });
+        if (isValidWindowsExe(partPath)) {
+          downloadSucceeded = true;
+        }
+      } catch (psErr) {
+        console.warn('[updates/apply] PowerShell download attempt warning:', psErr.message);
+      }
+    }
 
-    const { Readable } = await import('stream');
-    const fileStream = fs.createWriteStream(partPath);
-    await new Promise((resolve, reject) => {
-      Readable.fromWeb(res.body)
-        .pipe(fileStream)
-        .on('finish', resolve)
-        .on('error', reject);
-    });
+    // 4. Node.js fetch streaming fallback (if curl/PS failed)
+    if (!downloadSucceeded) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 180000);
+        const res = await fetch(downloadUrl, {
+          signal: ctrl.signal,
+          redirect: 'follow',
+          headers: { 'User-Agent': 'BendLens-Updater/1.0' }
+        });
+        clearTimeout(timer);
+        if (res.ok) {
+          const { Readable } = await import('stream');
+          const fileStream = fs.createWriteStream(partPath);
+          await new Promise((resolve, reject) => {
+            Readable.fromWeb(res.body)
+              .pipe(fileStream)
+              .on('finish', resolve)
+              .on('error', reject);
+          });
+          if (isValidWindowsExe(partPath)) {
+            downloadSucceeded = true;
+          }
+        }
+      } catch (nodeFetchErr) {
+        console.warn('[updates/apply] Node fetch fallback error:', nodeFetchErr.message);
+      }
+    }
 
     if (isValidWindowsExe(partPath)) {
       const partStat = fs.statSync(partPath);
-      if (expectedLength > 0 && partStat.size !== expectedLength) {
-        throw new Error(`Incomplete installer: received ${partStat.size} bytes, expected ${expectedLength}`);
-      }
       if (partStat.size < 25 * 1024 * 1024) {
         throw new Error(`Installer file too small: ${partStat.size} bytes`);
       }
@@ -205,12 +238,13 @@ export async function POST(request) {
     let output = '';
     let installerLaunched = false;
     let downloadTriggered = false;
+    let launchedPath = null;
     let effective = null;
     try {
       effective = await getEffectiveLatest(projectRoot, { allowRemote: true });
     } catch {}
 
-    const targetVer = targetVersion || effective?.latestVersion || getLocalVersion(projectRoot) || '1.1.33';
+    const targetVer = targetVersion || effective?.latestVersion || getLocalVersion(projectRoot) || '1.1.35';
     let setupArtifactName = effective?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
     if (!setupArtifactName.endsWith('.exe')) {
       setupArtifactName = `BendLens-Setup-${targetVer}.exe`;
@@ -328,6 +362,14 @@ export async function POST(request) {
       } catch (verErr) {
         console.warn('[updates/apply] Version stamp warning:', verErr.message);
       }
+    }
+
+    if (installerLaunched && process.platform === 'win32') {
+      setTimeout(() => {
+        try {
+          exec('taskkill /IM BendLens.exe /T /F', () => {});
+        } catch {}
+      }, 3500);
     }
 
     const durationMs = Date.now() - updateStartTime;

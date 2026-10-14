@@ -193,7 +193,7 @@ namespace BendLens.Desktop
             _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
 
             // Expose desktop environment flag so useIsDesktop() identifies WebView2 as desktop runtime
-            await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.bendlensDesktop = { isDesktop: true, platform: 'win32', version: '1.1.32' };");
+            await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.bendlensDesktop = { isDesktop: true, platform: 'win32', version: '1.1.35' };");
 
             // Intercept external links to open in the system default browser
             _webView.CoreWebView2.NewWindowRequested += (sender, args) =>

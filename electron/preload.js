@@ -2,7 +2,13 @@ const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
-let appVersion = '1.1.33';
+let appVersion = '1.1.35';
+try {
+  if (ipcRenderer && typeof ipcRenderer.sendSync === 'function') {
+    const v = ipcRenderer.sendSync('get-app-version');
+    if (v) appVersion = v;
+  }
+} catch {}
 try {
   const pkgPath = path.join(__dirname, '..', 'package.json');
   if (fs.existsSync(pkgPath)) {

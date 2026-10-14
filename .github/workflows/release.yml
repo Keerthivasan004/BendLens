@@ -41,9 +41,6 @@ jobs:
       - name: Verify pnpm store
         run: pnpm store path
 
-      - name: Build Next.js application
-        run: pnpm run build
-
       - name: Synchronize package version with Git tag
         shell: bash
         run: |
@@ -53,6 +50,9 @@ jobs:
             echo "Synchronizing package.json version to release tag: $CLEAN_VER"
             npm version "$CLEAN_VER" --no-git-tag-version --allow-same-version
           fi
+
+      - name: Build Next.js application
+        run: pnpm run build
 
       - name: Build Electron app (Windows)
         run: pnpm run dist
