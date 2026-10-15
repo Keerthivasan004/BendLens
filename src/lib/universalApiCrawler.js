@@ -128,7 +128,7 @@ class UniversalApiCrawler {
     const { parsedUrl, href, origin, hostname } = this.normalizeTargetUrl(targetUrl);
 
     const maxChunks = options.maxChunks || 500;
-    const concurrency = options.concurrency || 6;
+    const concurrency = options.concurrency || 10;
     const allEndpoints = new Map(); // path -> Set of HTTP methods
     const endpointDetails = new Map(); // path -> { parameters: [], summary: '', tags: [] }
     const backendDomains = new Set();
@@ -557,7 +557,7 @@ class UniversalApiCrawler {
 
         // Polite delay between chunk batches to prevent WAF / fail2ban rate-limit triggering
         if (queue.length > 0) {
-          await new Promise(r => setTimeout(r, 50));
+          await new Promise(r => setTimeout(r, 20));
         }
       }
 
