@@ -10,9 +10,11 @@
 
   ; Remove legacy CMD-payload install dir left by older BendLens-Setup.cmd
   RMDir /r "$LOCALAPPDATA\BendLens"
-  ; Remove legacy extracted-app cache
+  ; Remove legacy extracted-app cache from both old and new AppData locations
   RMDir /r "$APPDATA\BendLens\extracted-app"
+  RMDir /r "$APPDATA\bendlens-platform\extracted-app"
   Delete "$APPDATA\BendLens\extracted-app.version"
+  Delete "$APPDATA\bendlens-platform\extracted-app.version"
   ; Remove any stray temp scan folders
   RMDir /r "$TEMP\bendlens_temp_scans"
 !macroend
@@ -27,6 +29,7 @@
   ; Remove user data
   RMDir /r "$APPDATA\BendLens"
   RMDir /r "$APPDATA\com.bendlens.studio"
+  RMDir /r "$APPDATA\bendlens-platform"
 
   ; Remove legacy install locations
   RMDir /r "$LOCALAPPDATA\BendLens"
