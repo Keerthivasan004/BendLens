@@ -19,19 +19,30 @@ export function generateApiReportHtml(analysisData) {
   const endpoints = analysisData?.code?.endpoints || [];
   const totalApis = endpoints.length;
 
-  // Enrich endpoints by level
-  const highLevel = endpoints.filter(e => {
-    const p = (e.path || '').toLowerCase();
-    const m = (e.method || 'GET').toUpperCase();
-    return m === 'POST' || m === 'PUT' || m === 'DELETE' || p.includes('auth') || p.includes('login') || p.includes('admin') || p.includes('pay') || p.includes('checkout') || p.includes('order');
-  });
+  // Enrich endpoints by level - mutually exclusive and exhaustive partition
+  const highLevel = [];
+  const mediumLevel = [];
+  const lowLevel = [];
 
-  const lowLevel = endpoints.filter(e => {
-    const p = (e.path || '').toLowerCase();
-    return p.includes('health') || p.includes('ping') || p.includes('status') || p.includes('metrics') || p.includes('theme') || p.includes('heartbeat') || p.includes('cookie');
+  endpoints.forEach(ep => {
+    if (ep.level === 'HIGH') {
+      highLevel.push(ep);
+    } else if (ep.level === 'LOW') {
+      lowLevel.push(ep);
+    } else if (ep.level === 'MEDIUM') {
+      mediumLevel.push(ep);
+    } else {
+      const p = (ep.path || '').toLowerCase();
+      const m = (ep.method || 'GET').toUpperCase();
+      if (m === 'POST' || m === 'PUT' || m === 'DELETE' || m === 'PATCH' || p.includes('auth') || p.includes('login') || p.includes('admin') || p.includes('pay') || p.includes('checkout') || p.includes('order')) {
+        highLevel.push(ep);
+      } else if (p.includes('health') || p.includes('ping') || p.includes('status') || p.includes('metrics') || p.includes('theme') || p.includes('heartbeat') || p.includes('cookie')) {
+        lowLevel.push(ep);
+      } else {
+        mediumLevel.push(ep);
+      }
+    }
   });
-
-  const mediumLevel = endpoints.filter(e => !highLevel.includes(e) && !lowLevel.includes(e));
 
   // Method distribution
   const methodCounts = { GET: 0, POST: 0, PUT: 0, DELETE: 0, PATCH: 0, OTHER: 0 };
@@ -374,9 +385,13 @@ export function generateApiReportHtml(analysisData) {
         A total of <strong>${totalApis} unique, authentic backend API endpoints</strong> were uncovered across 
         <strong>${Object.keys(moduleGroups).length} functional architectural modules</strong>.
       </p>
-      <p style="margin: 0; font-size: 13px; color: #64748b;">
+      <p style="margin: 0 0 10px; font-size: 13px; color: #64748b;">
         <strong>Database Isolation Note:</strong> External server-side database schemas are private to the backend server and unexposed over public HTTP requests. 
         All detected routes reflect authentic, verified client-to-backend communication contracts.
+      </p>
+      <p style="margin: 0; font-size: 13px; color: #64748b;">
+        <strong>API Scope & Boundary Disclosure:</strong> This crawl reverse-engineers all client-initiated API routes, RPC patterns, and service interactions exposed in web assets. 
+        Server-side private infrastructure (such as payment webhook receivers, background worker queues, scheduled crons, and internal diagnostics) are not called by frontend client bundles and can be inventoried via BendLens's local backend source-code repository scanner.
       </p>
     </div>
 

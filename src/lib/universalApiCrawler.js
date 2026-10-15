@@ -638,6 +638,10 @@ class UniversalApiCrawler {
       };
 
       const crawlDurationMs = Date.now() - startTime;
+      let totalApiOperationsCount = 0;
+      for (const mSet of allEndpoints.values()) {
+        totalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
+      }
 
       return {
         projectName,
@@ -647,7 +651,8 @@ class UniversalApiCrawler {
           targetUrl,
           crawlDurationMs,
           chunksCrawledCount: visitedUrls.size,
-          totalEndpointsCount: allEndpoints.size,
+          totalEndpointsCount: totalApiOperationsCount,
+          uniquePathsCount: allEndpoints.size,
           backendDomains: Array.from(backendDomains),
           entitiesCount: 0,
           frameworksDetected: Array.from(frameworksDetected),
@@ -667,68 +672,119 @@ class UniversalApiCrawler {
   static extractEndpointsFromCode(code, scriptUrl, origin, allEndpoints, backendDomains, distinctEntities) {
     if (!code || typeof code !== 'string') return;
 
-    // Pattern 1: HTTP Client calls with explicit method: axios.get, client.post, apiClient.put, etc.
-    const clientCallRegex = /(?:axios|apiClient|httpClient|client|http|api|superagent|ky)\s*\.\s*(get|post|put|delete|patch|head|options)\s*\(\s*([`'"][^`'"]+[`'"])/gi;
+    // Helper to register an endpoint and handle trailing string concatenation (e.g. '/api/admin/tpos/' + id)
+    const registerFoundEndpoint = (rawPath, method, afterIndex) => {
+      if (!rawPath || typeof rawPath !== 'string') return;
+      let effectivePath = rawPath.trim();
+      
+      // Check if this was a concatenated parameter: e.g. '/api/admin/tpos/' + id or `.../institutions/` + tpoId
+      if (afterIndex !== undefined && afterIndex < code.length) {
+        const lookahead = code.slice(afterIndex, Math.min(code.length, afterIndex + 50));
+        if (/^\s*\+\s*[a-zA-Z0-9_$.]+/.test(lookahead) || effectivePath.endsWith('/')) {
+          if (!effectivePath.endsWith('/')) effectivePath += '/';
+          effectivePath += '{id}';
+        }
+      } else if (effectivePath.endsWith('/')) {
+        effectivePath += '{id}';
+      }
+
+      const normalized = this.normalizeApiPath(effectivePath);
+      if (normalized) {
+        if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
+        if (method) {
+          allEndpoints.get(normalized).add(method.toUpperCase());
+        }
+        this.extractEntitiesFromPath(normalized, distinctEntities);
+      }
+    };
+
+    // Pattern 1: HTTP Client calls with explicit method:
+    // Supports standard libraries (axios, apiClient, ky, superagent) AND minified client variables (a.get, e.post, t.delete, r.put, s.patch)
+    // CRITICAL: URL must start with '/' or 'http' to reject non-HTTP calls like searchParams.get('id') or headers.get('type')
+    const clientCallRegex = /(?:[a-zA-Z0-9_$.]+\s*\.\s*|\b)(get|post|put|delete|patch)\s*\(\s*([`'"]((?:\/|https?:\/\/)[^`'"]+)[`'"])/gi;
     let cm;
     while ((cm = clientCallRegex.exec(code)) !== null) {
       const method = cm[1].toUpperCase();
-      let rawPath = cm[2].slice(1, -1);
-      const normalized = this.normalizeApiPath(rawPath);
-      if (normalized) {
-        if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
-        allEndpoints.get(normalized).add(method);
-        this.extractEntitiesFromPath(normalized, distinctEntities);
-      }
+      const rawPath = cm[3];
+      const afterIndex = cm.index + cm[0].length;
+      registerFoundEndpoint(rawPath, method, afterIndex);
     }
 
-    // Pattern 2: API routes matching standard REST / RPC prefixes
+    // Pattern 2: Bounded fetch(...) calls: fetch('/api/...', { method: 'POST' })
+    // Restricts options inspection strictly inside the fetch call arguments to eliminate window bleed
+    const fetchCallRegex = /\bfetch\s*\(\s*([`'"]((?:\/|https?:\/\/)[^`'"]+)[`'"])([^);]*)\)/gi;
+    let fm;
+    while ((fm = fetchCallRegex.exec(code)) !== null) {
+      const rawPath = fm[2];
+      const optionsStr = fm[3] || '';
+      let method = 'GET';
+      const mMatch = optionsStr.match(/\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']/i);
+      if (mMatch) {
+        method = mMatch[1].toUpperCase();
+      } else if (/\bbody\s*:/.test(optionsStr)) {
+        method = 'POST'; // Fetch calls with request bodies without explicit methods are mutations
+      }
+      const afterIndex = fm.index + fm[1].length + 6;
+      registerFoundEndpoint(rawPath, method, afterIndex);
+    }
+
+    // Pattern 3: Bounded Object Config literals: { url: '/api/...', method: 'POST' } or { method: 'POST', url: '/api/...' }
+    // Enclosed in { ... } without spanning multiple statements
+    const objConfigRegex = /\{\s*(?:[^{};]*?\b(?:url|path)\s*:\s*([`'"]((?:\/|https?:\/\/)[^`'"]+)[`'"])[^{};]*?\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH)["']|[^{};]*?\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH)["'][^{};]*?\b(?:url|path)\s*:\s*([`'"]((?:\/|https?:\/\/)[^`'"]+)[`'"]))[^{};]*?\}/gi;
+    let om;
+    while ((om = objConfigRegex.exec(code)) !== null) {
+      const rawPath = om[2] || om[6];
+      const method = (om[3] || om[4] || 'GET').toUpperCase();
+      registerFoundEndpoint(rawPath, method);
+    }
+
+    // Pattern 4: Authentic API routes matching verified REST / RPC prefixes
     // Matches /api/..., /v1/..., /v2/..., /v3/..., /graphql, /rest/..., /oauth/..., /auth/...
-    // Uses bounded window slicing (O(N) linear time, zero ReDoS backtracking) to detect explicit HTTP methods
     const restRegex = /["'`]((\/(?:api|v[1-9]|rest|graphql|oauth|auth)\/[a-zA-Z0-9_\-\/\{\}\$\.]+))["'`]/g;
     let rm;
     while ((rm = restRegex.exec(code)) !== null) {
       const rawPath = rm[1];
-      const normalized = this.normalizeApiPath(rawPath);
+      const afterIndex = rm.index + rm[0].length;
+      let effectivePath = rawPath.trim();
+      const lookahead = code.slice(afterIndex, Math.min(code.length, afterIndex + 40));
+      if (/^\s*\+\s*[a-zA-Z0-9_$.]+/.test(lookahead) || effectivePath.endsWith('/')) {
+        if (!effectivePath.endsWith('/')) effectivePath += '/';
+        effectivePath += '{id}';
+      }
+
+      const normalized = this.normalizeApiPath(effectivePath);
       if (normalized) {
         if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
 
-        // Fast bounded window check (80 chars before and 120 chars after) for explicit HTTP method
-        // Covers fetch("/api/...", { method: "POST" }) and { method: "POST", url: "/api/..." }
-        const winStart = Math.max(0, rm.index - 80);
-        const winEnd = Math.min(code.length, rm.index + rm[0].length + 120);
-        const windowStr = code.slice(winStart, winEnd);
-        const methodMatch = windowStr.match(/\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']/i);
-
-        if (methodMatch) {
-          allEndpoints.get(normalized).add(methodMatch[1].toUpperCase());
-        } else if (allEndpoints.get(normalized).size === 0) {
-          allEndpoints.get(normalized).add(this.inferMethodFromKeyword(normalized));
+        // Only search for method if this endpoint has no methods registered yet
+        if (allEndpoints.get(normalized).size === 0) {
+          // Clean, strictly bounded context check: look at the immediate preceding 50 characters (same statement)
+          const stmtBefore = code.slice(Math.max(0, rm.index - 50), rm.index);
+          const precedingMethod = stmtBefore.match(/\b(get|post|put|delete|patch)\s*\(\s*$/i);
+          if (precedingMethod) {
+            allEndpoints.get(normalized).add(precedingMethod[1].toUpperCase());
+          } else {
+            // Immediate following 60 characters within the same statement (stopping at semicolon or closing brace)
+            const stmtAfter = lookahead.split(/[;}{]/)[0];
+            const followingMethod = stmtAfter.match(/\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH)["']/i);
+            if (followingMethod) {
+              allEndpoints.get(normalized).add(followingMethod[1].toUpperCase());
+            } else {
+              allEndpoints.get(normalized).add(this.inferMethodFromKeyword(normalized));
+            }
+          }
         }
         this.extractEntitiesFromPath(normalized, distinctEntities);
       }
     }
 
-    // Pattern 3: Domain REST endpoints with actions or parameters (e.g. /users/:id, /orders/{id})
-    const resourceRegex = /["'`]((\/(?:users|products|orders|billing|checkout|payments|webhooks|subscriptions|items|events|notifications|reports|accounts|messages|devices|teams|organizations|posts|comments|profiles)\/(?:\{[a-zA-Z0-9_]+\}|:[a-zA-Z0-9_]+|[0-9]+|[a-zA-Z0-9_\-]+)))["'`]/g;
-    let rscMatch;
-    while ((rscMatch = resourceRegex.exec(code)) !== null) {
-      const normalized = this.normalizeApiPath(rscMatch[1]);
-      if (normalized && !normalized.includes('.')) {
-        if (!allEndpoints.has(normalized)) {
-          const method = this.inferMethodFromKeyword(normalized);
-          allEndpoints.set(normalized, new Set([method]));
-        }
-      }
-    }
-
-    // Pattern 4: Absolute backend URLs (e.g. https://api.mycompany.com/v1/auth)
+    // Pattern 5: Absolute backend URLs targeting API prefixes
     const absApiRegex = /["'`](https?:\/\/[a-zA-Z0-9_\-\.]+(\/[a-zA-Z0-9_\-\/\{\}]+))["'`]/g;
     let absMatch;
     while ((absMatch = absApiRegex.exec(code)) !== null) {
       const fullUrl = absMatch[0].slice(1, -1);
       try {
         const u = new URL(fullUrl);
-        // Only accept absolute URLs if they target a backend candidate domain AND have an API route prefix
         const p = u.pathname;
         const isApiRoute = p.startsWith('/api/') || p.startsWith('/v1/') || p.startsWith('/v2/') || p.startsWith('/v3/') || p.startsWith('/graphql') || p.startsWith('/rest/') || p.startsWith('/auth/');
         if (isApiRoute && this.isBackendCandidateDomain(u.origin, origin)) {
@@ -832,20 +888,10 @@ class UniversalApiCrawler {
     clean = clean.replace(/^https?:\/\/[^\/]+/i, '');
     clean = clean.replace(/\?[^`'"]*/g, '');
 
-    // Convert template variables (even nested property expressions like ${y.id} or ${U.user_id}) into standard {param}
-    clean = clean.replace(/\$\{([^}]+)\}/g, (m, inner) => {
-      const parts = inner.split('.');
-      const prop = parts[parts.length - 1].trim();
-      if (/^[a-zA-Z0-9_]+$/.test(prop) && prop.length > 2 && !['trim', 'toLowerCase', 'toString', 'toUpperCase', 'value'].includes(prop)) {
-        return `{${prop}}`;
-      }
-      return '{id}';
-    });
-    // Normalize consecutive parameters
-    clean = clean.replace(/\/\{[^}]+\}\/\{[^}]+\}/g, '/{id}/{subId}');
-    clean = clean.replace(/\/\{[^}]+\}\/sub_[^{]*/g, '/{id}');
-    // Normalize Express route params: /users/:id -> /users/{id}
-    clean = clean.replace(/:([a-zA-Z0-9_]+)/g, '{$1}');
+    // Canonicalize template variables: all dynamic template variables (${param}, ${trackId}, ${id}) canonicalize to {id}
+    clean = clean.replace(/\$\{([^}]+)\}/g, '{id}');
+    // Normalize Express route params: /users/:id or /tracks/:trackId -> {id}
+    clean = clean.replace(/:([a-zA-Z0-9_]+)/g, '{id}');
     // Clean trailing slashes
     clean = clean.replace(/\/+$/, '').trim();
 
@@ -893,20 +939,22 @@ class UniversalApiCrawler {
       return null;
     }
 
-    // Normalize and validate each segment:
-    // Minified parameters like {t}, {e}, {ge}, {ue}, {_}, {n}, {x} unify into {id}
+    // Canonicalize parameter segments:
+    // Any dynamic parameter segment is canonicalized to standard OpenAPI parameter representation
+    // ({id} for first param, {id2}, {id3} for subsequent params).
+    // CRITICAL: Reject consecutive dynamic parameters (e.g. /{id}/{subId} generated from `${id}/${action}`)
+    // because authentic REST architecture requires a resource noun between parameters.
     const normalizedSegments = [];
     let idCounter = 1;
-    for (const seg of segments) {
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
       if (seg.startsWith('{') && seg.endsWith('}')) {
-        const paramName = seg.slice(1, -1);
-        if (!/^[a-zA-Z0-9_]+$/.test(paramName)) return null;
-        if (paramName.length <= 2 || paramName.startsWith('sub_') || paramName === 'id') {
-          normalizedSegments.push(idCounter === 1 ? '{id}' : `{id${idCounter}}`);
-          idCounter++;
-        } else {
-          normalizedSegments.push(`{${paramName}}`);
+        // Reject corrupted consecutive parameters (e.g. /tpos/{id}/{subId})
+        if (i > 0 && segments[i - 1].startsWith('{') && segments[i - 1].endsWith('}')) {
+          return null;
         }
+        normalizedSegments.push(idCounter === 1 ? '{id}' : `{id${idCounter}}`);
+        idCounter++;
       } else {
         if (!/^[a-zA-Z0-9_\-\.]+$/.test(seg)) return null;
         normalizedSegments.push(seg);
@@ -921,9 +969,28 @@ class UniversalApiCrawler {
    */
   static inferMethodFromKeyword(path) {
     const lower = (path || '').toLowerCase();
+
+    // 1. Verification or lookup with an ID is a public GET query
+    if (lower.includes('verify/') || (lower.includes('verify') && (lower.endsWith('{id}') || lower.endsWith(':id') || /verify\/\{?[a-zA-Z0-9_-]+\}?$/.test(lower)))) {
+      return 'GET';
+    }
+
+    // 2. Auth mutations & password workflows
+    if (lower.includes('forgot-password') || lower.includes('reset-password') || lower.includes('change-password')) {
+      return 'POST';
+    }
+
+    // 3. User data & personal privacy queries (e.g. DPDP my-data, profiles, dashboards, VM inventory)
+    if (lower.includes('my-data') || lower.includes('profile') || lower.includes('dashboard') || lower.includes('summary') || lower.includes('overview') || lower.includes('vms')) {
+      if (!lower.includes('update') && !lower.includes('edit') && !lower.includes('delete') && !lower.includes('remove')) {
+        return 'GET';
+      }
+    }
+
+    // 4. Standard action mutations
     if (lower.includes('login') || lower.includes('logout') || lower.includes('signup') || lower.includes('sign-up') ||
         lower.includes('signin') || lower.includes('sign-in') || lower.includes('register') || lower.includes('invite') ||
-        lower.includes('accept') || lower.includes('send-otp') || lower.includes('verify') || lower.includes('submit') || 
+        lower.includes('accept') || lower.includes('send-otp') || lower.includes('verify-otp') || lower.includes('submit') || 
         lower.includes('create') || lower.includes('sync') || lower.includes('chat') || lower.includes('withdraw') || 
         lower.includes('apply') || lower.includes('publish') || lower.includes('initiate') || lower.includes('activate') ||
         lower.includes('redeem') || lower.includes('refund') || lower.includes('revoke') || lower.includes('dismiss') ||
@@ -932,15 +999,17 @@ class UniversalApiCrawler {
         lower.includes('checkout') || lower.includes('pay') || lower.includes('subscribe') || lower.includes('request')) {
       return 'POST';
     }
+
     if (lower.includes('delete') || lower.includes('remove') || lower.includes('reject') || lower.includes('archive') || 
         lower.includes('cancel') || lower.includes('dismissal') || lower.includes('destroy') || lower.includes('purge')) {
       return 'DELETE';
     }
-    if (lower.includes('update') || lower.includes('change') || lower.includes('reset') || lower.includes('edit') || 
-        lower.includes('patch') || lower.includes('enable') || lower.includes('disable') || lower.includes('role') ||
+
+    if (lower.includes('update') || lower.includes('edit') || lower.includes('patch') || lower.includes('enable') || lower.includes('disable') || lower.includes('role') ||
         lower.includes('read-all') || lower.includes('status') || lower.includes('setting') || lower.includes('preference')) {
       return 'PUT';
     }
+
     return 'GET';
   }
 
