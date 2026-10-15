@@ -588,7 +588,9 @@ class UniversalApiCrawler {
         const tag = segments.length > 1 ? this.capitalize(segments[1] || segments[0]) : 'General';
         const actionName = segments[segments.length - 1] || 'resource';
 
-        for (const m of methods) {
+        const effectiveMethods = methods.size > 0 ? methods : new Set([this.inferMethodFromKeyword(ep)]);
+
+        for (const m of effectiveMethods) {
           const method = m.toLowerCase();
           paths[ep][method] = {
             tags: [tag],
@@ -663,24 +665,37 @@ class UniversalApiCrawler {
   static extractEndpointsFromCode(code, scriptUrl, origin, allEndpoints, backendDomains, distinctEntities) {
     if (!code || typeof code !== 'string') return;
 
-    // Pattern 1a: Standard fetch(url, { method: '...' })
-    const fetchRegex = /\bfetch\s*\(\s*([`'"][^`'"]+[`'"])(?:\s*,\s*\{([^}]*)\})?/gi;
+    // Pattern 1a: Calls with URL followed by options object containing method (e.g. fetch, apiClient, B(url, { method: "POST" }))
+    const callRegex = /(?:[a-zA-Z0-9_$.]+\s*\(\s*|\b(?:url|endpoint|path)\s*[:=]\s*)([`'"](?:\/api\/|\/v[1-9]\/|\/auth\/|\/rest\/|\/oauth\/)[^`'"]+[`'"])(?:[\s\S]{0,140}?\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["'])?/gi;
     let fm;
-    while ((fm = fetchRegex.exec(code)) !== null) {
-      let rawPath = fm[1].slice(1, -1);
-      const options = fm[2] || '';
-      const methodMatch = options.match(/method\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']/i);
-      const method = methodMatch ? methodMatch[1].toUpperCase() : this.inferMethodFromKeyword(rawPath);
-
+    while ((fm = callRegex.exec(code)) !== null) {
+      const rawPath = fm[1].slice(1, -1);
+      const explicitMethod = fm[2] ? fm[2].toUpperCase() : null;
       const normalized = this.normalizeApiPath(rawPath);
       if (normalized) {
         if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
-        allEndpoints.get(normalized).add(method);
+        if (explicitMethod) {
+          allEndpoints.get(normalized).add(explicitMethod);
+        }
         this.extractEntitiesFromPath(normalized, distinctEntities);
       }
     }
 
-    // Pattern 1b: HTTP Client calls with explicit method: axios.get, client.post, apiClient.put, etc.
+    // Pattern 1b: Reverse options order: { method: "POST", ... }, "/path"
+    const revCallRegex = /\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["'][\s\S]{0,140}?(?:[a-zA-Z0-9_$.]+\s*\(\s*)([`'"](?:\/api\/|\/v[1-9]\/|\/auth\/|\/rest\/|\/oauth\/)[^`'"]+[`'"])/gi;
+    let rvm;
+    while ((rvm = revCallRegex.exec(code)) !== null) {
+      const explicitMethod = rvm[1].toUpperCase();
+      const rawPath = rvm[2].slice(1, -1);
+      const normalized = this.normalizeApiPath(rawPath);
+      if (normalized) {
+        if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
+        allEndpoints.get(normalized).add(explicitMethod);
+        this.extractEntitiesFromPath(normalized, distinctEntities);
+      }
+    }
+
+    // Pattern 1c: HTTP Client calls with explicit method: axios.get, client.post, apiClient.put, etc.
     const clientCallRegex = /(?:axios|apiClient|httpClient|client|http|api|superagent|ky)\s*\.\s*(get|post|put|delete|patch|head|options)\s*\(\s*([`'"][^`'"]+[`'"])/gi;
     let cm;
     while ((cm = clientCallRegex.exec(code)) !== null) {
@@ -696,16 +711,16 @@ class UniversalApiCrawler {
 
     // Pattern 2: API routes matching standard REST / RPC prefixes
     // Matches /api/..., /v1/..., /v2/..., /v3/..., /graphql, /rest/...
-    const restRegex = /["'`]((\/(?:api|v[1-9]|rest|graphql|oauth|auth)\/[a-zA-Z0-9_\-\/\{\}\$]+))["'`]/g;
+    const restRegex = /["'`]((\/(?:api|v[1-9]|rest|graphql|oauth|auth)\/[a-zA-Z0-9_\-\/\{\}\$\.]+))["'`]/g;
     let rm;
     while ((rm = restRegex.exec(code)) !== null) {
       const normalized = this.normalizeApiPath(rm[1]);
       if (normalized) {
-        if (!allEndpoints.has(normalized)) {
-          const method = this.inferMethodFromKeyword(normalized);
-          allEndpoints.set(normalized, new Set([method]));
-          this.extractEntitiesFromPath(normalized, distinctEntities);
+        if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
+        if (allEndpoints.get(normalized).size === 0) {
+          allEndpoints.get(normalized).add(this.inferMethodFromKeyword(normalized));
         }
+        this.extractEntitiesFromPath(normalized, distinctEntities);
       }
     }
 
@@ -833,8 +848,15 @@ class UniversalApiCrawler {
     clean = clean.replace(/^https?:\/\/[^\/]+/i, '');
     clean = clean.replace(/\?[^`'"]*/g, '');
 
-    // Convert template variables into {param}
-    clean = clean.replace(/\$\{([^}]+)\}/g, '{$1}');
+    // Convert template variables (even nested property expressions like ${y.id} or ${U.user_id}) into standard {param}
+    clean = clean.replace(/\$\{([^}]+)\}/g, (m, inner) => {
+      const parts = inner.split('.');
+      const prop = parts[parts.length - 1].trim();
+      if (/^[a-zA-Z0-9_]+$/.test(prop) && prop.length > 2 && !['trim', 'toLowerCase', 'toString', 'toUpperCase', 'value'].includes(prop)) {
+        return `{${prop}}`;
+      }
+      return '{id}';
+    });
     // Normalize consecutive parameters
     clean = clean.replace(/\/\{[^}]+\}\/\{[^}]+\}/g, '/{id}/{subId}');
     clean = clean.replace(/\/\{[^}]+\}\/sub_[^{]*/g, '/{id}');
@@ -888,14 +910,14 @@ class UniversalApiCrawler {
     }
 
     // Normalize and validate each segment:
-    // Minified parameters like {t}, {e}, {_}, {n}, {x} unify into {id}
+    // Minified parameters like {t}, {e}, {ge}, {ue}, {_}, {n}, {x} unify into {id}
     const normalizedSegments = [];
     let idCounter = 1;
     for (const seg of segments) {
       if (seg.startsWith('{') && seg.endsWith('}')) {
         const paramName = seg.slice(1, -1);
         if (!/^[a-zA-Z0-9_]+$/.test(paramName)) return null;
-        if (paramName.length <= 1 || paramName.startsWith('sub_') || paramName === 'id') {
+        if (paramName.length <= 2 || paramName.startsWith('sub_') || paramName === 'id') {
           normalizedSegments.push(idCounter === 1 ? '{id}' : `{id${idCounter}}`);
           idCounter++;
         } else {
@@ -915,17 +937,24 @@ class UniversalApiCrawler {
    */
   static inferMethodFromKeyword(path) {
     const lower = (path || '').toLowerCase();
-    if (lower.includes('login') || lower.includes('logout') || lower.includes('send-otp') || lower.includes('submit') || 
-        lower.includes('create') || lower.includes('sync') || lower.includes('chat') || lower.includes('verify') ||
-        lower.includes('register') || lower.includes('withdraw') || lower.includes('apply') || lower.includes('publish') || 
-        lower.includes('click') || lower.includes('impression') || lower.includes('start-trial') || lower.includes('checkout') ||
-        lower.includes('pay') || lower.includes('upload') || lower.includes('subscribe') || lower.includes('generate')) {
+    if (lower.includes('login') || lower.includes('logout') || lower.includes('signup') || lower.includes('sign-up') ||
+        lower.includes('signin') || lower.includes('sign-in') || lower.includes('register') || lower.includes('invite') ||
+        lower.includes('accept') || lower.includes('send-otp') || lower.includes('verify') || lower.includes('submit') || 
+        lower.includes('create') || lower.includes('sync') || lower.includes('chat') || lower.includes('withdraw') || 
+        lower.includes('apply') || lower.includes('publish') || lower.includes('initiate') || lower.includes('activate') ||
+        lower.includes('redeem') || lower.includes('refund') || lower.includes('revoke') || lower.includes('dismiss') ||
+        lower.includes('resolve') || lower.includes('escalate') || lower.includes('transfer') || lower.includes('prefill') ||
+        lower.includes('intake') || lower.includes('batch') || lower.includes('upload') || lower.includes('generate') ||
+        lower.includes('checkout') || lower.includes('pay') || lower.includes('subscribe') || lower.includes('request')) {
       return 'POST';
     }
-    if (lower.includes('delete') || lower.includes('remove') || lower.includes('reject') || lower.includes('archive') || lower.includes('cancel')) {
+    if (lower.includes('delete') || lower.includes('remove') || lower.includes('reject') || lower.includes('archive') || 
+        lower.includes('cancel') || lower.includes('dismissal') || lower.includes('destroy') || lower.includes('purge')) {
       return 'DELETE';
     }
-    if (lower.includes('update') || lower.includes('change') || lower.includes('reset') || lower.includes('edit') || lower.includes('patch')) {
+    if (lower.includes('update') || lower.includes('change') || lower.includes('reset') || lower.includes('edit') || 
+        lower.includes('patch') || lower.includes('enable') || lower.includes('disable') || lower.includes('role') ||
+        lower.includes('read-all') || lower.includes('status') || lower.includes('setting') || lower.includes('preference')) {
       return 'PUT';
     }
     return 'GET';

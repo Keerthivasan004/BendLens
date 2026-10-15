@@ -35,7 +35,7 @@ Use this skill when you need to:
    - **Stage 3**: Deep HTML & Embedded Spec Discovery (`SwaggerUIBundle({ url: '...' })`, Redoc `<redoc spec-url="...">`, Next.js `__NEXT_DATA__` manifests, `<form action="...">`).
    - **Stage 4**: Recursive Bounded Chunk Graph Traversal (up to 500 code-split chunks with polite concurrency 6 and 50ms batch pacing).
    - **Stage 5**: Source Map (.js.map) Decompilation (recovers raw unminified source code to extract route controllers and interfaces).
-   - **Stage 6**: Polyglot API Reverse-Engineering (matches `fetch`, `axios.get/post`, `apiClient.get/post`, `http`, `ky`, `superagent` with method validation and zero `createElement` false-positives).
+   - **Stage 6**: Polyglot API Reverse-Engineering (matches `fetch`, `axios.get/post`, `apiClient.get/post`, minified wrapper invocations `fn(url, { method: "POST" })`, and nested template parameters `${item.id}` -> `{id}` with authentic verb extraction).
 
 ---
 
@@ -45,7 +45,8 @@ Use this skill when you need to:
   - `crawl(targetUrl, options)`: Main execution routine with early connection verification.
   - `safeFetch(url, options)`: Timeout-bounded and error-neutral fetch wrapper.
   - `formatNetworkError(err, targetUrl)`: Decodes low-level socket, TLS, and DNS errors (`ECONNRESET`, `ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`) into clear, human-readable root-cause explanations.
-  - `extractEndpointsFromCode(code, scriptUrl, origin, ...)`: Token and AST pattern extractor with strict regex patterns avoiding comments and generic strings.
+  - `extractEndpointsFromCode(code, scriptUrl, origin, ...)`: Rigorous token and AST pattern extractor recovering authentic verbs (GET, POST, PUT, PATCH, DELETE) and parameters from both standard calls and minified wrappers.
+  - `normalizeApiPath(rawPath)`: Normalizes template expressions (e.g. `${U.user_id}`, `${ge}`) into standard OpenAPI parameters without dropping valid routes.
   - `emergencyFallback(targetUrl, hostname, origin, err, startTime)`: Crash-proof fallback generator reporting `crawlStatus: 'failed'` with zero synthetic models.
 - **`src/lib/generators/apiPdfReportGenerator.js`**: Enterprise API Architecture & Inventory PDF Report Generator.
   - `generateApiReportHtml(analysisData)`: Builds an executive, print-ready HTML/PDF assessment report with KPI grid, architectural tier badges, method distribution, categorized route tables, and embedded `@media print` styling.
