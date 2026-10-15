@@ -31,9 +31,9 @@ Use this skill when you need to:
    - Crawled assets are never forwarded to external third-party cloud services.
 4. **Multi-Strategy Pipeline**:
    - **Stage 1**: Direct Ingestion (OpenAPI JSON/YAML, Postman Collection, live REST API JSON array/object, raw schemas).
-   - **Stage 2**: Parallel Standard Probing (concurrent 6s probes of `/spec.json`, `/openapi.json`, `/swagger.json`, `/v3/api-docs`, `/graphql` introspection).
+   - **Stage 2**: Targeted Standard Probing (probes `/openapi.json`, `/swagger.json`, `/v3/api-docs` only when target is not an HTML document to prevent WAF / rate limit triggering).
    - **Stage 3**: Deep HTML & Embedded Spec Discovery (`SwaggerUIBundle({ url: '...' })`, Redoc `<redoc spec-url="...">`, Next.js `__NEXT_DATA__` manifests, `<form action="...">`).
-   - **Stage 4**: Recursive Bounded Chunk Graph Traversal (up to 500 code-split chunks with concurrency 24 and 6s per-chunk timeout).
+   - **Stage 4**: Recursive Bounded Chunk Graph Traversal (up to 500 code-split chunks with polite concurrency 6 and 50ms batch pacing).
    - **Stage 5**: Source Map (.js.map) Decompilation (recovers raw unminified source code to extract route controllers and interfaces).
    - **Stage 6**: Polyglot API Reverse-Engineering (matches `fetch`, `axios.get/post`, `apiClient.get/post`, `http`, `ky`, `superagent` with method validation and zero `createElement` false-positives).
 

@@ -128,7 +128,7 @@ class UniversalApiCrawler {
     const { parsedUrl, href, origin, hostname } = this.normalizeTargetUrl(targetUrl);
 
     const maxChunks = options.maxChunks || 500;
-    const concurrency = options.concurrency || 24;
+    const concurrency = options.concurrency || 6;
     const allEndpoints = new Map(); // path -> Set of HTTP methods
     const endpointDetails = new Map(); // path -> { parameters: [], summary: '', tags: [] }
     const backendDomains = new Set();
@@ -259,97 +259,74 @@ class UniversalApiCrawler {
       }
 
       // =========================================================================
-      // STAGE 2: Parallel Standard OpenAPI / Swagger & GraphQL Discovery Probes
+      // STAGE 2: Targeted OpenAPI / Swagger & GraphQL Discovery Probes
+      // Only runs if the target is NOT an HTML document (e.g. an API gateway root)
+      // to avoid triggering fail2ban/rate-limiting jails with multiple 404s.
       // =========================================================================
-      const standardProbes = [
-        '/spec.json',
-        '/openapi.json',
-        '/openapi.yaml',
-        '/swagger.json',
-        '/swagger.yaml',
-        '/v2/swagger.json',
-        '/v3/api-docs',
-        '/api-docs.json',
-        '/api/openapi.json',
-        '/api/swagger.json',
-        '/api/v3/api-docs',
-        '/api/spec.json',
-        '/swagger/v1/swagger.json',
-        '/docs/openapi.json',
-        '/q/openapi',
-        '/api/v1'
-      ];
+      const isHtmlPage = contentType.includes('text/html') || rawText.includes('<html') || rawText.includes('<!DOCTYPE');
 
-      const probePromises = standardProbes.map(async (probePath) => {
-        try {
-          const pUrl = new URL(probePath, origin).href;
-          const pRes = await this.safeFetch(pUrl, { timeout: 6000 });
-          if (pRes.ok && (pRes.text.includes('"swagger"') || pRes.text.includes('"openapi"') || pRes.text.includes('paths:'))) {
-            return { url: pUrl, text: pRes.text };
-          }
-        } catch {}
-        return null;
-      });
+      if (!isHtmlPage) {
+        const standardProbes = [
+          '/openapi.json',
+          '/swagger.json',
+          '/v3/api-docs',
+          '/api/openapi.json',
+          '/api/swagger.json'
+        ];
 
-      // Also probe GraphQL introspection concurrently
-      const graphqlProbePromise = (async () => {
+        for (const probePath of standardProbes) {
+          try {
+            const pUrl = new URL(probePath, origin).href;
+            const pRes = await this.safeFetch(pUrl, { timeout: 4000 });
+            if (pRes.ok && (pRes.text.includes('"swagger"') || pRes.text.includes('"openapi"') || pRes.text.includes('paths:'))) {
+              const isYaml = !pRes.text.trim().startsWith('{');
+              let parsed = null;
+              if (!isYaml) parsed = JSON.parse(pRes.text);
+              if (parsed && parsed.paths) {
+                return {
+                  projectName: parsed.info?.title || projectName,
+                  openApiSpec: parsed,
+                  sqlSchema: '',
+                  telemetry: {
+                    targetUrl,
+                    crawlDurationMs: Date.now() - startTime,
+                    chunksCrawledCount: 1,
+                    totalEndpointsCount: Object.keys(parsed.paths).length,
+                    backendDomains: [origin],
+                    entitiesCount: 0,
+                    frameworksDetected: ['OpenAPI Probed Spec'],
+                    discoveryStrategy: 'probed_openapi_spec',
+                    crawlStatus: 'success',
+                    notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
+                  }
+                };
+              }
+            }
+          } catch {}
+        }
+
+        // Probe GraphQL introspection
         try {
           const gqlUrl = new URL('/graphql', origin).href;
           const gqlRes = await this.safeFetch(gqlUrl, {
             method: 'POST',
             headers: { ...this.getHeaders(), 'Content-Type': 'application/json' },
             body: JSON.stringify({ query: '{ __schema { types { name kind } } }' }),
-            timeout: 4000
+            timeout: 3000
           });
           if (gqlRes.ok && gqlRes.text.includes('__schema')) {
-            return { url: gqlUrl, data: JSON.parse(gqlRes.text) };
-          }
-        } catch {}
-        return null;
-      })();
-
-      const [probeResults, gqlResult] = await Promise.all([
-        Promise.all(probePromises),
-        graphqlProbePromise
-      ]);
-
-      const foundSpec = probeResults.find(Boolean);
-      if (foundSpec) {
-        try {
-          const isYaml = !foundSpec.text.trim().startsWith('{');
-          let parsed = null;
-          if (!isYaml) parsed = JSON.parse(foundSpec.text);
-          if (parsed && parsed.paths) {
-            return {
-              projectName: parsed.info?.title || projectName,
-              openApiSpec: parsed,
-              sqlSchema: '',
-              telemetry: {
-                targetUrl,
-                crawlDurationMs: Date.now() - startTime,
-                chunksCrawledCount: 2,
-                totalEndpointsCount: Object.keys(parsed.paths).length,
-                backendDomains: [origin],
-                entitiesCount: 0,
-                frameworksDetected: ['OpenAPI Probed Spec'],
-                discoveryStrategy: 'probed_openapi_spec',
-                crawlStatus: 'success',
-                notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
+            const gqlData = JSON.parse(gqlRes.text);
+            if (gqlData.data?.__schema?.types) {
+              frameworksDetected.add('GraphQL');
+              allEndpoints.set('/graphql', new Set(['POST']));
+              for (const t of gqlData.data.__schema.types) {
+                if (t.name && !t.name.startsWith('__')) {
+                  distinctEntities.add(t.name.toLowerCase());
+                }
               }
-            };
+            }
           }
         } catch {}
-      }
-
-      if (gqlResult && gqlResult.data?.__schema?.types) {
-        // Register GraphQL schema types & endpoint
-        frameworksDetected.add('GraphQL');
-        allEndpoints.set('/graphql', new Set(['POST']));
-        for (const t of gqlResult.data.__schema.types) {
-          if (t.name && !t.name.startsWith('__')) {
-            distinctEntities.add(t.name.toLowerCase());
-          }
-        }
       }
 
       // =========================================================================
@@ -577,6 +554,11 @@ class UniversalApiCrawler {
           // 4. Reverse-engineer API client calls & routes from script code
           this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities);
         }));
+
+        // Polite delay between chunk batches to prevent WAF / fail2ban rate-limit triggering
+        if (queue.length > 0) {
+          await new Promise(r => setTimeout(r, 50));
+        }
       }
 
       // =========================================================================
