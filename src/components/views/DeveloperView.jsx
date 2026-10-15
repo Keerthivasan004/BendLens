@@ -221,6 +221,9 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
   const [apiSearchQuery, setApiSearchQuery] = useState('');
   const [expandedApiRoute, setExpandedApiRoute] = useState(null); // string (method + path)
   const [copiedCurl, setCopiedCurl] = useState(null);
+  const [fetchingEndpoint, setFetchingEndpoint] = useState(null);
+  const [endpointFetchResult, setEndpointFetchResult] = useState({});
+  const [copiedResponse, setCopiedResponse] = useState(null);
   const [schemaMode, setSchemaMode] = useState('FIELDS'); // 'FIELDS' | 'DDL'
   const [previewTable, setPreviewTable] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -354,12 +357,71 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
     return { coreEndpoints: core, otherEndpoints: other };
   }, [filteredApiEndpoints]);
 
+  const targetBaseUrl = useMemo(() => {
+    const candidate = rawAnalysisData?.crawlerTelemetry?.targetUrl ||
+      rawAnalysisData?.projectPath ||
+      data?.projectPath;
+    if (candidate && (candidate.startsWith('http://') || candidate.startsWith('https://'))) {
+      try {
+        return new URL(candidate).origin;
+      } catch {}
+    }
+    const servers = rawAnalysisData?.openApiSpec?.servers || data?.openApiSpec?.servers;
+    if (Array.isArray(servers) && servers[0]?.url && (servers[0].url.startsWith('http://') || servers[0].url.startsWith('https://'))) {
+      try {
+        return new URL(servers[0].url).origin;
+      } catch {}
+    }
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return window.location.origin;
+    }
+    return 'http://localhost:3000';
+  }, [rawAnalysisData, data]);
+
+  const getFullEndpointUrl = (ep) => {
+    if (!ep || !ep.path) return '';
+    if (ep.path.startsWith('http://') || ep.path.startsWith('https://')) {
+      return ep.path;
+    }
+    const cleanPath = ep.path.startsWith('/') ? ep.path : '/' + ep.path;
+    return `${targetBaseUrl}${cleanPath}`;
+  };
+
   const handleCopyCurl = (ep) => {
     const key = `${ep.method}-${ep.path}`;
-    const cmd = `curl -X ${ep.method} "http://localhost:3000${ep.path}"`;
+    const fullUrl = getFullEndpointUrl(ep);
+    const cmd = `curl -X ${ep.method} "${fullUrl}"`;
     navigator.clipboard.writeText(cmd);
     setCopiedCurl(key);
     setTimeout(() => setCopiedCurl(null), 2000);
+  };
+
+  const handleFetchEndpoint = async (ep) => {
+    const key = `${ep.method}-${ep.path}`;
+    const fullUrl = getFullEndpointUrl(ep);
+    setFetchingEndpoint(key);
+    try {
+      const res = await fetch('/api/fetch-endpoint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: fullUrl,
+          method: ep.method || 'GET'
+        })
+      });
+      const result = await res.json();
+      setEndpointFetchResult((prev) => ({
+        ...prev,
+        [key]: result
+      }));
+    } catch (err) {
+      setEndpointFetchResult((prev) => ({
+        ...prev,
+        [key]: { success: false, error: err.message || 'Request failed' }
+      }));
+    } finally {
+      setFetchingEndpoint(null);
+    }
   };
 
   const handleCopyTableJSON = (table) => {
@@ -1714,11 +1776,31 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                               </div>
 
                               <div className="pt-2 border-t border-border-subtle flex flex-wrap items-center gap-2">
+                                {/* Live Fetch API Button */}
+                                <button
+                                  onClick={() => handleFetchEndpoint(ep)}
+                                  disabled={fetchingEndpoint === `${ep.method}-${ep.path}`}
+                                  className="text-xs px-2.5 py-1 rounded-md bg-brand/10 hover:bg-brand/20 text-brand border border-brand/30 flex items-center gap-1.5 cursor-pointer font-semibold transition-colors disabled:opacity-50"
+                                  title={`Fetch ${getFullEndpointUrl(ep)}`}
+                                >
+                                  {fetchingEndpoint === `${ep.method}-${ep.path}` ? (
+                                    <>
+                                      <RefreshCw className="h-3 w-3 animate-spin text-brand" />
+                                      <span>Fetching API...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Zap className="h-3 w-3 text-brand fill-brand/20" />
+                                      <span>Fetch API</span>
+                                    </>
+                                  )}
+                                </button>
+
                                 {/* Copy cURL */}
                                 <button
                                   onClick={() => handleCopyCurl(ep)}
                                   className="text-xs px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface text-foreground border border-border flex items-center gap-1 cursor-pointer font-mono"
-                                  title="Copy cURL command to clipboard"
+                                  title={`Copy cURL: curl -X ${ep.method} "${getFullEndpointUrl(ep)}"`}
                                 >
                                   {copiedCurl === `${ep.method}-${ep.path}` ? (
                                     <>
@@ -1736,12 +1818,13 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                                 {/* Copy Path */}
                                 <button
                                   onClick={() => {
-                                    navigator.clipboard.writeText(ep.path);
+                                    navigator.clipboard.writeText(getFullEndpointUrl(ep));
                                   }}
                                   className="text-xs px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface text-foreground border border-border flex items-center gap-1 cursor-pointer font-mono"
+                                  title="Copy Full Endpoint URL"
                                 >
                                   <Copy className="h-3 w-3 text-muted" />
-                                  <span>Copy Path</span>
+                                  <span>Copy URL</span>
                                 </button>
 
                                 {/* Simulate Blast Radius */}
@@ -1753,6 +1836,73 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                                   <span>Simulate Blast</span>
                                 </button>
                               </div>
+
+                              {/* Live Fetch Response Inspector Panel */}
+                              {endpointFetchResult[`${ep.method}-${ep.path}`] && (
+                                <div className="mt-2.5 p-3 rounded-lg bg-surface-subtle border border-border animate-fadeIn space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold ${
+                                        endpointFetchResult[`${ep.method}-${ep.path}`].status >= 200 && endpointFetchResult[`${ep.method}-${ep.path}`].status < 300
+                                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                      }`}>
+                                        HTTP {endpointFetchResult[`${ep.method}-${ep.path}`].status || 'ERR'} {endpointFetchResult[`${ep.method}-${ep.path}`].statusText || ''}
+                                      </span>
+                                      <span className="text-[11px] font-mono text-muted">
+                                        ⚡ {endpointFetchResult[`${ep.method}-${ep.path}`].durationMs}ms
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        onClick={() => {
+                                          const raw = JSON.stringify(endpointFetchResult[`${ep.method}-${ep.path}`].data, null, 2);
+                                          navigator.clipboard.writeText(raw);
+                                          setCopiedResponse(`${ep.method}-${ep.path}`);
+                                          setTimeout(() => setCopiedResponse(null), 2000);
+                                        }}
+                                        className="text-[10px] px-2 py-0.5 rounded bg-surface hover:bg-surface-raised border border-border text-foreground flex items-center gap-1 font-mono cursor-pointer"
+                                        title="Copy response JSON"
+                                      >
+                                        {copiedResponse === `${ep.method}-${ep.path}` ? (
+                                          <>
+                                            <Check className="h-2.5 w-2.5 text-emerald-500" />
+                                            <span className="text-emerald-500">Copied</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Copy className="h-2.5 w-2.5 text-muted" />
+                                            <span>Copy Data</span>
+                                          </>
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setEndpointFetchResult(prev => {
+                                            const copy = { ...prev };
+                                            delete copy[`${ep.method}-${ep.path}`];
+                                            return copy;
+                                          });
+                                        }}
+                                        className="text-muted hover:text-foreground text-xs p-1 cursor-pointer"
+                                        title="Dismiss response view"
+                                      >
+                                        <X className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div className="text-[10px] font-mono text-muted truncate">
+                                    Target: <span className="text-foreground">{getFullEndpointUrl(ep)}</span>
+                                  </div>
+
+                                  <div className="max-h-56 overflow-y-auto p-2 rounded bg-surface font-mono text-[11px] text-foreground border border-border-subtle whitespace-pre-wrap break-all selection:bg-brand/30">
+                                    {typeof endpointFetchResult[`${ep.method}-${ep.path}`].data === 'object'
+                                      ? JSON.stringify(endpointFetchResult[`${ep.method}-${ep.path}`].data, null, 2)
+                                      : String(endpointFetchResult[`${ep.method}-${ep.path}`].data || endpointFetchResult[`${ep.method}-${ep.path}`].error || 'No response body')}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>

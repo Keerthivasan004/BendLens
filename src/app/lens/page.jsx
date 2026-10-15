@@ -153,9 +153,10 @@ export default function LensDashboard() {
     }, 50);
 
     try {
-      const isRemoteUrl = sanitized.startsWith('http://') || sanitized.startsWith('https://');
+      const isRemoteUrl = sanitized.startsWith('http://') || sanitized.startsWith('https://') || /^(?:api\.|github\.com|gitlab\.com|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/|$))/i.test(sanitized);
+      const normalizedRemote = isRemoteUrl && !sanitized.startsWith('http://') && !sanitized.startsWith('https://') ? 'https://' + sanitized : sanitized;
       const endpoint = isRemoteUrl ? '/api/git-clone' : `/api/analyze?t=${Date.now()}`;
-      const payload = isRemoteUrl ? { repoUrl: sanitized } : { path: sanitized };
+      const payload = isRemoteUrl ? { repoUrl: normalizedRemote } : { path: sanitized };
 
       const res = await fetch(endpoint, {
         method: 'POST',

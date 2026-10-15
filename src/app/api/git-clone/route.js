@@ -9,6 +9,29 @@ import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
+const HISTORY_FILE = path.join(os.tmpdir(), '.bendlens_history.json');
+
+function saveToHistory(result) {
+  try {
+    let history = [];
+    if (fs.existsSync(HISTORY_FILE)) {
+      history = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8')) || [];
+    }
+    history = history.filter(h => h.projectPath !== result.projectPath && h.projectName !== result.projectName);
+    history.unshift({
+      id: `git_${Date.now()}`,
+      projectName: result.projectName,
+      projectPath: result.projectPath,
+      timestamp: result.timestamp || new Date().toISOString(),
+      filesCount: result.scannedFilesCount || 0,
+      tablesCount: result.schema?.tables?.length || 0,
+      endpointsCount: result.code?.endpoints?.length || 0,
+      source: result.isUrlCrawl ? 'web_crawler' : 'git_repo'
+    });
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(history.slice(0, 15), null, 2), 'utf-8');
+  } catch {}
+}
+
 export async function POST(request) {
   try {
     const body = await request.json();
@@ -143,9 +166,13 @@ export async function POST(request) {
                     }
                     const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
                     result.projectName = crawlResult.projectName;
+                    result.projectPath = targetFetchUrl;
                     result.crawlerTelemetry = crawlResult.telemetry;
                     result.isUrlCrawl = true;
-                    result.schema = { tables: [], relationships: [] };
+                    if (!crawlResult.sqlSchema) {
+                      result.schema = { tables: [], relationships: [] };
+                    }
+                    saveToHistory(result);
                     return NextResponse.json({ success: true, data: result });
                   }
                 } catch (crawlErr) {
@@ -185,6 +212,14 @@ export async function POST(request) {
 
               const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
               result.projectName = projectName;
+              result.projectPath = targetFetchUrl;
+              result.isUrlCrawl = true;
+              result.crawlerTelemetry = {
+                targetUrl: targetFetchUrl,
+                crawlStatus: 'success',
+                discoveryStrategy: 'openapi_spec'
+              };
+              saveToHistory(result);
               return NextResponse.json({ success: true, data: result });
             }
 
@@ -202,6 +237,14 @@ export async function POST(request) {
                   }
                   const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
                   result.projectName = syn.projectName;
+                  result.projectPath = targetFetchUrl;
+                  result.isUrlCrawl = true;
+                  result.crawlerTelemetry = {
+                    targetUrl: targetFetchUrl,
+                    crawlStatus: 'success',
+                    discoveryStrategy: 'postman_collection'
+                  };
+                  saveToHistory(result);
                   return NextResponse.json({ success: true, data: result });
                 }
               } catch {}
@@ -222,9 +265,19 @@ export async function POST(request) {
                   }
                   const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
                   result.projectName = syn.projectName;
+                  result.projectPath = targetFetchUrl;
+                  result.isUrlCrawl = true;
+                  result.crawlerTelemetry = {
+                    targetUrl: targetFetchUrl,
+                    crawlStatus: 'success',
+                    discoveryStrategy: 'live_rest_api'
+                  };
+                  saveToHistory(result);
                   return NextResponse.json({ success: true, data: result });
                 }
-              } catch {}
+              } catch (apiErr) {
+                console.warn('API parsing / analysis error in Case 2D:', apiErr.message);
+              }
             }
 
             // -----------------------------------------------------------------
@@ -235,6 +288,9 @@ export async function POST(request) {
               fs.writeFileSync(path.join(cloneDir, fileName), text, 'utf-8');
               const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
               result.projectName = path.basename(targetFetchUrl);
+              result.projectPath = targetFetchUrl;
+              result.isUrlCrawl = true;
+              saveToHistory(result);
               return NextResponse.json({ success: true, data: result });
             }
           } else {
@@ -403,27 +459,32 @@ export async function POST(request) {
     }
 
     // -------------------------------------------------------------------------
-    // METHOD 3D: Local Git CLI Clone
+    // METHOD 3D: Local Git CLI Clone (Only for authentic Git repo URLs)
     // -------------------------------------------------------------------------
-    try {
-      const { execSync } = require('child_process');
-      let targetCloneUrl = repoUrl;
-      if (token && repoUrl.includes('github.com') && ownerName && repoName) {
-        targetCloneUrl = `https://x-access-token:${token}@github.com/${ownerName}/${repoName}.git`;
+    const isLikelyGit = repoUrl.includes('git') || repoUrl.includes('github') || repoUrl.includes('gitlab') || repoUrl.includes('bitbucket') || repoUrl.endsWith('.git');
+    if (isLikelyGit) {
+      try {
+        const { execSync } = require('child_process');
+        let targetCloneUrl = repoUrl;
+        if (token && repoUrl.includes('github.com') && ownerName && repoName) {
+          targetCloneUrl = `https://x-access-token:${token}@github.com/${ownerName}/${repoName}.git`;
+        }
+
+        const gitSubdir = path.join(cloneDir, 'repo');
+        execSync(`git clone --depth 1 "${targetCloneUrl}" "${gitSubdir}"`, {
+          timeout: 45000,
+          stdio: 'pipe'
+        });
+
+        const result = await ProjectAnalyzer.analyzeAsync(gitSubdir);
+        result.projectName = repoName || 'repository';
+        result.projectPath = repoUrl;
+        saveToHistory(result);
+        return NextResponse.json({ success: true, data: result });
+      } catch (gitErr) {
+        console.error('Git CLI fallback error:', gitErr.message);
+        if (!lastError) lastError = gitErr.message;
       }
-
-      const gitSubdir = path.join(cloneDir, 'repo');
-      execSync(`git clone --depth 1 "${targetCloneUrl}" "${gitSubdir}"`, {
-        timeout: 45000,
-        stdio: 'pipe'
-      });
-
-      const result = await ProjectAnalyzer.analyzeAsync(gitSubdir);
-      result.projectName = repoName || 'repository';
-      return NextResponse.json({ success: true, data: result });
-    } catch (gitErr) {
-      console.error('Git CLI fallback error:', gitErr.message);
-      if (!lastError) lastError = gitErr.message;
     }
 
     // Final Zero-Error Fallback: Run Universal Web & API Crawler
@@ -436,7 +497,10 @@ export async function POST(request) {
         }
         const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
         result.projectName = crawlResult.projectName;
+        result.projectPath = repoUrl;
+        result.isUrlCrawl = true;
         result.crawlerTelemetry = crawlResult.telemetry;
+        saveToHistory(result);
         return NextResponse.json({ success: true, data: result });
       }
       if (crawlResult?.telemetry?.error && !lastError) {

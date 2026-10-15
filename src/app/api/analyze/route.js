@@ -38,7 +38,11 @@ export async function POST(request) {
       targetPath = getSampleProjectPath();
     }
 
-    if (targetPath.startsWith('http://') || targetPath.startsWith('https://')) {
+    const isUrl = targetPath.startsWith('http://') || targetPath.startsWith('https://') || /^(?:api\.|github\.com|gitlab\.com|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/|$))/i.test(targetPath);
+    if (isUrl) {
+      if (!targetPath.startsWith('http://') && !targetPath.startsWith('https://')) {
+        targetPath = 'https://' + targetPath;
+      }
       const UniversalApiCrawler = require('@/lib/universalApiCrawler');
       const crawlResult = await UniversalApiCrawler.crawl(targetPath, { maxChunks: 500, concurrency: 24 });
       if (crawlResult?.telemetry?.crawlStatus === 'failed') {
@@ -63,9 +67,12 @@ export async function POST(request) {
 
       const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
       result.projectName = crawlResult.projectName;
+      result.projectPath = targetPath;
       result.crawlerTelemetry = crawlResult.telemetry;
       result.isUrlCrawl = true;
-      result.schema = { tables: [], relationships: [] };
+      if (!crawlResult.sqlSchema) {
+        result.schema = { tables: [], relationships: [] };
+      }
       saveToHistory(result);
 
       return NextResponse.json(

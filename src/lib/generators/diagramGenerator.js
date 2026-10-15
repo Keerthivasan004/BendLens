@@ -528,11 +528,13 @@ class DiagramGenerator {
     const serviceName = `${entityName}Service`;
 
     // Look for matching database table
-    const matchedTable = (targetEp.connectedTables && targetEp.connectedTables[0]) ||
+    const rawMatched = targetEp.connectedTables && targetEp.connectedTables[0];
+    const candidateName = typeof rawMatched === 'object' && rawMatched !== null ? rawMatched.name : rawMatched;
+    const matchedTable = candidateName ||
       tables.find(t => (t.name || '').toLowerCase() === rawEntity.toLowerCase() || (t.name || '').toLowerCase().startsWith(rawEntity.toLowerCase()))?.name ||
       (tables.length > 0 ? tables[0].name : null);
 
-    const hasDb = !!matchedTable;
+    const hasDb = !!matchedTable && typeof matchedTable === 'string';
     const dbParticipant = hasDb ? matchedTable.replace(/[^a-zA-Z0-9_]/g, '_') : 'DB';
 
     let mermaid = 'sequenceDiagram\n';

@@ -187,11 +187,34 @@ Universal High-Level Web & API Crawler endpoint capable of crawling any URL (SPA
       "totalEndpointsCount": 34,
       "backendDomains": ["https://api.futrsec.in"],
       "entitiesCount": 12,
-      "frameworksDetected": ["React", "Vite"],
-      "discoveryStrategy": "deep_chunk_crawler",
-      "crawlStatus": "success"
-    }
-  }
   ```
 
+---
+
+## 12. POST `/api/fetch-endpoint`
+Universal CORS-free proxy endpoint to test and fetch live APIs directly from the BendLens Developer Console.
+- **Request Body**:
+  ```json
+  {
+    "url": "https://jsonplaceholder.typicode.com/todos/1",
+    "method": "GET",
+    "headers": { "Accept": "application/json" },
+    "body": null
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "success": true,
+    "url": "https://jsonplaceholder.typicode.com/todos/1",
+    "method": "GET",
+    "status": 200,
+    "statusText": "OK",
+    "durationMs": 142,
+    "contentType": "application/json; charset=utf-8",
+    "isJson": true,
+    "headers": { ...responseHeaders },
+    "data": { ...jsonPayload }
+  }
+  ```
 

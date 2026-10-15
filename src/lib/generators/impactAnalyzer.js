@@ -101,7 +101,7 @@ class ImpactAnalyzer {
     const epPathLower = (targetEp.path || '').toLowerCase();
     for (const tbl of tables) {
       const tblNameLower = tbl.name.toLowerCase();
-      if (epPathLower.includes(tblNameLower) || (targetEp.connectedTables || []).includes(tbl.name)) {
+      if (epPathLower.includes(tblNameLower) || (targetEp.connectedTables || []).some(ct => (typeof ct === 'object' && ct !== null ? ct.name : ct) === tbl.name)) {
         impactedTables.push({
           name: tbl.name,
           databaseType: tbl.databaseType || 'Relational SQL',

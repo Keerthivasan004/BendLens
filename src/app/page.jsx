@@ -227,12 +227,14 @@ CREATE TABLE orders (
 
     // Seamless URL Auto-Detection: if the user entered any HTTP/HTTPS URL or domain URL, route to universal URL ingestion
     const trimmedTarget = (target || '').trim();
-    if (trimmedTarget && (trimmedTarget.startsWith('http://') || trimmedTarget.startsWith('https://') || /^(?:api\.|github\.com|gitlab\.com|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}\/)/i.test(trimmedTarget))) {
+    const isDomainUrl = /^(?:api\.|github\.com|gitlab\.com|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/|$))/i.test(trimmedTarget);
+    if (trimmedTarget && (trimmedTarget.startsWith('http://') || trimmedTarget.startsWith('https://') || isDomainUrl)) {
+      const normalizedRepoUrl = (trimmedTarget.startsWith('http://') || trimmedTarget.startsWith('https://')) ? trimmedTarget : 'https://' + trimmedTarget;
       await executeScanWithStages((signal) => fetch('/api/git-clone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          repoUrl: trimmedTarget,
+          repoUrl: normalizedRepoUrl,
           token: gitToken.trim()
         }),
         signal
@@ -308,10 +310,10 @@ CREATE TABLE orders (
     });
   };
 
-  // 4. Analyze by Git / GitHub Clone
+  // 4. Analyze by Git / GitHub Clone or API Endpoint URL
   const handleScanGit = async () => {
     if (!gitUrl.trim()) {
-      setErrorMessage('Please enter a valid Git repository URL.');
+      setErrorMessage('Please enter a valid API URL, Swagger/OpenAPI spec, or Git repository URL.');
       return;
     }
 

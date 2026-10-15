@@ -28,7 +28,7 @@ export default function Header({
   const hasAnalysis = !!analysisData;
   // Downloaded (Electron) users already have the app: never offer it again.
   const isDesktop = useIsDesktop();
-  const isUrl = (currentPath || '').startsWith('http://') || (currentPath || '').startsWith('https://');
+  const isUrl = (currentPath || '').startsWith('http://') || (currentPath || '').startsWith('https://') || /^(?:api\.|github\.com|gitlab\.com|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/|$))/i.test(currentPath || '');
 
   return (
     <header className="sticky top-0 z-50 border-b border-border chrome-bar px-4 sm:px-6 py-3 transition-colors">

@@ -66,3 +66,4 @@ BendLens compiles architecture into 4 visual diagrams using Mermaid.js (`src/lib
   - **NEVER** hardcode sequence diagrams to `POST /api/checkout` or shopping cart billing flows.
   - Correctly flows through `Client -> Gateway -> Controller -> Service -> Database -> Client` using verbs matched to the HTTP method (`SELECT` for GET, `INSERT` for POST, `UPDATE` for PUT/PATCH, `DELETE` for DELETE, and WebSocket upgrades for WS).
   - Automatically identifies matching domain controllers, services, and real SQL tables.
+  - **Connected Tables Object Guard**: `targetEp.connectedTables` contains object records (`{ name: string, matchType: string }`). Extract `.name` and verify `typeof matchedTable === 'string'` before calling `.replace(/[^a-zA-Z0-9_]/g, '_')` to prevent unhandled TypeError crashes during sequence flow generation.
