@@ -672,119 +672,73 @@ class UniversalApiCrawler {
   static extractEndpointsFromCode(code, scriptUrl, origin, allEndpoints, backendDomains, distinctEntities) {
     if (!code || typeof code !== 'string') return;
 
-    // Helper to register an endpoint and handle trailing string concatenation (e.g. '/api/admin/tpos/' + id)
-    const registerFoundEndpoint = (rawPath, method, afterIndex) => {
-      if (!rawPath || typeof rawPath !== 'string') return;
-      let effectivePath = rawPath.trim();
-      
-      // Check if this was a concatenated parameter: e.g. '/api/admin/tpos/' + id or `.../institutions/` + tpoId
-      if (afterIndex !== undefined && afterIndex < code.length) {
-        const lookahead = code.slice(afterIndex, Math.min(code.length, afterIndex + 50));
-        if (/^\s*\+\s*[a-zA-Z0-9_$.]+/.test(lookahead) || effectivePath.endsWith('/')) {
-          if (!effectivePath.endsWith('/')) effectivePath += '/';
-          effectivePath += '{id}';
-        }
-      } else if (effectivePath.endsWith('/')) {
-        effectivePath += '{id}';
-      }
+    // Pattern 1a: Standard fetch(url, { method: '...' })
+    const fetchRegex = /\bfetch\s*\(\s*([`'"][^`'"]+[`'"])(?:\s*,\s*\{([^}]*)\})?/gi;
+    let fm;
+    while ((fm = fetchRegex.exec(code)) !== null) {
+      let rawPath = fm[1].slice(1, -1);
+      const options = fm[2] || '';
+      const methodMatch = options.match(/method\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']/i);
+      const method = methodMatch ? methodMatch[1].toUpperCase() : this.inferMethodFromKeyword(rawPath);
 
-      const normalized = this.normalizeApiPath(effectivePath);
+      const normalized = this.normalizeApiPath(rawPath);
       if (normalized) {
         if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
-        if (method) {
-          allEndpoints.get(normalized).add(method.toUpperCase());
-        }
+        allEndpoints.get(normalized).add(method);
         this.extractEntitiesFromPath(normalized, distinctEntities);
       }
-    };
+    }
 
-    // Pattern 1: HTTP Client calls with explicit method:
-    // Supports standard libraries (axios, apiClient, ky, superagent) AND minified client variables (a.get, e.post, t.delete, r.put, s.patch)
-    // CRITICAL: URL must start with '/' or 'http' to reject non-HTTP calls like searchParams.get('id') or headers.get('type')
-    const clientCallRegex = /(?:[a-zA-Z0-9_$.]+\s*\.\s*|\b)(get|post|put|delete|patch)\s*\(\s*([`'"]((?:\/|https?:\/\/)[^`'"]+)[`'"])/gi;
+    // Pattern 1b: HTTP Client calls with explicit method: axios.get, client.post, apiClient.put, etc.
+    const clientCallRegex = /(?:axios|apiClient|httpClient|client|http|api|superagent|ky)\s*\.\s*(get|post|put|delete|patch|head|options)\s*\(\s*([`'"][^`'"]+[`'"])/gi;
     let cm;
     while ((cm = clientCallRegex.exec(code)) !== null) {
       const method = cm[1].toUpperCase();
-      const rawPath = cm[3];
-      const afterIndex = cm.index + cm[0].length;
-      registerFoundEndpoint(rawPath, method, afterIndex);
-    }
-
-    // Pattern 2: Bounded fetch(...) calls: fetch('/api/...', { method: 'POST' })
-    // Restricts options inspection strictly inside the fetch call arguments to eliminate window bleed
-    const fetchCallRegex = /\bfetch\s*\(\s*([`'"]((?:\/|https?:\/\/)[^`'"]+)[`'"])([^);]*)\)/gi;
-    let fm;
-    while ((fm = fetchCallRegex.exec(code)) !== null) {
-      const rawPath = fm[2];
-      const optionsStr = fm[3] || '';
-      let method = 'GET';
-      const mMatch = optionsStr.match(/\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']/i);
-      if (mMatch) {
-        method = mMatch[1].toUpperCase();
-      } else if (/\bbody\s*:/.test(optionsStr)) {
-        method = 'POST'; // Fetch calls with request bodies without explicit methods are mutations
-      }
-      const afterIndex = fm.index + fm[1].length + 6;
-      registerFoundEndpoint(rawPath, method, afterIndex);
-    }
-
-    // Pattern 3: Bounded Object Config literals: { url: '/api/...', method: 'POST' } or { method: 'POST', url: '/api/...' }
-    // Enclosed in { ... } without spanning multiple statements
-    const objConfigRegex = /\{\s*(?:[^{};]*?\b(?:url|path)\s*:\s*([`'"]((?:\/|https?:\/\/)[^`'"]+)[`'"])[^{};]*?\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH)["']|[^{};]*?\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH)["'][^{};]*?\b(?:url|path)\s*:\s*([`'"]((?:\/|https?:\/\/)[^`'"]+)[`'"]))[^{};]*?\}/gi;
-    let om;
-    while ((om = objConfigRegex.exec(code)) !== null) {
-      const rawPath = om[2] || om[6];
-      const method = (om[3] || om[4] || 'GET').toUpperCase();
-      registerFoundEndpoint(rawPath, method);
-    }
-
-    // Pattern 4: Authentic API routes matching verified REST / RPC prefixes
-    // Matches /api/..., /v1/..., /v2/..., /v3/..., /graphql, /rest/..., /oauth/..., /auth/...
-    const restRegex = /["'`]((\/(?:api|v[1-9]|rest|graphql|oauth|auth)\/[a-zA-Z0-9_\-\/\{\}\$\.]+))["'`]/g;
-    let rm;
-    while ((rm = restRegex.exec(code)) !== null) {
-      const rawPath = rm[1];
-      const afterIndex = rm.index + rm[0].length;
-      let effectivePath = rawPath.trim();
-      const lookahead = code.slice(afterIndex, Math.min(code.length, afterIndex + 40));
-      if (/^\s*\+\s*[a-zA-Z0-9_$.]+/.test(lookahead) || effectivePath.endsWith('/')) {
-        if (!effectivePath.endsWith('/')) effectivePath += '/';
-        effectivePath += '{id}';
-      }
-
-      const normalized = this.normalizeApiPath(effectivePath);
+      let rawPath = cm[2].slice(1, -1);
+      const normalized = this.normalizeApiPath(rawPath);
       if (normalized) {
         if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
-
-        // Only search for method if this endpoint has no methods registered yet
-        if (allEndpoints.get(normalized).size === 0) {
-          // Clean, strictly bounded context check: look at the immediate preceding 50 characters (same statement)
-          const stmtBefore = code.slice(Math.max(0, rm.index - 50), rm.index);
-          const precedingMethod = stmtBefore.match(/\b(get|post|put|delete|patch)\s*\(\s*$/i);
-          if (precedingMethod) {
-            allEndpoints.get(normalized).add(precedingMethod[1].toUpperCase());
-          } else {
-            // Immediate following 60 characters within the same statement (stopping at semicolon or closing brace)
-            const stmtAfter = lookahead.split(/[;}{]/)[0];
-            const followingMethod = stmtAfter.match(/\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH)["']/i);
-            if (followingMethod) {
-              allEndpoints.get(normalized).add(followingMethod[1].toUpperCase());
-            } else {
-              allEndpoints.get(normalized).add(this.inferMethodFromKeyword(normalized));
-            }
-          }
-        }
+        allEndpoints.get(normalized).add(method);
         this.extractEntitiesFromPath(normalized, distinctEntities);
       }
     }
 
-    // Pattern 5: Absolute backend URLs targeting API prefixes
+    // Pattern 2: API routes matching standard REST / RPC prefixes
+    // Matches /api/..., /v1/..., /v2/..., /v3/..., /graphql, /rest/...
+    const restRegex = /["'`]((\/(?:api|v[1-9]|rest|graphql|oauth|auth)\/[a-zA-Z0-9_\-\/\{\}\$]+))["'`]/g;
+    let rm;
+    while ((rm = restRegex.exec(code)) !== null) {
+      const normalized = this.normalizeApiPath(rm[1]);
+      if (normalized) {
+        if (!allEndpoints.has(normalized)) {
+          const method = this.inferMethodFromKeyword(normalized);
+          allEndpoints.set(normalized, new Set([method]));
+          this.extractEntitiesFromPath(normalized, distinctEntities);
+        }
+      }
+    }
+
+    // Pattern 3: Domain REST endpoints with actions or parameters (e.g. /users/:id, /orders/{id})
+    const resourceRegex = /["'`]((\/(?:users|products|orders|billing|checkout|payments|webhooks|subscriptions|items|events|notifications|reports|accounts|messages|devices|teams|organizations|posts|comments|profiles)\/(?:\{[a-zA-Z0-9_]+\}|:[a-zA-Z0-9_]+|[0-9]+|[a-zA-Z0-9_\-]+)))["'`]/g;
+    let rscMatch;
+    while ((rscMatch = resourceRegex.exec(code)) !== null) {
+      const normalized = this.normalizeApiPath(rscMatch[1]);
+      if (normalized && !normalized.includes('.')) {
+        if (!allEndpoints.has(normalized)) {
+          const method = this.inferMethodFromKeyword(normalized);
+          allEndpoints.set(normalized, new Set([method]));
+        }
+      }
+    }
+
+    // Pattern 4: Absolute backend URLs (e.g. https://api.mycompany.com/v1/auth)
     const absApiRegex = /["'`](https?:\/\/[a-zA-Z0-9_\-\.]+(\/[a-zA-Z0-9_\-\/\{\}]+))["'`]/g;
     let absMatch;
     while ((absMatch = absApiRegex.exec(code)) !== null) {
       const fullUrl = absMatch[0].slice(1, -1);
       try {
         const u = new URL(fullUrl);
+        // Only accept absolute URLs if they target a backend candidate domain AND have an API route prefix
         const p = u.pathname;
         const isApiRoute = p.startsWith('/api/') || p.startsWith('/v1/') || p.startsWith('/v2/') || p.startsWith('/v3/') || p.startsWith('/graphql') || p.startsWith('/rest/') || p.startsWith('/auth/');
         if (isApiRoute && this.isBackendCandidateDomain(u.origin, origin)) {
@@ -888,10 +842,13 @@ class UniversalApiCrawler {
     clean = clean.replace(/^https?:\/\/[^\/]+/i, '');
     clean = clean.replace(/\?[^`'"]*/g, '');
 
-    // Canonicalize template variables: all dynamic template variables (${param}, ${trackId}, ${id}) canonicalize to {id}
-    clean = clean.replace(/\$\{([^}]+)\}/g, '{id}');
-    // Normalize Express route params: /users/:id or /tracks/:trackId -> {id}
-    clean = clean.replace(/:([a-zA-Z0-9_]+)/g, '{id}');
+    // Convert template variables into {param}
+    clean = clean.replace(/\$\{([^}]+)\}/g, '{$1}');
+    // Normalize consecutive parameters
+    clean = clean.replace(/\/\{[^}]+\}\/\{[^}]+\}/g, '/{id}/{subId}');
+    clean = clean.replace(/\/\{[^}]+\}\/sub_[^{]*/g, '/{id}');
+    // Normalize Express route params: /users/:id -> /users/{id}
+    clean = clean.replace(/:([a-zA-Z0-9_]+)/g, '{$1}');
     // Clean trailing slashes
     clean = clean.replace(/\/+$/, '').trim();
 
@@ -939,22 +896,20 @@ class UniversalApiCrawler {
       return null;
     }
 
-    // Canonicalize parameter segments:
-    // Any dynamic parameter segment is canonicalized to standard OpenAPI parameter representation
-    // ({id} for first param, {id2}, {id3} for subsequent params).
-    // CRITICAL: Reject consecutive dynamic parameters (e.g. /{id}/{subId} generated from `${id}/${action}`)
-    // because authentic REST architecture requires a resource noun between parameters.
+    // Normalize and validate each segment:
+    // Minified parameters like {t}, {e}, {_}, {n}, {x} unify into {id}
     const normalizedSegments = [];
     let idCounter = 1;
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
+    for (const seg of segments) {
       if (seg.startsWith('{') && seg.endsWith('}')) {
-        // Reject corrupted consecutive parameters (e.g. /tpos/{id}/{subId})
-        if (i > 0 && segments[i - 1].startsWith('{') && segments[i - 1].endsWith('}')) {
-          return null;
+        const paramName = seg.slice(1, -1);
+        if (!/^[a-zA-Z0-9_]+$/.test(paramName)) return null;
+        if (paramName.length <= 1 || paramName.startsWith('sub_') || paramName === 'id') {
+          normalizedSegments.push(idCounter === 1 ? '{id}' : `{id${idCounter}}`);
+          idCounter++;
+        } else {
+          normalizedSegments.push(`{${paramName}}`);
         }
-        normalizedSegments.push(idCounter === 1 ? '{id}' : `{id${idCounter}}`);
-        idCounter++;
       } else {
         if (!/^[a-zA-Z0-9_\-\.]+$/.test(seg)) return null;
         normalizedSegments.push(seg);
