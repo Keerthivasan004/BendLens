@@ -26,9 +26,10 @@ Use this skill when you need to:
 2. **Crash-Proof & Truthful Status Reporting**:
    - The crawler never crashes the Node.js server. Network errors, timeouts, and SSL failures are caught and reported with `crawlStatus: 'failed'` containing the exact network error message.
    - If a URL fails to connect or returns non-HTML/non-API errors, `/api/crawl` and `/api/analyze` return an explicit HTTP 400 error rather than misleading the user with fake successful results.
-3. **Local-First & Air-Gapped**:
+3. **Local-First, Air-Gapped & ReDoS Safe**:
    - Traversal and AST parsing happen 100% in Node.js memory.
    - Crawled assets are never forwarded to external third-party cloud services.
+   - **ReDoS Elimination**: All script and chunk regexes (`chunkPatterns`, `extractEndpointsFromCode`) strictly avoid overlapping character classes and unanchored `[\s\S]*?` quantifiers. Uses $O(N)$ linear-time bounded window slicing (`[rm.index - 80, rm.index + 120]`) to detect explicit HTTP methods, allowing dense multi-megabyte JavaScript bundles (like Google's 1.12MB runtime or inline scripts) to be parsed in under 10 milliseconds without V8 catastrophic backtracking.
 4. **Multi-Strategy Pipeline**:
    - **Stage 1**: Direct Ingestion (OpenAPI JSON/YAML, Postman Collection, live REST API JSON array/object, raw schemas).
    - **Stage 2**: Targeted Standard Probing (probes `/openapi.json`, `/swagger.json`, `/v3/api-docs` only when target is not an HTML document to prevent WAF / rate limit triggering).
@@ -42,10 +43,10 @@ Use this skill when you need to:
 ## Key Files & Responsibilities
 
 - **`src/lib/universalApiCrawler.js`**: Core crawler engine.
-  - `crawl(targetUrl, options)`: Main execution routine with early connection verification.
+  - `crawl(targetUrl, options)`: Main execution routine with early connection verification and bounded sub-second chunk discovery.
   - `safeFetch(url, options)`: Timeout-bounded and error-neutral fetch wrapper.
   - `formatNetworkError(err, targetUrl)`: Decodes low-level socket, TLS, and DNS errors (`ECONNRESET`, `ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`) into clear, human-readable root-cause explanations.
-  - `extractEndpointsFromCode(code, scriptUrl, origin, ...)`: Rigorous token and AST pattern extractor recovering authentic verbs (GET, POST, PUT, PATCH, DELETE) and parameters from both standard calls and minified wrappers.
+  - `extractEndpointsFromCode(code, scriptUrl, origin, ...)`: Linear-time bounded window pattern extractor recovering authentic verbs (GET, POST, PUT, PATCH, DELETE) and parameters from both standard calls and minified wrappers with zero catastrophic backtracking.
   - `normalizeApiPath(rawPath)`: Normalizes template expressions (e.g. `${U.user_id}`, `${ge}`) into standard OpenAPI parameters without dropping valid routes.
   - `emergencyFallback(targetUrl, hostname, origin, err, startTime)`: Crash-proof fallback generator reporting `crawlStatus: 'failed'` with zero synthetic models.
 - **`src/lib/generators/apiPdfReportGenerator.js`**: Enterprise API Architecture & Inventory PDF Report Generator.

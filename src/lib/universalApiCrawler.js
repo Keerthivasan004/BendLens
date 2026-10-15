@@ -496,10 +496,12 @@ class UniversalApiCrawler {
             /(?:\/_next\/static\/chunks\/[^"'\s()]+\.js|static\/chunks\/[^"'\s()]+\.js)/g,
             // Vite / Rollup chunks: /assets/[...].js or assets/[...].js
             /(?:\/assets\/[^"'\s()]+\.js|assets\/[^"'\s()]+\.js)/g,
-            // Webpack chunks: static/js/[...].js or [0-9]+.[hash].js
-            /(?:static\/js\/[^"'\s()]+\.js|[a-zA-Z0-9_\-]+\-[a-zA-Z0-9_\-]{8,}\.js)/g,
+            // Webpack / Vite / Rollup dynamic chunks inside quotes: "chunk-xyz.js" or "assets/vendor-12345678.js"
+            /["'`]([a-zA-Z0-9_.\/]+-[a-zA-Z0-9_]{6,}\.js)["'`]/g,
+            // Webpack static path
+            /["'`](static\/js\/[^"'`\s()]+\.js)["'`]/g,
             // Nuxt chunks: /_nuxt/[...].js
-            /(?:\/_nuxt\/[^"'\s()]+\.js)/g,
+            /["'`]((\/_nuxt\/[^"'`\s()]+\.js))["'`]/g,
             // Dynamic import calls: import("...")
             /import\s*\(\s*["']([^"']+\.js)["']\s*\)/g
           ];
@@ -665,37 +667,7 @@ class UniversalApiCrawler {
   static extractEndpointsFromCode(code, scriptUrl, origin, allEndpoints, backendDomains, distinctEntities) {
     if (!code || typeof code !== 'string') return;
 
-    // Pattern 1a: Calls with URL followed by options object containing method (e.g. fetch, apiClient, B(url, { method: "POST" }))
-    const callRegex = /(?:[a-zA-Z0-9_$.]+\s*\(\s*|\b(?:url|endpoint|path)\s*[:=]\s*)([`'"](?:\/api\/|\/v[1-9]\/|\/auth\/|\/rest\/|\/oauth\/)[^`'"]+[`'"])(?:[\s\S]{0,140}?\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["'])?/gi;
-    let fm;
-    while ((fm = callRegex.exec(code)) !== null) {
-      const rawPath = fm[1].slice(1, -1);
-      const explicitMethod = fm[2] ? fm[2].toUpperCase() : null;
-      const normalized = this.normalizeApiPath(rawPath);
-      if (normalized) {
-        if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
-        if (explicitMethod) {
-          allEndpoints.get(normalized).add(explicitMethod);
-        }
-        this.extractEntitiesFromPath(normalized, distinctEntities);
-      }
-    }
-
-    // Pattern 1b: Reverse options order: { method: "POST", ... }, "/path"
-    const revCallRegex = /\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["'][\s\S]{0,140}?(?:[a-zA-Z0-9_$.]+\s*\(\s*)([`'"](?:\/api\/|\/v[1-9]\/|\/auth\/|\/rest\/|\/oauth\/)[^`'"]+[`'"])/gi;
-    let rvm;
-    while ((rvm = revCallRegex.exec(code)) !== null) {
-      const explicitMethod = rvm[1].toUpperCase();
-      const rawPath = rvm[2].slice(1, -1);
-      const normalized = this.normalizeApiPath(rawPath);
-      if (normalized) {
-        if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
-        allEndpoints.get(normalized).add(explicitMethod);
-        this.extractEntitiesFromPath(normalized, distinctEntities);
-      }
-    }
-
-    // Pattern 1c: HTTP Client calls with explicit method: axios.get, client.post, apiClient.put, etc.
+    // Pattern 1: HTTP Client calls with explicit method: axios.get, client.post, apiClient.put, etc.
     const clientCallRegex = /(?:axios|apiClient|httpClient|client|http|api|superagent|ky)\s*\.\s*(get|post|put|delete|patch|head|options)\s*\(\s*([`'"][^`'"]+[`'"])/gi;
     let cm;
     while ((cm = clientCallRegex.exec(code)) !== null) {
@@ -710,14 +682,26 @@ class UniversalApiCrawler {
     }
 
     // Pattern 2: API routes matching standard REST / RPC prefixes
-    // Matches /api/..., /v1/..., /v2/..., /v3/..., /graphql, /rest/...
+    // Matches /api/..., /v1/..., /v2/..., /v3/..., /graphql, /rest/..., /oauth/..., /auth/...
+    // Uses bounded window slicing (O(N) linear time, zero ReDoS backtracking) to detect explicit HTTP methods
     const restRegex = /["'`]((\/(?:api|v[1-9]|rest|graphql|oauth|auth)\/[a-zA-Z0-9_\-\/\{\}\$\.]+))["'`]/g;
     let rm;
     while ((rm = restRegex.exec(code)) !== null) {
-      const normalized = this.normalizeApiPath(rm[1]);
+      const rawPath = rm[1];
+      const normalized = this.normalizeApiPath(rawPath);
       if (normalized) {
         if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
-        if (allEndpoints.get(normalized).size === 0) {
+
+        // Fast bounded window check (80 chars before and 120 chars after) for explicit HTTP method
+        // Covers fetch("/api/...", { method: "POST" }) and { method: "POST", url: "/api/..." }
+        const winStart = Math.max(0, rm.index - 80);
+        const winEnd = Math.min(code.length, rm.index + rm[0].length + 120);
+        const windowStr = code.slice(winStart, winEnd);
+        const methodMatch = windowStr.match(/\bmethod\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']/i);
+
+        if (methodMatch) {
+          allEndpoints.get(normalized).add(methodMatch[1].toUpperCase());
+        } else if (allEndpoints.get(normalized).size === 0) {
           allEndpoints.get(normalized).add(this.inferMethodFromKeyword(normalized));
         }
         this.extractEntitiesFromPath(normalized, distinctEntities);
