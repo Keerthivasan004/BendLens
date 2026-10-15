@@ -30,33 +30,44 @@ function launchInstallerExe(exePath, { silent = true } = {}) {
   try {
     if (!exePath || !fs.existsSync(exePath)) return false;
     if (process.platform === 'win32') {
+      const currentExe = process.execPath || path.join(process.env.LOCALAPPDATA || '', 'Programs', 'BendLens', 'BendLens.exe');
+      const updaterBat = path.join(os.tmpdir(), `bendlens-apply-update-${Date.now()}.cmd`);
       const flag = silent ? ' /S' : '';
-      // 1. Cmd start: invokes Windows ShellExecute which handles UAC elevation prompts cleanly
-      try {
-        exec(`start "" "${exePath}"${flag}`);
-        return true;
-      } catch (cmdErr) {
-        console.warn('[updates/apply] cmd start failed, trying powershell:', cmdErr.message);
-      }
+      const batContent = [
+        '@echo off',
+        'chcp 65001 >nul',
+        'echo [*] Preparing silent BendLens upgrade...',
+        'timeout /t 2 /nobreak >nul',
+        'taskkill /F /IM BendLens.exe >nul 2>&1',
+        'taskkill /F /IM electron.exe >nul 2>&1',
+        `start /wait "" "${exePath}"${flag}`,
+        'timeout /t 1 /nobreak >nul',
+        `start "" "${currentExe}"`,
+        'timeout /t 2 /nobreak >nul',
+        'del "%~f0" >nul 2>&1',
+        'exit /b 0'
+      ].join('\r\n');
 
-      // 2. PowerShell Start-Process fallback
       try {
-        const psArgs = silent ? " -ArgumentList '/S'" : '';
-        const psCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '${exePath.replace(/'/g, "''")}'${psArgs}"`;
-        exec(psCmd);
+        fs.writeFileSync(updaterBat, batContent, 'utf-8');
+        const child = spawn('cmd.exe', ['/c', updaterBat], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true
+        });
+        child.unref();
         return true;
-      } catch (psErr) {
-        console.warn('[updates/apply] powershell Start-Process failed:', psErr.message);
+      } catch (spawnErr) {
+        console.warn('[updates/apply] Detached updater spawn failed, trying direct spawn fallback:', spawnErr.message);
+        try {
+          const child = spawn(exePath, silent ? ['/S'] : [], {
+            detached: true,
+            stdio: 'ignore'
+          });
+          child.unref();
+          return true;
+        } catch {}
       }
-
-      // 3. Direct spawn fallback
-      const child = spawn(exePath, silent ? ['/S'] : [], {
-        detached: true,
-        stdio: 'ignore'
-      });
-      child.on('error', (err) => console.warn('[updates/apply] spawn error:', err.message));
-      child.unref();
-      return true;
     }
   } catch (err) {
     console.warn('[updates/apply] launchInstallerExe error:', err.message);
@@ -164,6 +175,8 @@ async function downloadAndLaunchInstaller(downloadUrl, artifactName) {
 
 function findLocalInstaller(projectRoot, targetVersion) {
   const searchDirs = [
+    path.join(process.env.APPDATA || '', 'BendLens', 'pending-update'),
+    path.join(process.env.APPDATA || '', 'bendlens-platform', 'pending-update'),
     path.join(projectRoot, 'dist'),
     path.join(os.homedir(), 'Downloads'),
     path.join(os.tmpdir()),
@@ -246,7 +259,7 @@ export async function POST(request) {
       effective = await getEffectiveLatest(projectRoot, { allowRemote: true });
     } catch {}
 
-    const targetVer = targetVersion || effective?.latestVersion || getLocalVersion(projectRoot) || '1.1.35';
+    const targetVer = targetVersion || effective?.latestVersion || getLocalVersion(projectRoot) || '1.1.38';
     let setupArtifactName = effective?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
     if (!setupArtifactName.endsWith('.exe')) {
       setupArtifactName = `BendLens-Setup-${targetVer}.exe`;
@@ -366,13 +379,7 @@ export async function POST(request) {
       }
     }
 
-    if (installerLaunched && process.platform === 'win32') {
-      setTimeout(() => {
-        try {
-          exec('taskkill /IM BendLens.exe /T /F', () => {});
-        } catch {}
-      }, 3500);
-    }
+    // Detached updater runner script handles graceful process shutdown and relaunch cleanly.
 
     const durationMs = Date.now() - updateStartTime;
 

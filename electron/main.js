@@ -421,7 +421,7 @@ function startBackendServer(projectDir, port, onReady = null) {
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
           BENDLENS_APP_DIR: projectDir,
-          BENDLENS_APP_VERSION: app.getVersion() || '1.1.37',
+          BENDLENS_APP_VERSION: app.getVersion() || '1.1.38',
           PORT: String(port)
         }
       });
@@ -734,9 +734,14 @@ function getUpdateDir() {
 function findAnyLocalInstaller(targetVersion) {
   const searchDirs = [
     getUpdateDir(),
+    path.join(app.getPath('userData'), 'pending-update'),
+    path.join(process.env.APPDATA || '', 'BendLens', 'pending-update'),
+    path.join(process.env.APPDATA || '', 'bendlens-platform', 'pending-update'),
     path.join(app.getPath('userData'), 'extracted-app'),
     path.join(os.tmpdir()),
     path.join(os.homedir(), 'Downloads'),
+    path.join(process.env.LOCALAPPDATA || '', 'BendLens', 'updates'),
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'BendLens', 'updates'),
     path.join(__dirname, '..', 'dist')
   ];
 
@@ -996,17 +1001,36 @@ function applyUpdateAndRestart(args = {}) {
 
   if (targetInstaller && fs.existsSync(targetInstaller) && isValidWindowsExe(targetInstaller)) {
     const currentExe = process.execPath;
-    console.log('[*] Launching silent installer (/S) with automatic relaunch into:', currentExe);
+    console.log('[*] Launching detached silent installer (/S) with automatic relaunch into:', currentExe);
 
     if (process.platform === 'win32') {
-      // In Windows NSIS, /S executes a completely silent in-place installation.
-      // We run via a detached hidden command that waits for the installer to finish,
-      // then relaunches BendLens.exe cleanly.
-      const silentUpdateCmd = `start /wait "" "${targetInstaller}" /S && start "" "${currentExe}"`;
+      // Use an isolated detached cmd script to eliminate parent-process termination issues
+      const updaterBat = path.join(os.tmpdir(), `bendlens-apply-update-${Date.now()}.cmd`);
+      const batContent = [
+        '@echo off',
+        'chcp 65001 >nul',
+        'echo [*] Preparing silent BendLens upgrade...',
+        'timeout /t 2 /nobreak >nul',
+        'taskkill /F /IM BendLens.exe >nul 2>&1',
+        'taskkill /F /IM electron.exe >nul 2>&1',
+        `start /wait "" "${targetInstaller}" /S`,
+        'timeout /t 1 /nobreak >nul',
+        `start "" "${currentExe}"`,
+        'timeout /t 2 /nobreak >nul',
+        'del "%~f0" >nul 2>&1',
+        'exit /b 0'
+      ].join('\r\n');
+
       try {
-        exec(silentUpdateCmd, { windowsHide: true });
-      } catch (cmdErr) {
-        console.warn('[!] Silent update cmd fallback to direct spawn:', cmdErr.message);
+        fs.writeFileSync(updaterBat, batContent, 'utf-8');
+        const child = spawn('cmd.exe', ['/c', updaterBat], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true
+        });
+        child.unref();
+      } catch (batErr) {
+        console.warn('[!] Failed to launch updater script, trying direct spawn fallback:', batErr.message);
         try {
           const child = spawn(targetInstaller, ['/S'], { detached: true, stdio: 'ignore' });
           child.unref();
@@ -1095,7 +1119,7 @@ ipcMain.on('app-quit-and-update', () => {
 });
 
 ipcMain.on('get-app-version', (event) => {
-  event.returnValue = app.getVersion() || '1.1.37';
+  event.returnValue = app.getVersion() || '1.1.38';
 });
 
 app.whenReady().then(() => {

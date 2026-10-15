@@ -507,11 +507,11 @@ export default function UpdateShowcaseModal({
                         Update Downloaded &amp; Verified!
                       </h4>
                       <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-bold">
-                        v{updateInfo?.latestVersion || '1.1.30'}
+                        v{updateInfo?.latestVersion || '1.1.38'}
                       </span>
                     </div>
                     <p className="text-xs text-emerald-300/80 mt-0.5">
-                      BendLens v{updateInfo?.latestVersion || '1.1.30'} is verified and ready. 1-click restart will update cleanly in 2 seconds with zero wizard prompts.
+                      BendLens v{updateInfo?.latestVersion || '1.1.38'} is verified and ready. 1-click restart will update cleanly in 2 seconds with zero wizard prompts.
                     </p>
                   </div>
                 </div>
@@ -571,11 +571,11 @@ export default function UpdateShowcaseModal({
                         {updateStep?.includes('launched') ? 'Installer Launched Successfully!' : updateStep?.includes('Download') || updateStep?.includes('download') ? 'Installer Download Ready!' : 'Software Update Ready!'}
                       </h4>
                       <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-bold">
-                        v{updateInfo?.latestVersion || '1.1.30'}
+                        v{updateInfo?.latestVersion || '1.1.38'}
                       </span>
                     </div>
                     <p className="text-xs text-emerald-300/80 mt-0.5">
-                      {updateStep || `BendLens Studio v${updateInfo?.latestVersion || '1.1.30'} is ready. Complete setup to finish updating.`}
+                      {updateStep || `BendLens Studio v${updateInfo?.latestVersion || '1.1.38'} is ready. Complete setup to finish updating.`}
                     </p>
                   </div>
                 </div>

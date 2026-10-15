@@ -212,7 +212,7 @@ export default function UpdateIndicator() {
     setUpdateElapsedTime(0);
     setUpdateFinalDuration('');
 
-    const targetVer = updateInfo?.latestVersion || '1.1.30';
+    const targetVer = updateInfo?.latestVersion || '1.1.38';
     const targetArtifact = updateInfo?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
     const directDownloadUrl = updateInfo?.downloadUrl || `https://github.com/Keerthivasan004/BendLens/releases/download/v${targetVer}/${targetArtifact}`;
 

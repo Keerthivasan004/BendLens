@@ -83,6 +83,10 @@ Use this skill when you need to:
 - **CI/CD Windows Release (`release.yml`)**:
   - Requires `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'` in workflow `env:` to avoid GitHub Actions runner Node 20 deprecation warnings and forced Node 24 incompatibility.
   - Requires `pnpm-workspace.yaml` to explicitly include `packages: ['- .']` so that `pnpm 9` does not fail with `packages field missing or empty` during `actions/setup-node@v4` pnpm store cache resolution (`pnpm store path`).
-  - `scripts/installer.nsh` must only define `!macro customInstall` and `!macro customUnInstall` (do not define `Function .onInit` or insert duplicate `MUI_PAGE_*` macros, as electron-builder defines them internally). Use silent `nsExec::Exec 'taskkill /F /IM BendLens.exe /T'` to terminate running processes without parameter splitting or deprecated WMIC syntax errors.
+  - `scripts/installer.nsh` defines `!macro customInit`, `!macro customCheckAppRunning`, `!macro customUnInstallCheck`, `!macro customUnInstallCheckCurrentUser`, `!macro customInstall`, and `!macro customUnInstall`.
+    - Every `nsExec::Exec` call is followed by `Pop $0` to balance the NSIS stack and prevent stack corruption.
+    - `customUnInstallCheck` clears errors if an older uninstaller (e.g., v1.1.30) returns exit code 1, allowing the new installer to proceed without aborting.
+    - Avoids `/T` on `taskkill /F /IM BendLens.exe` so installer and wrapper processes are not terminated by tree kill.
+    - `customUnInstall` never removes `$INSTDIR` manually (electron-builder manages `$INSTDIR`), and guards user data removal with `${ifNot} ${isUpdated}` so upgrades preserve user settings.
   - Exclude `node_modules/electron`, `node_modules/electron-builder`, `.cache`, and `*.map` from `build.files` in `package.json` to avoid packaging ~250MB+ of redundant binaries and slow 7z compression.
   - Set `"dist": "electron-builder --win --publish never"` to prevent electron-builder from triggering implicit tag publishing, allowing the dedicated `softprops/action-gh-release@v2` step to manage the release.
