@@ -297,8 +297,10 @@ export async function POST(request) {
             lastError = `HTTP ${specRes.status} from ${targetFetchUrl}: ${specRes.statusText}`;
           }
         } catch (specErr) {
-          lastError = specErr.message;
-          console.warn('HTTP fetch attempt failed/skipped, falling back to Git repository strategies:', specErr.message);
+          lastError = UniversalApiCrawler.formatNetworkError
+            ? UniversalApiCrawler.formatNetworkError(specErr, targetFetchUrl)
+            : (specErr.cause?.message || specErr.message);
+          console.warn('HTTP fetch attempt failed/skipped, falling back to Git repository strategies:', lastError);
         }
       }
     }
@@ -503,18 +505,29 @@ export async function POST(request) {
         saveToHistory(result);
         return NextResponse.json({ success: true, data: result });
       }
-      if (crawlResult?.telemetry?.error && !lastError) {
+      if (crawlResult?.telemetry?.error) {
         lastError = crawlResult.telemetry.error;
       }
     } catch (finalCrawlErr) {
       console.warn('Final crawl fallback error:', finalCrawlErr.message);
     }
 
-    // If all strategies fail
+    // If all strategies fail, construct an intelligent diagnostic message
+    const isGitUrl = repoUrl.includes('github.com') || repoUrl.includes('gitlab.com') || repoUrl.includes('bitbucket.org') || repoUrl.endsWith('.git');
+    
+    let userFacingError = '';
+    if (lastError && (lastError.includes('ECONNRESET') || lastError.includes('ECONNREFUSED') || lastError.includes('ENOTFOUND') || lastError.includes('timed out') || lastError.includes('actively reset'))) {
+      userFacingError = lastError;
+    } else if (isGitUrl) {
+      userFacingError = `Unable to access repository from "${repoUrl}". ${lastError ? `[Details: ${lastError}]. ` : ''}If private, please ensure your Personal Access Token is valid and has required scopes.`;
+    } else {
+      userFacingError = `Unable to access or inspect "${repoUrl}". ${lastError ? `[Details: ${lastError}]. ` : ''}Please check that the target URL is online and accepting connections.`;
+    }
+
     return NextResponse.json(
       { 
         success: false, 
-        error: `Unable to access repository or API specification from "${repoUrl}". ${lastError ? `[Details: ${lastError}]. ` : ''}If private, please ensure your Personal Access Token is valid and has required scopes.` 
+        error: userFacingError
       },
       { status: 400 }
     );

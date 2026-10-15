@@ -44,8 +44,9 @@ Use this skill when you need to:
 - **`src/lib/universalApiCrawler.js`**: Core crawler engine.
   - `crawl(targetUrl, options)`: Main execution routine with early connection verification.
   - `safeFetch(url, options)`: Timeout-bounded and error-neutral fetch wrapper.
+  - `formatNetworkError(err, targetUrl)`: Decodes low-level socket, TLS, and DNS errors (`ECONNRESET`, `ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`) into clear, human-readable root-cause explanations.
   - `extractEndpointsFromCode(code, scriptUrl, origin, ...)`: Token and AST pattern extractor with strict regex patterns avoiding comments and generic strings.
-  - `emergencyFallback(errorMsg, targetUrl)`: Crash-proof fallback generator reporting `crawlStatus: 'failed'` with zero synthetic models.
+  - `emergencyFallback(targetUrl, hostname, origin, err, startTime)`: Crash-proof fallback generator reporting `crawlStatus: 'failed'` with zero synthetic models.
 - **`src/lib/generators/apiPdfReportGenerator.js`**: Enterprise API Architecture & Inventory PDF Report Generator.
   - `generateApiReportHtml(analysisData)`: Builds an executive, print-ready HTML/PDF assessment report with KPI grid, architectural tier badges, method distribution, categorized route tables, and embedded `@media print` styling.
   - `openAndPrintApiReport(analysisData)`: Client-side trigger that opens the report in a new tab with automatic `window.print()` for 1-click "Save as PDF" / printer export and fallback HTML download.

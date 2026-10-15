@@ -143,6 +143,7 @@ Universal URL & API Ingestion Engine for remote repositories, live REST APIs, an
   6. **GitHub Repositories**: Public and private repositories via direct archive streams and authenticated GitHub API zipballs with Personal Access Token (PAT) support.
   7. **GitLab Repositories**: Public and private repositories via GitLab archive zipballs.
   8. **Generic Git Repositories**: Via shallow Git CLI clone fallback (`git clone --depth 1`).
+- **Network Error Diagnostics**: Automatically decodes low-level socket and TLS errors (`ECONNRESET`, `ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`). If a remote server actively terminates a connection, clearly reports the exact technical root cause rather than displaying misleading Personal Access Token messages for non-git URLs.
 - **Request Body**:
   ```json
   {

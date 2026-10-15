@@ -32,6 +32,32 @@ class UniversalApiCrawler {
   }
 
   /**
+   * Translates low-level Node.js socket/TLS errors into clean, informative diagnostic messages.
+   */
+  static formatNetworkError(err, targetUrl) {
+    const causeMsg = err?.cause?.message || err?.cause?.code || '';
+    const baseMsg = err?.message || 'Network request failed';
+    const fullDetail = causeMsg && causeMsg !== baseMsg ? `${baseMsg} (${causeMsg})` : baseMsg;
+
+    if (/ECONNRESET/i.test(fullDetail) || /connection.*reset/i.test(fullDetail)) {
+      return `Connection to "${targetUrl}" was actively reset by the remote server (ECONNRESET). The target host terminated the connection during handshake. Please check if the web server or container is running and accepting traffic.`;
+    }
+    if (/ECONNREFUSED/i.test(fullDetail) || /connection.*refused/i.test(fullDetail)) {
+      return `Connection to "${targetUrl}" was refused (ECONNREFUSED). No service is actively listening on the target port.`;
+    }
+    if (/ENOTFOUND/i.test(fullDetail) || /getaddrinfo/i.test(fullDetail)) {
+      return `Could not resolve domain name for "${targetUrl}" (ENOTFOUND). Please verify the hostname and DNS configuration.`;
+    }
+    if (/ETIMEDOUT/i.test(fullDetail) || /timed?out/i.test(fullDetail)) {
+      return `Connection to "${targetUrl}" timed out. The server did not respond within the allowed time limit.`;
+    }
+    if (/CERT_|certificate|SSL|TLS/i.test(fullDetail)) {
+      return `SSL/TLS handshake failure for "${targetUrl}". The server has an invalid or self-signed certificate.`;
+    }
+    return `Could not establish connection to "${targetUrl}": ${fullDetail}`;
+  }
+
+  /**
    * Safe fetch with timeouts, header rotation, and error neutralization.
    * NEVER throws an unhandled rejection.
    */
@@ -57,7 +83,7 @@ class UniversalApiCrawler {
       return {
         ok: false,
         status: 0,
-        statusText: err.message || 'Fetch error',
+        statusText: this.formatNetworkError(err, url),
         contentType: '',
         text: ''
       };
