@@ -26,13 +26,14 @@ function isValidWindowsExe(filePath) {
   }
 }
 
-function launchInstallerExe(exePath) {
+function launchInstallerExe(exePath, { silent = true } = {}) {
   try {
     if (!exePath || !fs.existsSync(exePath)) return false;
     if (process.platform === 'win32') {
+      const flag = silent ? ' /S' : '';
       // 1. Cmd start: invokes Windows ShellExecute which handles UAC elevation prompts cleanly
       try {
-        exec(`start "" "${exePath}"`);
+        exec(`start "" "${exePath}"${flag}`);
         return true;
       } catch (cmdErr) {
         console.warn('[updates/apply] cmd start failed, trying powershell:', cmdErr.message);
@@ -40,7 +41,8 @@ function launchInstallerExe(exePath) {
 
       // 2. PowerShell Start-Process fallback
       try {
-        const psCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '${exePath.replace(/'/g, "''")}'"`;
+        const psArgs = silent ? " -ArgumentList '/S'" : '';
+        const psCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '${exePath.replace(/'/g, "''")}'${psArgs}"`;
         exec(psCmd);
         return true;
       } catch (psErr) {
@@ -48,7 +50,7 @@ function launchInstallerExe(exePath) {
       }
 
       // 3. Direct spawn fallback
-      const child = spawn(exePath, [], {
+      const child = spawn(exePath, silent ? ['/S'] : [], {
         detached: true,
         stdio: 'ignore'
       });

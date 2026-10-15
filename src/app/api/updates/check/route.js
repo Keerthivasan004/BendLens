@@ -19,7 +19,7 @@ export async function GET(request) {
     const allowRemote = searchParams.get('source') === 'desktop';
 
     const currentVersion = getLocalVersion();
-    const { latestVersion, updateArtifact, updateSource } = await getEffectiveLatest(
+    const { latestVersion, updateArtifact, updateSource, downloadUrl } = await getEffectiveLatest(
       undefined,
       { allowRemote }
     );
@@ -30,6 +30,10 @@ export async function GET(request) {
     if (simulateUpdate) {
       hasUpdate = true;
     }
+
+    const fallbackDownloadUrl = hasUpdate
+      ? `https://github.com/Keerthivasan004/BendLens/releases/download/v${latestVersion}/${updateArtifact || `BendLens-Setup-${latestVersion}.exe`}`
+      : null;
 
     const featureShowcase = [
       {
@@ -93,6 +97,7 @@ export async function GET(request) {
       hasUpdate,
       updateArtifact,
       updateSource,
+      downloadUrl: downloadUrl || fallbackDownloadUrl,
       releaseNotes: featureShowcase.map(f => f.title),
       featureShowcase,
       releaseDate: new Date().toISOString()
@@ -100,13 +105,17 @@ export async function GET(request) {
   } catch (error) {
     const currentVersion = getLocalVersion();
     const { latestVersion, updateArtifact } = getLatestRelease();
+    const hasUpdate = isNewerVersion(latestVersion, currentVersion);
     return NextResponse.json({
       success: true,
       currentVersion,
       latestVersion,
-      hasUpdate: isNewerVersion(latestVersion, currentVersion),
+      hasUpdate,
       updateArtifact,
-      updateSource: 'local'
+      updateSource: 'local',
+      downloadUrl: hasUpdate
+        ? `https://github.com/Keerthivasan004/BendLens/releases/download/v${latestVersion}/${updateArtifact || `BendLens-Setup-${latestVersion}.exe`}`
+        : null
     });
   }
 }

@@ -164,6 +164,7 @@ export async function getRemoteLatestRelease() {
       const tagVersion = parseArtifactVersion(newest?.tag_name || newest?.name || '');
       let assetName = null;
       let assetVersion = null;
+      let downloadUrl = null;
       if (Array.isArray(newest?.assets)) {
         const setupAsset =
           newest.assets.find((a) => /setup.*\.exe$/i.test(a?.name)) ||
@@ -171,20 +172,24 @@ export async function getRemoteLatestRelease() {
         if (setupAsset) {
           assetName = setupAsset.name;
           assetVersion = parseArtifactVersion(setupAsset.name);
+          downloadUrl = setupAsset.browser_download_url || null;
         }
       }
       // Use the newest version between the release tag and the asset filename
       // so published releases are never suppressed even if an asset had a stale name.
       const v = maxVersion(tagVersion, assetVersion);
       if (v) {
-        remoteCache = { at: now, version: v, asset: assetName };
-        return { version: v, asset: assetName };
+        if (!downloadUrl) {
+          downloadUrl = `https://github.com/${UPDATE_REPO}/releases/download/v${v}/${assetName || `BendLens-Setup-${v}.exe`}`;
+        }
+        remoteCache = { at: now, version: v, asset: assetName, downloadUrl };
+        return { version: v, asset: assetName, downloadUrl };
       }
     }
-    return { version: remoteCache?.version || null, asset: remoteCache?.asset || null };
+    return { version: remoteCache?.version || null, asset: remoteCache?.asset || null, downloadUrl: remoteCache?.downloadUrl || null };
   } catch {
     if (timer) clearTimeout(timer);
-    return { version: remoteCache?.version || null, asset: remoteCache?.asset || null };
+    return { version: remoteCache?.version || null, asset: remoteCache?.asset || null, downloadUrl: remoteCache?.downloadUrl || null };
   }
 }
 
@@ -199,19 +204,21 @@ export async function getRemoteLatestVersion() {
  */
 export async function getEffectiveLatest(projectRoot, { allowRemote = false } = {}) {
   const local = getLatestRelease(projectRoot) || { latestVersion: BASELINE_LATEST_VERSION, updateArtifact: null };
-  if (!allowRemote) return { ...local, updateSource: 'local' };
+  if (!allowRemote) return { ...local, updateSource: 'local', downloadUrl: null };
   try {
     const remote = await getRemoteLatestRelease();
     if (remote?.version) {
       const isNewer = isNewerVersion(remote.version, local.latestVersion);
       const bestVersion = isNewer ? remote.version : local.latestVersion;
       const asset = remote.asset || local.updateArtifact || null;
+      const downloadUrl = remote.downloadUrl || null;
       return {
         latestVersion: bestVersion,
         updateArtifact: asset,
-        updateSource: isNewer ? 'remote' : 'local'
+        updateSource: isNewer ? 'remote' : 'local',
+        downloadUrl
       };
     }
   } catch {}
-  return { ...local, updateSource: 'local' };
+  return { ...local, updateSource: 'local', downloadUrl: null };
 }

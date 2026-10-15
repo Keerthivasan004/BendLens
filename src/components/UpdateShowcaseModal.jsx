@@ -12,6 +12,9 @@ export default function UpdateShowcaseModal({
   isOpen,
   onClose,
   onApplyUpdate,
+  onRestartNow,
+  autoUpdateStatus = 'idle',
+  downloadProgress = { percent: 0, transferredMb: '0', totalMb: '0', speedMb: '0' },
   isUpdating,
   updateStep,
   updateSuccess,
@@ -465,8 +468,74 @@ export default function UpdateShowcaseModal({
             </div>
           </div>
 
-          {/* Update Execution Pipeline with Live Stopwatch Telemetry */}
-          {isUpdating && (
+          {/* 1. Live Background Download Progress Pipeline */}
+          {autoUpdateStatus === 'downloading' && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-blue-950/50 border border-blue-500/50 space-y-3 animate-fadeIn">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 text-xs font-bold text-sky-300">
+                  <RefreshCw className="h-4 w-4 animate-spin text-sky-400 shrink-0" />
+                  <span>Downloading BendLens v{updateInfo?.latestVersion} update in background...</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/40 text-sky-300 font-mono text-xs font-bold shrink-0 shadow-sm">
+                  <span>{downloadProgress.percent}%</span>
+                </div>
+              </div>
+              <div className="w-full h-2.5 rounded-full bg-white/10 overflow-hidden relative">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 via-sky-400 to-indigo-500 transition-all duration-300 rounded-full"
+                  style={{ width: `${Math.max(4, downloadProgress.percent)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-muted font-mono">
+                <span>{downloadProgress.transferredMb} MB of {downloadProgress.totalMb} MB</span>
+                <span>Speed: {downloadProgress.speedMb} MB/s</span>
+              </div>
+            </div>
+          )}
+
+          {/* 2. Update Ready Notification (Downloaded and Verified) */}
+          {autoUpdateStatus === 'ready' && (
+            <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-emerald-950/70 via-emerald-900/30 to-[#090d16] border border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)] space-y-4 animate-fadeIn">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0 shadow-sm">
+                    <CheckCircle2 className="h-6 w-6 text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm sm:text-base font-extrabold text-emerald-200">
+                        Update Downloaded &amp; Verified!
+                      </h4>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-bold">
+                        v{updateInfo?.latestVersion || '1.1.30'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-emerald-300/80 mt-0.5">
+                      BendLens v{updateInfo?.latestVersion || '1.1.30'} is verified and ready. 1-click restart will update cleanly in 2 seconds with zero wizard prompts.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="self-start sm:self-center px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-[0_2px_12px_rgba(16,185,129,0.4)] transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  <span>Close</span>
+                </button>
+              </div>
+
+              <div className="pt-3 border-t border-emerald-500/20 flex flex-wrap items-center gap-3 text-[11px] text-emerald-300/70 font-mono">
+                <span className="flex items-center gap-1">✓ Background stream verified</span>
+                <span className="flex items-center gap-1">✓ Silent in-place installation ready</span>
+                <span className="flex items-center gap-1">✓ Automated zero-downtime relaunch</span>
+              </div>
+            </div>
+          )}
+
+          {/* 3. Fallback Update Execution Pipeline (non-Electron or manual apply) */}
+          {autoUpdateStatus !== 'downloading' && autoUpdateStatus !== 'ready' && isUpdating && (
             <div className="p-4 sm:p-5 rounded-2xl bg-blue-950/50 border border-blue-500/50 space-y-3 animate-fadeIn">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5 text-xs font-bold text-sky-300">
@@ -488,8 +557,8 @@ export default function UpdateShowcaseModal({
             </div>
           )}
 
-          {/* Update Completed Notification with Explicit Close Button */}
-          {updateSuccess && (
+          {/* 4. Manual Update Completed Notification */}
+          {autoUpdateStatus !== 'ready' && updateSuccess && (
             <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-emerald-950/70 via-emerald-900/30 to-[#090d16] border border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)] space-y-4 animate-fadeIn">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-start sm:items-center gap-3">
@@ -519,12 +588,6 @@ export default function UpdateShowcaseModal({
                   <X className="h-3.5 w-3.5" />
                   <span>Close</span>
                 </button>
-              </div>
-
-              <div className="pt-3 border-t border-emerald-500/20 flex flex-wrap items-center gap-3 text-[11px] text-emerald-300/70 font-mono">
-                <span className="flex items-center gap-1">✓ In-memory DB parser refreshed</span>
-                <span className="flex items-center gap-1">✓ C4 flowchart visualizers active</span>
-                <span className="flex items-center gap-1">✓ Brand icons &amp; shortcut synced</span>
               </div>
             </div>
           )}
@@ -566,6 +629,24 @@ export default function UpdateShowcaseModal({
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
                 <span>Already Up to Date (v{updateInfo?.currentVersion || '1.1.0'})</span>
               </button>
+            ) : autoUpdateStatus === 'ready' ? (
+              <button
+                type="button"
+                onClick={onRestartNow}
+                className="flex items-center justify-center gap-2 px-5 py-2 rounded-xl text-xs font-extrabold bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white shadow-[0_2px_15px_rgba(16,185,129,0.4)] transition-all cursor-pointer"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                <span>Restart &amp; Apply Update (Ready)</span>
+              </button>
+            ) : autoUpdateStatus === 'downloading' ? (
+              <button
+                type="button"
+                disabled
+                className="flex items-center justify-center gap-2 px-5 py-2 rounded-xl text-xs font-bold bg-blue-600/30 text-sky-300 border border-blue-500/40 shadow-sm cursor-not-allowed opacity-80"
+              >
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-sky-400" />
+                <span>Downloading Update ({downloadProgress.percent}%)...</span>
+              </button>
             ) : (
               <button
                 type="button"
@@ -576,7 +657,7 @@ export default function UpdateShowcaseModal({
                 {isUpdating ? (
                   <>
                     <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    <span>Installing Update...</span>
+                    <span>Preparing Update...</span>
                   </>
                 ) : updateSuccess ? (
                   <>
@@ -586,7 +667,7 @@ export default function UpdateShowcaseModal({
                 ) : (
                   <>
                     <Sparkles className="h-3.5 w-3.5" />
-                    <span>Install & Apply Update</span>
+                    <span>Download &amp; Apply Update</span>
                   </>
                 )}
               </button>

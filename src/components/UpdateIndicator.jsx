@@ -17,6 +17,15 @@ export default function UpdateIndicator() {
     hasUpdate: false,
     releaseNotes: []
   });
+  const [downloadProgress, setDownloadProgress] = useState({
+    percent: 0,
+    transferredMb: '0',
+    totalMb: '0',
+    speedMb: '0'
+  });
+  const [autoUpdateStatus, setAutoUpdateStatus] = useState('idle'); // 'idle' | 'downloading' | 'ready' | 'applying'
+  const [readyInstallerPath, setReadyInstallerPath] = useState(null);
+
   const [isChecking, setIsChecking] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateStep, setUpdateStep] = useState('');
@@ -41,10 +50,41 @@ export default function UpdateIndicator() {
   useEffect(() => {
     setMounted(true);
     if (!isDesktop) return;
+
+    // Listen to native Electron desktop auto-updater events
+    const unsubs = [];
+    if (typeof window !== 'undefined' && window.bendlensDesktop) {
+      if (typeof window.bendlensDesktop.onUpdateProgress === 'function') {
+        const u1 = window.bendlensDesktop.onUpdateProgress((prog) => {
+          if (prog) {
+            setDownloadProgress(prog);
+            setAutoUpdateStatus('downloading');
+          }
+        });
+        if (typeof u1 === 'function') unsubs.push(u1);
+      }
+      if (typeof window.bendlensDesktop.onUpdateStatusChanged === 'function') {
+        const u2 = window.bendlensDesktop.onUpdateStatusChanged((state) => {
+          if (state?.status) {
+            setAutoUpdateStatus(state.status);
+            if (state.installerPath) setReadyInstallerPath(state.installerPath);
+            if (state.progress) setDownloadProgress(state.progress);
+          }
+        });
+        if (typeof u2 === 'function') unsubs.push(u2);
+      }
+      if (typeof window.bendlensDesktop.onUpdateComplete === 'function') {
+        const u3 = window.bendlensDesktop.onUpdateComplete((info) => {
+          setAutoUpdateStatus('ready');
+          if (info?.installerPath) setReadyInstallerPath(info.installerPath);
+          setDownloadProgress((prev) => ({ ...prev, percent: 100 }));
+        });
+        if (typeof u3 === 'function') unsubs.push(u3);
+      }
+    }
+
     checkForUpdates();
-    // Re-check while the app stays open: interval + refetch when the user
-    // returns to the tab. Previously the check ran once on mount, so any
-    // release published during the session was never announced.
+
     const pollId = setInterval(() => checkForUpdates(true), 5 * 60 * 1000);
     const onFocus = () => checkForUpdates(true);
     const onVisible = () => {
@@ -53,6 +93,9 @@ export default function UpdateIndicator() {
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
+      unsubs.forEach((fn) => {
+        try { fn(); } catch {}
+      });
       clearInterval(pollId);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisible);
@@ -70,6 +113,29 @@ export default function UpdateIndicator() {
       if (data.success) {
         setUpdateInfo(data);
         setCheckError('');
+
+        // Query desktop update status if in Electron
+        if (typeof window !== 'undefined' && window.bendlensDesktop?.getUpdateStatus) {
+          const statusObj = await window.bendlensDesktop.getUpdateStatus();
+          if (statusObj?.status === 'ready') {
+            setAutoUpdateStatus('ready');
+            if (statusObj.installerPath) setReadyInstallerPath(statusObj.installerPath);
+            if (statusObj.progress) setDownloadProgress(statusObj.progress);
+          } else if (statusObj?.status === 'downloading') {
+            setAutoUpdateStatus('downloading');
+            if (statusObj.progress) setDownloadProgress(statusObj.progress);
+          } else if (data.hasUpdate && (statusObj?.status === 'idle' || !statusObj)) {
+            // Automatically start background download for downloaded users!
+            if (typeof window.bendlensDesktop.startUpdateDownload === 'function') {
+              window.bendlensDesktop.startUpdateDownload({
+                version: data.latestVersion,
+                artifactName: data.updateArtifact,
+                downloadUrl: data.downloadUrl
+              });
+            }
+          }
+        }
+
         // Re-arm the banner whenever a NEWER release appears, even if an
         // older one was dismissed.
         try {
@@ -107,7 +173,40 @@ export default function UpdateIndicator() {
     }
   };
 
+  const handleRestartNow = () => {
+    setAutoUpdateStatus('applying');
+    setIsUpdating(true);
+    setUpdateStep('Closing BendLens & applying updates silently in background...');
+    if (typeof window !== 'undefined' && window.bendlensDesktop?.applyUpdateAndRestart) {
+      window.bendlensDesktop.applyUpdateAndRestart(readyInstallerPath);
+    } else {
+      handleApplyUpdate();
+    }
+  };
+
   const handleApplyUpdate = async () => {
+    if (autoUpdateStatus === 'ready') {
+      handleRestartNow();
+      return;
+    }
+
+    if (autoUpdateStatus === 'downloading') {
+      setUpdateModalOpen(true);
+      return;
+    }
+
+    // If on desktop and not yet started, trigger native background downloader
+    if (typeof window !== 'undefined' && window.bendlensDesktop?.startUpdateDownload) {
+      setAutoUpdateStatus('downloading');
+      window.bendlensDesktop.startUpdateDownload({
+        version: updateInfo?.latestVersion,
+        artifactName: updateInfo?.updateArtifact,
+        downloadUrl: updateInfo?.downloadUrl
+      });
+      setUpdateModalOpen(true);
+      return;
+    }
+
     setIsUpdating(true);
     setUpdateStep('Checking installer package & preparing update...');
     setUpdateElapsedTime(0);
@@ -115,7 +214,7 @@ export default function UpdateIndicator() {
 
     const targetVer = updateInfo?.latestVersion || '1.1.30';
     const targetArtifact = updateInfo?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
-    const directDownloadUrl = `https://github.com/Keerthivasan004/BendLens/releases/download/v${targetVer}/${targetArtifact}`;
+    const directDownloadUrl = updateInfo?.downloadUrl || `https://github.com/Keerthivasan004/BendLens/releases/download/v${targetVer}/${targetArtifact}`;
 
     const startTime = Date.now();
     const timerInterval = setInterval(() => {
@@ -132,7 +231,6 @@ export default function UpdateIndicator() {
       try {
         data = await res.json();
       } catch {
-        // Handle older running engines that may return non-JSON gracefully
         data = null;
       }
 
@@ -157,8 +255,6 @@ export default function UpdateIndicator() {
           setUpdateStep(data.message || 'Update initiated successfully.');
         }
       } else {
-        // Seamless fallback for older installed builds or network error:
-        // Automatically open the official installer download so the user can complete the installation
         setIsUpdating(false);
         const fallbackUrl = data?.downloadUrl || directDownloadUrl;
         try {
@@ -189,16 +285,23 @@ export default function UpdateIndicator() {
   if (!isDesktop) return null;
 
   const floatingNotification = (mounted && updateInfo.hasUpdate && !isNotificationDismissed && !updateModalOpen) ? (
-    <div className="fixed bottom-5 right-5 z-[9990] max-w-sm w-[calc(100vw-2.5rem)] sm:w-[380px] p-4 rounded-2xl bg-white/95 dark:bg-[#070b16]/95 border border-blue-200 dark:border-blue-500/40 shadow-modal dark:shadow-[0_20px_40px_-5px_rgba(0,0,0,0.8),0_0_25px_rgba(56,189,248,0.25)] backdrop-blur-xl animate-rise text-foreground select-none">
+    <div className="fixed bottom-5 right-5 z-[9990] max-w-sm w-[calc(100vw-2.5rem)] sm:w-[390px] p-4 rounded-2xl bg-white/95 dark:bg-[#070b16]/95 border border-blue-200 dark:border-blue-500/40 shadow-modal dark:shadow-[0_20px_40px_-5px_rgba(0,0,0,0.8),0_0_25px_rgba(56,189,248,0.25)] backdrop-blur-xl animate-rise text-foreground select-none">
       {/* Top Banner Row */}
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
-          </span>
-          <span className="text-[11px] font-mono font-extrabold uppercase tracking-wider text-blue-700 dark:text-sky-400">
-            v{updateInfo.latestVersion} Available
+          {autoUpdateStatus === 'ready' ? (
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+            </span>
+          ) : (
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
+            </span>
+          )}
+          <span className={`text-[11px] font-mono font-extrabold uppercase tracking-wider ${autoUpdateStatus === 'ready' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-700 dark:text-sky-400'}`}>
+            {autoUpdateStatus === 'ready' ? `v${updateInfo.latestVersion} Ready to Install` : autoUpdateStatus === 'downloading' ? `v${updateInfo.latestVersion} Downloading...` : `v${updateInfo.latestVersion} Available`}
           </span>
         </div>
 
@@ -213,17 +316,37 @@ export default function UpdateIndicator() {
       </div>
 
       {/* Notification Body */}
-      {updateSuccess ? (
-        <div className="space-y-2 mb-3.5">
-          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+      {autoUpdateStatus === 'ready' ? (
+        <div className="space-y-1.5 mb-3.5">
+          <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 className="h-4 w-4 shrink-0" />
-            <h4 className="text-xs font-bold">
-              {updateStep?.includes('launched') ? 'Installer Launched!' : updateStep?.includes('download') || updateStep?.includes('Downloading') ? 'Installer Download Ready!' : 'Software Update Ready!'}
-            </h4>
+            <h4 className="text-xs font-extrabold">Update Downloaded &amp; Verified</h4>
           </div>
           <p className="text-[11px] text-muted leading-relaxed">
-            {updateStep || `BendLens-Setup-${updateInfo.latestVersion}.exe is ready. Complete setup to finish updating.`}
+            BendLens v{updateInfo.latestVersion} is ready. 1-click restart will apply the update silently in 2 seconds with zero setup wizards.
           </p>
+        </div>
+      ) : autoUpdateStatus === 'downloading' ? (
+        <div className="space-y-2 mb-3.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-foreground flex items-center gap-1.5">
+              <RefreshCw className="h-3.5 w-3.5 animate-spin text-sky-400" />
+              <span>Downloading in background...</span>
+            </span>
+            <span className="font-mono text-[11px] font-bold text-sky-400">{downloadProgress.percent}%</span>
+          </div>
+
+          <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-white/10 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-blue-500 via-sky-400 to-indigo-500 transition-all duration-300 rounded-full"
+              style={{ width: `${Math.max(4, downloadProgress.percent)}%` }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-[10px] font-mono text-muted">
+            <span>{downloadProgress.transferredMb}MB / {downloadProgress.totalMb}MB</span>
+            <span>{downloadProgress.speedMb} MB/s</span>
+          </div>
         </div>
       ) : (
         <div className="space-y-1 mb-3.5">
@@ -235,7 +358,7 @@ export default function UpdateIndicator() {
           </p>
           {updateInfo.updateArtifact && (
             <p className="text-[10px] font-mono text-muted/80 truncate" title={updateInfo.updateArtifact}>
-              Installer ready: {updateInfo.updateArtifact}
+              Package: {updateInfo.updateArtifact}
             </p>
           )}
         </div>
@@ -243,26 +366,31 @@ export default function UpdateIndicator() {
 
       {/* Action Buttons */}
       <div className="flex items-center gap-2 pt-1 border-t border-border dark:border-white/10">
-        {updateSuccess ? (
+        {autoUpdateStatus === 'ready' ? (
           <>
             <button
-              onClick={() => {
-                setUpdateSuccess(false);
-                dismissNotification();
-              }}
-              className="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-surface-raised hover:bg-surface-raised/80 text-foreground border border-border dark:border-white/10 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+              onClick={() => setUpdateModalOpen(true)}
+              className="flex-1 py-2 px-3 rounded-xl text-xs font-semibold bg-surface-raised hover:bg-surface-raised/80 text-foreground border border-border dark:border-white/10 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
             >
-              <X className="h-3.5 w-3.5" />
-              <span>Dismiss</span>
+              <Play className="h-3 w-3 fill-current" />
+              <span>What's New</span>
             </button>
             <button
-              onClick={() => {
-                window.open('https://github.com/Keerthivasan004/BendLens/releases', '_blank');
-              }}
-              className="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+              onClick={handleRestartNow}
+              className="flex-1 py-2 px-3 rounded-xl text-xs font-extrabold bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white shadow-[0_2px_15px_rgba(16,185,129,0.4)] transition-all cursor-pointer flex items-center justify-center gap-1.5"
             >
-              <ArrowRight className="h-3.5 w-3.5" />
-              <span>Releases</span>
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span>Restart &amp; Update</span>
+            </button>
+          </>
+        ) : autoUpdateStatus === 'downloading' ? (
+          <>
+            <button
+              onClick={() => setUpdateModalOpen(true)}
+              className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-blue-600/10 hover:bg-blue-600/15 text-blue-700 border border-blue-500/30 dark:bg-blue-500/20 dark:hover:bg-blue-500/30 dark:text-sky-300 dark:border-blue-500/40 transition-all cursor-pointer shadow-sm"
+            >
+              <Play className="h-3 w-3 fill-current" />
+              <span>Watch What's New ({downloadProgress.percent}%)</span>
             </button>
           </>
         ) : (
@@ -280,17 +408,8 @@ export default function UpdateIndicator() {
               disabled={isUpdating}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 to-sky-500 hover:from-blue-500 hover:to-sky-400 text-white shadow-[0_2px_12px_rgba(56,189,248,0.35)] transition-all cursor-pointer disabled:opacity-50"
             >
-              {isUpdating ? (
-                <>
-                  <Clock className="h-3.5 w-3.5 animate-pulse text-sky-200" />
-                  <span>{formatTimer(updateElapsedTime)}</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-3 w-3" />
-                  <span>Update Now</span>
-                </>
-              )}
+              <Sparkles className="h-3 w-3" />
+              <span>Update Now</span>
             </button>
           </>
         )}
@@ -304,11 +423,31 @@ export default function UpdateIndicator() {
       {updateInfo.hasUpdate ? (
         <button
           onClick={() => setUpdateModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-blue-600/10 text-blue-700 border border-blue-500/30 hover:border-blue-500/60 hover:bg-blue-600/[0.14] dark:from-blue-500/20 dark:to-sky-500/20 dark:bg-gradient-to-r dark:text-sky-300 dark:border-blue-500/40 dark:hover:border-blue-400 shadow-sm dark:shadow-[0_2px_10px_rgba(56,189,248,0.25)] transition-all cursor-pointer animate-pulse"
-          title="Click to view animated video showcase of new features"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer ${
+            autoUpdateStatus === 'ready'
+              ? 'bg-emerald-600/15 text-emerald-600 border border-emerald-500/40 hover:bg-emerald-600/25 dark:text-emerald-300 dark:border-emerald-500/50 dark:shadow-[0_2px_12px_rgba(16,185,129,0.3)] animate-pulse'
+              : autoUpdateStatus === 'downloading'
+              ? 'bg-sky-600/15 text-sky-600 border border-sky-500/40 hover:bg-sky-600/25 dark:text-sky-300 dark:border-sky-500/50 dark:shadow-[0_2px_12px_rgba(56,189,248,0.3)]'
+              : 'bg-blue-600/10 text-blue-700 border border-blue-500/30 hover:border-blue-500/60 hover:bg-blue-600/[0.14] dark:from-blue-500/20 dark:to-sky-500/20 dark:bg-gradient-to-r dark:text-sky-300 dark:border-blue-500/40 dark:hover:border-blue-400 dark:shadow-[0_2px_10px_rgba(56,189,248,0.25)] animate-pulse'
+          }`}
+          title="Click to view update details & feature showcase"
         >
-          <Sparkles className="h-3.5 w-3.5 text-sky-400" />
-          <span>Update Ready (v{updateInfo.latestVersion})</span>
+          {autoUpdateStatus === 'ready' ? (
+            <>
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              <span>v{updateInfo.latestVersion} Ready (Restart to Apply)</span>
+            </>
+          ) : autoUpdateStatus === 'downloading' ? (
+            <>
+              <RefreshCw className="h-3.5 w-3.5 animate-spin text-sky-400" />
+              <span>v{updateInfo.latestVersion} ({downloadProgress.percent}%)</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="h-3.5 w-3.5 text-sky-400" />
+              <span>Update Ready (v{updateInfo.latestVersion})</span>
+            </>
+          )}
         </button>
       ) : (
         <button
@@ -333,6 +472,9 @@ export default function UpdateIndicator() {
           isOpen={updateModalOpen}
           onClose={handleCloseUpdateModal}
           onApplyUpdate={handleApplyUpdate}
+          onRestartNow={handleRestartNow}
+          autoUpdateStatus={autoUpdateStatus}
+          downloadProgress={downloadProgress}
           isUpdating={isUpdating}
           updateStep={updateStep}
           updateSuccess={updateSuccess}
