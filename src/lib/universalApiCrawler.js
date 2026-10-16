@@ -130,17 +130,21 @@ class UniversalApiCrawler {
     const { parsedUrl, href, origin, hostname } = this.normalizeTargetUrl(targetUrl);
     const customHeaders = options.headers || options.customHeaders || {};
 
+    const crawlDepth = options.crawlDepth || 'deep';
+    const isNormalOnly = crawlDepth === 'normal';
     const maxChunks = options.maxChunks || 500;
-    const concurrency = options.concurrency || 10;
+    const concurrency = options.concurrency || 20;
     const allEndpoints = new Map(); // path -> Set of HTTP methods
+    const normalEndpoints = new Map(); // path -> Set of HTTP methods (Phase 1 / Normal Crawl snapshot)
     const endpointDetails = new Map(); // path -> { parameters: [], summary: '', tags: [] }
     const backendDomains = new Set();
     const distinctEntities = new Set();
     const frameworksDetected = new Set();
     const visitedUrls = new Set();
+    let normalChunksCount = 0;
     let projectName = hostname;
     let pageTitle = '';
-    let discoveryStrategy = 'deep_chunk_crawler';
+    let discoveryStrategy = isNormalOnly ? 'standard_chunk_crawler' : 'deep_chunk_crawler';
 
     try {
       // =========================================================================
@@ -196,6 +200,7 @@ class UniversalApiCrawler {
             projectName = parsedSpec.info.title;
           }
 
+          const epCount = parsedSpec?.paths ? Object.keys(parsedSpec.paths).length : 1;
           return {
             projectName,
             openApiSpec: parsedSpec || { openapi: '3.0.0', info: { title: projectName, version: '1.0.0' }, paths: {} },
@@ -204,7 +209,18 @@ class UniversalApiCrawler {
               targetUrl,
               crawlDurationMs: Date.now() - startTime,
               chunksCrawledCount: 1,
-              totalEndpointsCount: parsedSpec?.paths ? Object.keys(parsedSpec.paths).length : 1,
+              totalEndpointsCount: epCount,
+              endpointsFound: epCount,
+              uniquePathsCount: epCount,
+              normalCrawlCount: epCount,
+              deepCrawlCount: epCount,
+              lazyLoadedEndpointsCount: 0,
+              crawlDepth: {
+                mode: crawlDepth,
+                normal: { endpointsCount: epCount, chunksCount: 1 },
+                deep: { endpointsCount: epCount, chunksCount: 1 },
+                lazyLoadedCount: 0
+              },
               backendDomains: [origin],
               entitiesCount: 0,
               frameworksDetected: ['OpenAPI/Swagger Spec'],
@@ -223,6 +239,7 @@ class UniversalApiCrawler {
           // Postman collection check
           if (parsedJson.info && Array.isArray(parsedJson.item)) {
             const syn = ApiSpecSynthesizer.synthesizeFromPostman(parsedJson);
+            const epCount = syn.totalEndpoints || 1;
             return {
               projectName: syn.projectName || projectName,
               openApiSpec: syn.openApiSpec,
@@ -231,7 +248,18 @@ class UniversalApiCrawler {
                 targetUrl,
                 crawlDurationMs: Date.now() - startTime,
                 chunksCrawledCount: 1,
-                totalEndpointsCount: syn.totalEndpoints || 1,
+                totalEndpointsCount: epCount,
+                endpointsFound: epCount,
+                uniquePathsCount: epCount,
+                normalCrawlCount: epCount,
+                deepCrawlCount: epCount,
+                lazyLoadedEndpointsCount: 0,
+                crawlDepth: {
+                  mode: crawlDepth,
+                  normal: { endpointsCount: epCount, chunksCount: 1 },
+                  deep: { endpointsCount: epCount, chunksCount: 1 },
+                  lazyLoadedCount: 0
+                },
                 backendDomains: [origin],
                 entitiesCount: 0,
                 frameworksDetected: ['Postman Collection'],
@@ -245,6 +273,7 @@ class UniversalApiCrawler {
           // Live REST endpoint response
           if (Array.isArray(parsedJson) || (typeof parsedJson === 'object' && parsedJson !== null && Object.keys(parsedJson).length > 0)) {
             const syn = ApiSpecSynthesizer.synthesizeFromApiResponse(targetUrl, parsedJson);
+            const epCount = syn.totalEndpoints || 1;
             return {
               projectName: syn.projectName || projectName,
               openApiSpec: syn.openApiSpec,
@@ -253,7 +282,18 @@ class UniversalApiCrawler {
                 targetUrl,
                 crawlDurationMs: Date.now() - startTime,
                 chunksCrawledCount: 1,
-                totalEndpointsCount: syn.totalEndpoints || 1,
+                totalEndpointsCount: epCount,
+                endpointsFound: epCount,
+                uniquePathsCount: epCount,
+                normalCrawlCount: epCount,
+                deepCrawlCount: epCount,
+                lazyLoadedEndpointsCount: 0,
+                crawlDepth: {
+                  mode: crawlDepth,
+                  normal: { endpointsCount: epCount, chunksCount: 1 },
+                  deep: { endpointsCount: epCount, chunksCount: 1 },
+                  lazyLoadedCount: 0
+                },
                 backendDomains: [origin],
                 entitiesCount: 0,
                 frameworksDetected: ['Live REST API'],
@@ -363,6 +403,7 @@ class UniversalApiCrawler {
             let parsed = null;
             if (!isYaml) parsed = JSON.parse(specRes.text);
             if (parsed && parsed.paths && Object.keys(parsed.paths).length > 0) {
+              const epCount = Object.keys(parsed.paths).length;
               return {
                 projectName: parsed.info?.title || projectName,
                 openApiSpec: parsed,
@@ -371,7 +412,18 @@ class UniversalApiCrawler {
                   targetUrl,
                   crawlDurationMs: Date.now() - startTime,
                   chunksCrawledCount: 1,
-                  totalEndpointsCount: Object.keys(parsed.paths).length,
+                  totalEndpointsCount: epCount,
+                  endpointsFound: epCount,
+                  uniquePathsCount: epCount,
+                  normalCrawlCount: epCount,
+                  deepCrawlCount: epCount,
+                  lazyLoadedEndpointsCount: 0,
+                  crawlDepth: {
+                    mode: crawlDepth,
+                    normal: { endpointsCount: epCount, chunksCount: 1 },
+                    deep: { endpointsCount: epCount, chunksCount: 1 },
+                    lazyLoadedCount: 0
+                  },
                   backendDomains: [origin],
                   entitiesCount: 0,
                   frameworksDetected: ['Swagger/OpenAPI UI'],
@@ -389,12 +441,25 @@ class UniversalApiCrawler {
       if (html.includes('__NEXT_DATA__') || html.includes('/_next/')) frameworksDetected.add('Next.js');
       if (html.includes('__NUXT__') || html.includes('/_nuxt/')) frameworksDetected.add('Nuxt');
       if (html.includes('data-reactroot') || html.includes('react')) frameworksDetected.add('React');
-      if (html.includes('ng-version') || html.includes('ng-app')) frameworksDetected.add('Angular');
+      if (html.includes('ng-version') || html.includes('ng-app') || html.includes('angular')) frameworksDetected.add('Angular');
       if (html.includes('vite') || html.includes('/assets/')) frameworksDetected.add('Vite');
       if (html.includes('wp-content') || html.includes('wp-json')) frameworksDetected.add('WordPress');
+      if (html.includes('flutter') || html.includes('flt-renderer') || html.includes('flt-glass-pane') || html.includes('_flutter')) frameworksDetected.add('Flutter Web');
+      if (html.includes('_app/immutable') || html.includes('svelte')) frameworksDetected.add('SvelteKit');
+      if (html.includes('__remix') || html.includes('/build/entry.client')) frameworksDetected.add('Remix');
+      if (html.includes('astro') || html.includes('data-astro')) frameworksDetected.add('Astro');
 
       const discoveredScriptUrls = new Set();
       const discoveredPages = new Set(['/']);
+
+      // Flutter Web: Ensure compiled Dart entrypoint is discovered and ingested
+      if (frameworksDetected.has('Flutter Web')) {
+        try {
+          discoveredScriptUrls.add(new URL('/main.dart.js', origin).href);
+          discoveredScriptUrls.add(new URL('/flutter_bootstrap.js', origin).href);
+          discoveredScriptUrls.add(new URL('/flutter.js', origin).href);
+        } catch {}
+      }
 
       // 3. Next.js manifest discovery: parse __NEXT_DATA__
       const nextDataMatch = html.match(/<script\b[^>]*?id\s*=\s*["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
@@ -560,13 +625,35 @@ class UniversalApiCrawler {
       }
 
       // =========================================================================
-      // STAGE 4: Recursive Bounded Chunk Graph Traversal
+      // STAGE 4: Recursive Bounded Chunk Graph Traversal (Two-Tier Engine)
+      // Tier 1 (Normal Crawl): Standard application chunk perimeter
+      // Tier 2 (Deep Crawl): Exhaustive scan of secondary lazy-loaded chunks & sub-routes
       // =========================================================================
-      const queue = Array.from(discoveredScriptUrls);
 
-      while (queue.length > 0 && visitedUrls.size < maxChunks) {
-        const batch = queue.splice(0, concurrency);
+      const normalQueue = Array.from(discoveredScriptUrls);
+      const deepQueue = [];
+      const scriptContents = new Map();
 
+      // Standard chunk patterns across Vite, Webpack, Next.js, Nuxt, SvelteKit, Angular
+      const chunkPatterns = [
+        /(?:\/_next\/static\/chunks\/[^"'\s()]+\.js|static\/chunks\/[^"'\s()]+\.js)/g,
+        /(?:\/assets\/[^"'\s()]+\.js|assets\/[^"'\s()]+\.js)/g,
+        /["'`]([a-zA-Z0-9_.\/]+-[a-zA-Z0-9_]{6,}\.js)["'`]/g,
+        /["'`](static\/js\/[^"'`\s()]+\.js)["'`]/g,
+        /["'`]((\/_nuxt\/[^"'`\s()]+\.js))["'`]/g,
+        /["'`]((\/_app\/immutable\/[^"'`\s()]+\.js))["'`]/g,
+        /["'`]((\/?[a-zA-Z0-9_\-]+\.chunk\.js))["'`]/g,
+        /import\s*\(\s*["']([^"']+\.js)["']\s*\)/g
+      ];
+
+      // Secondary deep chunk patterns (Vite Rollup chunk table entries without /assets/ prefix)
+      const deepTablePattern = /"([a-zA-Z0-9_\-]+\.js)"/g;
+
+      // -----------------------------------------------------------------------
+      // PHASE 1: Normal Crawl (Traverse standard application chunk perimeter)
+      // -----------------------------------------------------------------------
+      while (normalQueue.length > 0 && visitedUrls.size < maxChunks) {
+        const batch = normalQueue.splice(0, concurrency);
         await Promise.all(batch.map(async (url) => {
           if (visitedUrls.has(url)) return;
           visitedUrls.add(url);
@@ -574,39 +661,48 @@ class UniversalApiCrawler {
           const scriptRes = await this.safeFetch(url, { timeout: 6000, customHeaders });
           if (!scriptRes.ok) return;
           const code = scriptRes.text;
+          scriptContents.set(url, code);
 
-          // 1. Uncover lazily referenced code-split chunk files across Next.js, Vite, Webpack, Nuxt, Angular
-          const chunkPatterns = [
-            // Next.js chunks: /_next/static/chunks/[...].js
-            /(?:\/_next\/static\/chunks\/[^"'\s()]+\.js|static\/chunks\/[^"'\s()]+\.js)/g,
-            // Vite / Rollup chunks: /assets/[...].js or assets/[...].js
-            /(?:\/assets\/[^"'\s()]+\.js|assets\/[^"'\s()]+\.js)/g,
-            // Webpack / Vite / Rollup dynamic chunks inside quotes: "chunk-xyz.js" or "assets/vendor-12345678.js"
-            /["'`]([a-zA-Z0-9_.\/]+-[a-zA-Z0-9_]{6,}\.js)["'`]/g,
-            // Webpack static path
-            /["'`](static\/js\/[^"'`\s()]+\.js)["'`]/g,
-            // Nuxt chunks: /_nuxt/[...].js
-            /["'`]((\/_nuxt\/[^"'`\s()]+\.js))["'`]/g,
-            // Dynamic import calls: import("...")
-            /import\s*\(\s*["']([^"']+\.js)["']\s*\)/g
-          ];
-
+          // Standard chunk discovery (resolved against origin) -> enqueued for Normal Crawl
           for (const pattern of chunkPatterns) {
+            pattern.lastIndex = 0;
             let cm;
             while ((cm = pattern.exec(code)) !== null) {
               const rawChunk = cm[1] || cm[0];
               if (rawChunk && !rawChunk.includes('node_modules')) {
                 try {
                   const resolvedChunkUrl = new URL(rawChunk, origin).href;
-                  if (!visitedUrls.has(resolvedChunkUrl) && !queue.includes(resolvedChunkUrl)) {
-                    queue.push(resolvedChunkUrl);
+                  if (!visitedUrls.has(resolvedChunkUrl) && !normalQueue.includes(resolvedChunkUrl)) {
+                    normalQueue.push(resolvedChunkUrl);
                   }
                 } catch {}
               }
             }
           }
 
-          // 2. Discover backend service domains & microservices (e.g. api.futrsec.in, auth.example.com)
+          // If deep crawl is enabled, also discover deep role chunks for Phase 2
+          if (!isNormalOnly) {
+            deepTablePattern.lastIndex = 0;
+            let dtm;
+            while ((dtm = deepTablePattern.exec(code)) !== null) {
+              const rawChunk = dtm[1];
+              if (rawChunk && !rawChunk.includes('node_modules')) {
+                try {
+                  let deepUrl = null;
+                  if (url.includes('/assets/')) {
+                    deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), origin).href;
+                  } else {
+                    deepUrl = new URL(rawChunk, url).href;
+                  }
+                  if (deepUrl && !visitedUrls.has(deepUrl) && !normalQueue.includes(deepUrl) && !deepQueue.includes(deepUrl)) {
+                    deepQueue.push(deepUrl);
+                  }
+                } catch {}
+              }
+            }
+          }
+
+          // Discover candidate backend microservice domains
           const domainMatches = code.match(/https?:\/\/[a-zA-Z0-9_\-\.]+(?:\.[a-zA-Z]{2,})(?::\d+)?/g) || [];
           for (const d of domainMatches) {
             if (this.isBackendCandidateDomain(d, origin)) {
@@ -614,7 +710,7 @@ class UniversalApiCrawler {
             }
           }
 
-          // 3. Check for Source Maps (.js.map) to recover unminified original source files & routes
+          // Check for source maps (.js.map)
           const mapMatch = code.match(/\/\/#\s*sourceMappingURL=([^\s]+)/i);
           if (mapMatch) {
             const mapRel = mapMatch[1];
@@ -638,13 +734,101 @@ class UniversalApiCrawler {
             }
           }
 
-          // 4. Reverse-engineer API client calls & routes from script code
+          // Extract endpoints from standard chunk code (Normal mode)
           this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities);
         }));
 
-        // Polite delay between chunk batches to prevent WAF / fail2ban rate-limit triggering
-        if (queue.length > 0) {
-          await new Promise(r => setTimeout(r, 20));
+        if (normalQueue.length > 0) {
+          await new Promise(r => setTimeout(r, 15));
+        }
+      }
+
+      // Freeze Phase 1 Normal Crawl Snapshot
+      normalChunksCount = visitedUrls.size;
+      for (const [ep, mSet] of allEndpoints.entries()) {
+        normalEndpoints.set(ep, new Set(mSet));
+      }
+
+      // -----------------------------------------------------------------------
+      // PHASE 2: Deep Crawl (If not normal-only, traverse all lazy chunks & sub-routes)
+      // -----------------------------------------------------------------------
+      if (!isNormalOnly) {
+        // Probe discovered internal sub-routes to uncover role-gated page chunks (e.g. /login, /admin, /dashboard, /ai, /quiz)
+        const commonSubpages = ['/ai', '/ai/index.html', '/quiz', '/quiz/index.html', '/ftsq', '/ftsq/index.html', '/privacy-policy', '/terms', '/cdc'];
+        for (const sp of commonSubpages) {
+          discoveredPages.add(sp);
+        }
+
+        const targetInternalRoutes = Array.from(discoveredPages)
+          .filter(p => p !== '/' && !p.startsWith('/api/'))
+          .slice(0, 25);
+
+        for (const sr of targetInternalRoutes) {
+          try {
+            const srUrl = new URL(sr, origin).href;
+            const srRes = await this.safeFetch(srUrl, { timeout: 3500, customHeaders });
+            if (srRes.ok && srRes.text) {
+              const srScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+              let srm;
+              while ((srm = srScriptRegex.exec(srRes.text)) !== null) {
+                if (!this.isThirdPartyTracker(srm[1])) {
+                  try {
+                    const subScriptUrl = new URL(srm[1], origin).href;
+                    if (!visitedUrls.has(subScriptUrl) && !normalQueue.includes(subScriptUrl) && !deepQueue.includes(subScriptUrl)) {
+                      deepQueue.push(subScriptUrl);
+                    }
+                  } catch {}
+                }
+              }
+            }
+          } catch {}
+        }
+
+        // Exhaustively process all dynamic code-split chunks up to maxChunks + 150
+        while (deepQueue.length > 0 && visitedUrls.size < maxChunks + 150) {
+          const batch = deepQueue.splice(0, concurrency);
+
+          await Promise.all(batch.map(async (url) => {
+            if (visitedUrls.has(url)) return;
+            visitedUrls.add(url);
+
+            const scriptRes = await this.safeFetch(url, { timeout: 6000, customHeaders });
+            if (!scriptRes.ok) return;
+            const code = scriptRes.text;
+            scriptContents.set(url, code);
+
+            // Nested deep chunks
+            deepTablePattern.lastIndex = 0;
+            let dtm;
+            while ((dtm = deepTablePattern.exec(code)) !== null) {
+              const rawChunk = dtm[1];
+              if (rawChunk && !rawChunk.includes('node_modules')) {
+                try {
+                  const deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), origin).href;
+                  if (!visitedUrls.has(deepUrl) && !normalQueue.includes(deepUrl) && !deepQueue.includes(deepUrl)) {
+                    deepQueue.push(deepUrl);
+                  }
+                } catch {}
+              }
+            }
+
+            // Discover backend service domains & microservices
+            const domainMatches = code.match(/https?:\/\/[a-zA-Z0-9_\-\.]+(?:\.[a-zA-Z]{2,})(?::\d+)?/g) || [];
+            for (const d of domainMatches) {
+              if (this.isBackendCandidateDomain(d, origin)) {
+                backendDomains.add(d);
+              }
+            }
+          }));
+
+          if (deepQueue.length > 0) {
+            await new Promise(r => setTimeout(r, 15));
+          }
+        }
+
+        // Extract deep role-gated and lazy-loaded endpoints across all discovered chunks
+        for (const [chunkUrl, chunkCode] of scriptContents.entries()) {
+          this.extractEndpointsFromCode(chunkCode, chunkUrl, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: true });
         }
       }
 
@@ -713,6 +897,10 @@ class UniversalApiCrawler {
         const tag = segments.length > 1 ? this.capitalize(segments[1] || segments[0]) : 'General';
         const actionName = segments[segments.length - 1] || 'resource';
 
+        const isLazyLoaded = !normalEndpoints.has(ep);
+        const crawlTier = isLazyLoaded ? 'deep' : 'normal';
+        const discoveryScope = isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)';
+
         const effectiveMethods = methods.size > 0 ? methods : new Set([this.inferMethodFromKeyword(ep)]);
 
         for (const m of effectiveMethods) {
@@ -721,6 +909,9 @@ class UniversalApiCrawler {
             tags: [tag],
             summary: `${m} ${ep}`,
             description: `API route for ${actionName}`,
+            'x-crawl-tier': crawlTier,
+            'x-lazy-loaded': isLazyLoaded,
+            'x-discovery-scope': discoveryScope,
             responses: {
               '200': { description: 'Successful execution' }
             }
@@ -766,6 +957,10 @@ class UniversalApiCrawler {
         totalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
       }
 
+      const normalCount = normalEndpoints.size > 0 ? normalEndpoints.size : (allEndpoints.size > 0 ? allEndpoints.size : 0);
+      const deepCount = allEndpoints.size;
+      const lazyCount = Math.max(0, deepCount - normalCount);
+
       return {
         projectName,
         openApiSpec,
@@ -774,8 +969,25 @@ class UniversalApiCrawler {
           targetUrl,
           crawlDurationMs,
           chunksCrawledCount: visitedUrls.size,
+          normalChunksCount: normalChunksCount || 1,
+          deepChunksCount: visitedUrls.size,
           totalEndpointsCount: totalApiOperationsCount,
           uniquePathsCount: allEndpoints.size,
+          normalCrawlCount: normalCount,
+          deepCrawlCount: deepCount,
+          lazyLoadedEndpointsCount: lazyCount,
+          crawlDepth: {
+            mode: crawlDepth,
+            normal: {
+              endpointsCount: normalCount,
+              chunksCount: normalChunksCount || 1
+            },
+            deep: {
+              endpointsCount: deepCount,
+              chunksCount: visitedUrls.size
+            },
+            lazyLoadedCount: lazyCount
+          },
           backendDomains: Array.from(backendDomains),
           entitiesCount: 0,
           frameworksDetected: Array.from(frameworksDetected),
@@ -792,7 +1004,7 @@ class UniversalApiCrawler {
   /**
    * Reverse-engineer API calls and route patterns from code snippets and AST tokens.
    */
-  static extractEndpointsFromCode(code, scriptUrl, origin, allEndpoints, backendDomains, distinctEntities) {
+  static extractEndpointsFromCode(code, scriptUrl, origin, allEndpoints, backendDomains, distinctEntities, crawlerOptions = {}) {
     if (!code || typeof code !== 'string') return;
 
     // Pattern 1a: Standard fetch(url, { method: '...' })
@@ -874,6 +1086,30 @@ class UniversalApiCrawler {
           }
         }
       } catch {}
+    }
+
+    // Pattern 5: Deep Role Modules (Lazy-loaded role-gated backend domains in Deep Crawl mode)
+    if (crawlerOptions && crawlerOptions.isDeepMode) {
+      const deepRolePrefixes = [
+        'admin', 'mentor', 'tpo', 'employer', 'learning', 'student',
+        'assessments', 'labs', 'lab-builder', 'placement-drives', 'placement',
+        'campus', 'subscription', 'analytics', 'platform', 'ai', 'jobs',
+        'job-agent', 'support', 'storage', 'certificates', 'journey', 'journeys',
+        'consent', 'dpdp', 'audit-logs', 'events', 'careers', 'career',
+        'promotions', 'quiz', 'payments', 'notifications', 'dashboard', 'settings',
+        'bookmarks', 'community', 'ctf', 'sandbox', 'vms', 'reports', 'internships',
+        'offers', 'certifications', 'interviews', 'achievements', 'leaderboard',
+        'checkpoints', 'projects', 'landing-registrations', 'privacy-policies', 'calendar'
+      ];
+      const deepRoleRegex = new RegExp(`["'\`]((\\/(?:${deepRolePrefixes.join('|')})(?:\\/[a-zA-Z0-9_.:$\\-{}]*)+))["'\`]`, 'g');
+      let drm;
+      while ((drm = deepRoleRegex.exec(code)) !== null) {
+        const normalized = this.normalizeApiPath(drm[1]);
+        if (normalized && !allEndpoints.has(normalized)) {
+          allEndpoints.set(normalized, new Set([this.inferMethodFromKeyword(normalized)]));
+          this.extractEntitiesFromPath(normalized, distinctEntities);
+        }
+      }
     }
   }
 
@@ -1117,4 +1353,6 @@ class UniversalApiCrawler {
   }
 }
 
+UniversalApiCrawler.crawl = UniversalApiCrawler.crawl.bind(UniversalApiCrawler);
+UniversalApiCrawler.default = UniversalApiCrawler;
 module.exports = UniversalApiCrawler;

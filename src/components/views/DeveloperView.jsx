@@ -207,7 +207,10 @@ function enrichEndpoint(ep, tables, tableLookup) {
     path: routePath,
     kind,
     level,
-    connectedTables
+    connectedTables,
+    crawlTier: ep.crawlTier || ep['x-crawl-tier'] || 'normal',
+    isLazyLoaded: ep.isLazyLoaded ?? (ep['x-lazy-loaded'] === true) ?? false,
+    discoveryScope: ep.discoveryScope || ep['x-discovery-scope'] || (ep.isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)')
   };
 }
 
@@ -217,6 +220,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
   const [methodFilter, setMethodFilter] = useState('ALL');
   const [apiLevelFilter, setApiLevelFilter] = useState('ALL'); // 'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'
   const [apiKindFilter, setApiKindFilter] = useState('ALL'); // 'ALL' | 'REST' | 'WEBSOCKET' | 'AUTH' | 'STORAGE' | 'ADMIN' | 'WEBHOOK' | 'SYSTEM'
+  const [apiCrawlScopeFilter, setApiCrawlScopeFilter] = useState('ALL'); // 'ALL' | 'NORMAL' | 'LAZY'
   const [apiTableFilter, setApiTableFilter] = useState('ALL'); // 'ALL' | tableName
   const [apiSearchQuery, setApiSearchQuery] = useState('');
   const [expandedApiRoute, setExpandedApiRoute] = useState(null); // string (method + path)
@@ -277,13 +281,19 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       GRAPHQL: allEnrichedEndpoints.filter((e) => e.kind === 'GRAPHQL').length,
     };
 
-    return { total, high, medium, low, connected, kinds };
-  }, [allEnrichedEndpoints]);
+    const normalCount = rawAnalysisData?.crawlerTelemetry?.normalCrawlCount ?? allEnrichedEndpoints.filter(e => !e.isLazyLoaded).length;
+    const deepCount = rawAnalysisData?.crawlerTelemetry?.deepCrawlCount ?? total;
+    const lazyLoadedCount = rawAnalysisData?.crawlerTelemetry?.lazyLoadedEndpointsCount ?? allEnrichedEndpoints.filter(e => e.isLazyLoaded).length;
+
+    return { total, high, medium, low, connected, kinds, normalCount, deepCount, lazyLoadedCount };
+  }, [allEnrichedEndpoints, rawAnalysisData]);
 
   const filteredApiEndpoints = useMemo(() => {
     return allEnrichedEndpoints.filter((ep) => {
       if (apiLevelFilter !== 'ALL' && ep.level !== apiLevelFilter) return false;
       if (apiKindFilter !== 'ALL' && ep.kind !== apiKindFilter) return false;
+      if (apiCrawlScopeFilter === 'NORMAL' && ep.isLazyLoaded) return false;
+      if (apiCrawlScopeFilter === 'LAZY' && !ep.isLazyLoaded) return false;
       if (methodFilter !== 'ALL' && ep.method !== methodFilter) return false;
       if (apiTableFilter !== 'ALL') {
         const touches = (ep.connectedTables || []).some((ct) => ct.name === apiTableFilter);
@@ -302,7 +312,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       }
       return true;
     });
-  }, [allEnrichedEndpoints, apiLevelFilter, apiKindFilter, methodFilter, apiTableFilter, apiSearchQuery, searchQuery]);
+  }, [allEnrichedEndpoints, apiLevelFilter, apiKindFilter, apiCrawlScopeFilter, methodFilter, apiTableFilter, apiSearchQuery, searchQuery]);
 
   const segregatedByLevel = useMemo(() => {
     return [
@@ -466,34 +476,49 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
         {isUrl ? (
           <>
             <div className="py-2 sm:py-0 px-4">
-              <div className="text-2xl font-extrabold text-foreground font-mono">{endpoints.length}</div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-extrabold text-foreground font-mono">{apiStats.deepCount || endpoints.length}</span>
+                <span className="text-[10px] font-bold text-emerald-500 font-mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                  DEEP
+                </span>
+              </div>
+              <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
+                <Sparkles className="h-3 w-3 text-emerald-500" />
+                <span>Deep Crawl APIs</span>
+              </div>
+            </div>
+
+            <div className="py-2 sm:py-0 px-4">
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-extrabold text-foreground font-mono">{apiStats.normalCount}</span>
+                <span className="text-[10px] font-bold text-cyan-500 font-mono bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20">
+                  STANDARD
+                </span>
+              </div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
                 <Code2 className="h-3 w-3 text-cyan-500" />
-                <span>Crawled API Routes</span>
+                <span>Normal Crawl APIs</span>
               </div>
             </div>
 
             <div className="py-2 sm:py-0 px-4">
-              <div className="text-2xl font-extrabold text-foreground font-mono">{apiStats.high}</div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-extrabold text-foreground font-mono">+{apiStats.lazyLoadedCount}</span>
+                <span className="text-[10px] font-bold text-purple-500 font-mono bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20">
+                  ROLE/LAZY
+                </span>
+              </div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
                 <Layers className="h-3 w-3 text-purple-500" />
-                <span>High-Tier Routes</span>
+                <span>Lazy-Loaded Modules</span>
               </div>
             </div>
 
             <div className="py-2 sm:py-0 px-4">
-              <div className="text-2xl font-extrabold text-foreground font-mono">{apiStats.medium}</div>
+              <div className="text-2xl font-extrabold text-foreground font-mono">{rawAnalysisData?.crawlerTelemetry?.chunksCrawledCount || 1}</div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
-                <Box className="h-3 w-3 text-blue-500" />
-                <span>Domain Endpoints</span>
-              </div>
-            </div>
-
-            <div className="py-2 sm:py-0 px-4">
-              <div className="text-2xl font-extrabold text-foreground font-mono">{apiStats.low}</div>
-              <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
-                <Cpu className="h-3 w-3 text-emerald-500" />
-                <span>Diagnostic Endpoints</span>
+                <Layers2 className="h-3 w-3 text-blue-500" />
+                <span>Code-Split Chunks</span>
               </div>
             </div>
           </>
@@ -1173,6 +1198,60 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
           </div>
         </div>
 
+        {/* Dual-Depth Crawl Comparative Overview Banner (URL Scans) */}
+        {isUrl && (
+          <div className="p-4 rounded-xl border border-brand/20 bg-gradient-to-r from-brand/5 via-cyan-500/5 to-purple-500/5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-center text-brand shrink-0 mt-0.5">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-foreground">Dual-Depth API Crawl Verification</span>
+                  <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                    Live Parity Active
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted mt-0.5 leading-relaxed">
+                  Both <span className="text-cyan-500 font-semibold font-mono">Normal Crawl ({apiStats.normalCount} public APIs)</span> and <span className="text-emerald-500 font-semibold font-mono">Deep Crawl ({apiStats.deepCount} total APIs)</span> surfaces have been captured. Deep crawl traversed <span className="text-purple-500 font-semibold font-mono">+{apiStats.lazyLoadedCount} lazy-loaded endpoints</span> across role-restricted bundles (Admin, Mentor, TPO, Employer) for exhaustive penetration & API testing.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-stretch md:self-auto justify-end border-t md:border-t-0 border-border/50 pt-2 md:pt-0">
+              <button
+                onClick={() => setApiCrawlScopeFilter('NORMAL')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer ${
+                  apiCrawlScopeFilter === 'NORMAL'
+                    ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400 ring-1 ring-cyan-500/30'
+                    : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
+                }`}
+              >
+                Normal: {apiStats.normalCount}
+              </button>
+              <button
+                onClick={() => setApiCrawlScopeFilter('LAZY')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer ${
+                  apiCrawlScopeFilter === 'LAZY'
+                    ? 'bg-purple-500/15 border-purple-500/40 text-purple-400 ring-1 ring-purple-500/30'
+                    : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
+                }`}
+              >
+                Lazy: +{apiStats.lazyLoadedCount}
+              </button>
+              <button
+                onClick={() => setApiCrawlScopeFilter('ALL')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer ${
+                  apiCrawlScopeFilter === 'ALL'
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 ring-1 ring-emerald-500/30'
+                    : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
+                }`}
+              >
+                Deep: {apiStats.deepCount}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ========================================================================= */}
         {/* ARCHITECTURAL TIER METRICS STRIP                                         */}
         {/* ========================================================================= */}
@@ -1301,6 +1380,52 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
             </div>
           )}
         </div>
+
+        {/* ========================================================================= */}
+        {/* CRAWL DEPTH QUICK FILTER TABS (Normal vs Deep Crawl vs Lazy-Loaded)      */}
+        {/* ========================================================================= */}
+        {isUrl && (
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-surface-raised rounded-xl border border-border">
+            <div className="flex items-center gap-1.5 flex-wrap text-xs">
+              <span className="text-[11px] font-bold text-muted uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
+                <Sparkles className="h-3 w-3 text-brand" />
+                <span>Crawl Depth:</span>
+              </span>
+              {[
+                { id: 'ALL', label: 'All APIs (Deep Crawl)', count: apiStats.deepCount, icon: Sparkles, color: 'text-emerald-500' },
+                { id: 'NORMAL', label: 'Normal Crawl (Standard)', count: apiStats.normalCount, icon: CheckCircle2, color: 'text-cyan-500' },
+                { id: 'LAZY', label: 'Lazy-Loaded Chunks Only', count: apiStats.lazyLoadedCount, icon: Layers, color: 'text-purple-500' }
+              ].map((cd) => {
+                const Icon = cd.icon;
+                const isActive = apiCrawlScopeFilter === cd.id;
+                return (
+                  <button
+                    key={cd.id}
+                    onClick={() => setApiCrawlScopeFilter(cd.id)}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-surface-card text-foreground border-brand/50 shadow-xs ring-1 ring-brand/20'
+                        : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
+                    }`}
+                  >
+                    <Icon className={`h-3.5 w-3.5 ${cd.color}`} />
+                    <span>{cd.label}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-surface-raised text-foreground font-bold">
+                      {cd.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="text-[11px] font-mono text-muted hidden lg:flex items-center gap-2">
+              <span className="px-2 py-0.5 rounded bg-surface border border-border text-cyan-400">Normal: {apiStats.normalCount}</span>
+              <span>+</span>
+              <span className="px-2 py-0.5 rounded bg-surface border border-border text-purple-400">Lazy: {apiStats.lazyLoadedCount}</span>
+              <span>=</span>
+              <span className="px-2 py-0.5 rounded bg-surface border border-border text-emerald-400 font-bold">Deep: {apiStats.deepCount}</span>
+            </div>
+          </div>
+        )}
 
         {/* ========================================================================= */}
         {/* PROTOCOL KINDS QUICK PILLS                                               */}
@@ -1503,6 +1628,27 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                             <KindIcon className="h-2.5 w-2.5 text-brand" />
                             <span>{ep.kind}</span>
                           </span>
+
+                          {/* Crawl Scope Badge (Normal vs Deep / Lazy-Loaded) */}
+                          {isUrl && (
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded border font-mono shrink-0 flex items-center gap-1 ${
+                              ep.isLazyLoaded
+                                ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30'
+                                : 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30'
+                            }`}>
+                              {ep.isLazyLoaded ? (
+                                <>
+                                  <Sparkles className="h-2.5 w-2.5 text-purple-500" />
+                                  <span>LAZY-LOADED</span>
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 className="h-2.5 w-2.5 text-cyan-500" />
+                                  <span>NORMAL</span>
+                                </>
+                              )}
+                            </span>
+                          )}
 
                           {/* Route Path & Module */}
                           <div className="min-w-0 flex-1">

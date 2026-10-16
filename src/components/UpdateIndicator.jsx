@@ -12,8 +12,8 @@ export default function UpdateIndicator() {
   const isDesktop = useIsDesktop();
   const [mounted, setMounted] = useState(false);
   const [updateInfo, setUpdateInfo] = useState({
-    currentVersion: '1.1.47',
-    latestVersion: '1.1.47',
+    currentVersion: '1.1.48',
+    latestVersion: '1.1.48',
     hasUpdate: false,
     releaseNotes: []
   });
@@ -115,7 +115,7 @@ export default function UpdateIndicator() {
         setUpdateInfo(data);
         setCheckError('');
 
-        // Query desktop update status if in Electron
+        // Automatic background auto-update engine
         if (typeof window !== 'undefined' && window.bendlensDesktop?.getUpdateStatus) {
           const statusObj = await window.bendlensDesktop.getUpdateStatus();
           if (statusObj?.status === 'ready') {
@@ -126,7 +126,8 @@ export default function UpdateIndicator() {
             setAutoUpdateStatus('downloading');
             if (statusObj.progress) setDownloadProgress(statusObj.progress);
           } else if (data.hasUpdate && (statusObj?.status === 'idle' || !statusObj)) {
-            // Automatically start background download for downloaded users!
+            // Automatically start background download for downloaded desktop users
+            setAutoUpdateStatus('downloading');
             if (typeof window.bendlensDesktop.startUpdateDownload === 'function') {
               window.bendlensDesktop.startUpdateDownload({
                 version: data.latestVersion,
@@ -135,6 +136,9 @@ export default function UpdateIndicator() {
               });
             }
           }
+        } else if (data.hasUpdate) {
+          // Non-Electron local / browser environment: automatically update in background
+          triggerAutoBackgroundUpdate(data.latestVersion);
         }
 
         // Re-arm the banner whenever a NEWER release appears, even if an
@@ -153,6 +157,38 @@ export default function UpdateIndicator() {
       if (!silent) setCheckError('Could not reach the local update service.');
     } finally {
       if (!silent) setIsChecking(false);
+    }
+  };
+
+  const triggerAutoBackgroundUpdate = async (targetVersion) => {
+    if (autoUpdateStatus === 'downloading' || autoUpdateStatus === 'applying') return;
+    setAutoUpdateStatus('downloading');
+    try {
+      const res = await fetch('/api/updates/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetVersion })
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
+        const appliedVer = data.newVersion || targetVersion;
+        setUpdateInfo((prev) => ({
+          ...prev,
+          currentVersion: appliedVer,
+          latestVersion: appliedVer,
+          hasUpdate: false
+        }));
+        setAutoUpdateStatus('ready');
+        setTimeout(() => {
+          setIsNotificationDismissed(true);
+          checkForUpdates(true);
+        }, 2500);
+      } else {
+        setAutoUpdateStatus('idle');
+      }
+    } catch (err) {
+      console.warn('Auto background update sync notice:', err);
+      setAutoUpdateStatus('idle');
     }
   };
 
@@ -213,7 +249,7 @@ export default function UpdateIndicator() {
     setUpdateElapsedTime(0);
     setUpdateFinalDuration('');
 
-    const targetVer = updateInfo?.latestVersion || '1.1.47';
+    const targetVer = updateInfo?.latestVersion || '1.1.48';
     const targetArtifact = updateInfo?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
     const directDownloadUrl = updateInfo?.downloadUrl || `https://github.com/Keerthivasan004/BendLens/releases/download/v${targetVer}/${targetArtifact}`;
 
@@ -243,6 +279,13 @@ export default function UpdateIndicator() {
       if (res.ok && data?.success) {
         setIsUpdating(false);
         setUpdateSuccess(true);
+        const appliedVersion = data.newVersion || targetVer;
+        setUpdateInfo((prev) => ({
+          ...prev,
+          currentVersion: appliedVersion,
+          latestVersion: appliedVersion,
+          hasUpdate: false
+        }));
         if (data.installerLaunched) {
           setUpdateStep(`Installer launched: ${data.installerName || targetArtifact}. BendLens Studio will close in 3 seconds so the setup wizard can finish updating cleanly.`);
           setTimeout(() => {
@@ -253,15 +296,25 @@ export default function UpdateIndicator() {
         } else if (data.downloadTriggered) {
           setUpdateStep(`Downloading ${data.installerName || targetArtifact}. Run the installer once download finishes!`);
         } else {
-          setUpdateStep(data.message || 'Update initiated successfully.');
+          setUpdateStep(data.message || `BendLens automatically updated to v${appliedVersion}!`);
+          setTimeout(() => {
+            setIsNotificationDismissed(true);
+            checkForUpdates(true);
+          }, 2500);
         }
       } else {
         setIsUpdating(false);
         const fallbackUrl = data?.downloadUrl || directDownloadUrl;
         try {
-          window.open(fallbackUrl, '_blank');
+          const a = document.createElement('a');
+          a.href = fallbackUrl;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
         } catch {
-          window.location.href = fallbackUrl;
+          window.open(fallbackUrl, '_blank');
         }
 
         setUpdateSuccess(true);
@@ -272,9 +325,15 @@ export default function UpdateIndicator() {
       setIsUpdating(false);
       console.warn('Update apply network fallback:', err);
       try {
-        window.open(directDownloadUrl, '_blank');
+        const a = document.createElement('a');
+        a.href = directDownloadUrl;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
       } catch {
-        window.location.href = directDownloadUrl;
+        window.open(directDownloadUrl, '_blank');
       }
       setUpdateSuccess(true);
       setUpdateStep(`Downloading ${targetArtifact}. Run the downloaded installer to complete installation.`);

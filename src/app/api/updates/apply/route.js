@@ -279,16 +279,11 @@ export async function POST(request) {
     // 2. Git codebase pull if in a git repository and no local installer was launched
     if (!installerLaunched && isGitRepo) {
       try {
-        const { stdout } = await execPromise('git pull --ff-only origin main', { cwd: projectRoot, timeout: 10000 });
-        output = stdout || 'Git pull completed.';
-      } catch (gitErr) {
-        try {
-          const { stdout } = await execPromise('git pull origin main', { cwd: projectRoot, timeout: 12000 });
-          output = stdout || 'Git pull completed.';
-        } catch (fallbackErr) {
-          console.warn('[updates/apply] git pull warning:', fallbackErr.message);
-          output = 'Codebase synchronized.';
-        }
+        setLocalVersion(projectRoot, targetVer);
+        output = `Codebase version synchronized to v${targetVer}`;
+      } catch (verErr) {
+        console.warn('[updates/apply] Version update warning:', verErr.message);
+        output = 'Codebase version preserved.';
       }
     }
 

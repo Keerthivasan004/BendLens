@@ -605,7 +605,7 @@ export default function UpdateShowcaseModal({
             ) : (
               <div className="flex items-center gap-1.5 text-emerald-400 font-mono">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                <span>Installed: <strong>v{updateInfo?.currentVersion || '1.1.47'} (Latest Release)</strong></span>
+                <span>Installed: <strong>v{updateInfo?.currentVersion || '1.1.48'} (Latest Release)</strong></span>
               </div>
             )}
           </div>
@@ -627,7 +627,7 @@ export default function UpdateShowcaseModal({
                 className="flex items-center justify-center gap-2 px-5 py-2 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm cursor-pointer hover:bg-emerald-500/30 transition-all"
               >
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                <span>Already Up to Date (v{updateInfo?.currentVersion || '1.1.47'})</span>
+                <span>Already Up to Date (v{updateInfo?.currentVersion || '1.1.48'})</span>
               </button>
             ) : autoUpdateStatus === 'ready' ? (
               <button

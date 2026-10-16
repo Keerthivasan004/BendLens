@@ -26,6 +26,7 @@ export default function LandingPage() {
   const [folderPath, setFolderPath] = useState('');
   const [gitUrl, setGitUrl] = useState('');
   const [gitToken, setGitToken] = useState('');
+  const [crawlDepthMode, setCrawlDepthMode] = useState('deep'); // 'deep' | 'normal'
   const [pastedCode, setPastedCode] = useState(
 `-- Paste SQL DDL, Prisma schema, or ORM models here
 CREATE TABLE users (
@@ -240,7 +241,8 @@ CREATE TABLE orders (
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           repoUrl: normalizedRepoUrl,
-          token: gitToken.trim()
+          token: gitToken.trim(),
+          crawlDepth: crawlDepthMode
         }),
         signal
       }), (data) => {
@@ -262,7 +264,7 @@ CREATE TABLE orders (
     await executeScanWithStages((signal) => fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: target }),
+      body: JSON.stringify({ path: target, crawlDepth: crawlDepthMode }),
       signal
     }), (data) => {
       setAnalysisResult(data);
@@ -327,7 +329,8 @@ CREATE TABLE orders (
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         repoUrl: gitUrl.trim(),
-        token: gitToken.trim()
+        token: gitToken.trim(),
+        crawlDepth: crawlDepthMode
       }),
       signal
     }), (data) => {
@@ -990,6 +993,46 @@ CREATE TABLE audit_logs (
                 </button>
               </div>
 
+              {/* Crawl Depth Mode Selector: Deep Crawl vs Normal Crawl */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 mb-2.5 rounded-lg bg-surface border border-border">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold text-foreground flex items-center gap-1.5">
+                    <Layers className="h-3.5 w-3.5 text-brand" />
+                    <span>Crawl Depth:</span>
+                  </span>
+                  <span className="text-[10px] text-muted hidden md:inline">
+                    {crawlDepthMode === 'deep' 
+                      ? 'Exhaustive scan of all 300+ code-split bundles including lazy-loaded Admin & Role modules' 
+                      : 'Standard scan of primary public bundles and top-level routes'}
+                  </span>
+                </div>
+                <div className="flex items-center p-0.5 bg-surface-raised rounded-md border border-border text-[11px] font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setCrawlDepthMode('deep')}
+                    className={`px-2.5 py-1 rounded transition-colors cursor-pointer flex items-center gap-1.5 ${
+                      crawlDepthMode === 'deep'
+                        ? 'bg-brand text-white shadow-xs font-bold'
+                        : 'text-muted hover:text-foreground'
+                    }`}
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    <span>Deep Crawl (Recommended)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCrawlDepthMode('normal')}
+                    className={`px-2.5 py-1 rounded transition-colors cursor-pointer flex items-center gap-1.5 ${
+                      crawlDepthMode === 'normal'
+                        ? 'bg-surface-card text-foreground shadow-xs font-bold border border-border'
+                        : 'text-muted hover:text-foreground'
+                    }`}
+                  >
+                    <span>Normal Crawl (Fast)</span>
+                  </button>
+                </div>
+              </div>
+
               <div className="flex flex-col sm:flex-row items-center gap-2.5 mb-2.5">
                 <div className="relative flex-1 w-full">
                   <Globe className="h-4 w-4 absolute left-3 top-2.5 text-brand pointer-events-none" />
@@ -1054,49 +1097,109 @@ CREATE TABLE audit_logs (
                     </span>
                   </div>
 
-                  {analysisResult.crawlerTelemetry && (
-                    <div className="mb-2 p-2 rounded bg-surface border border-border-subtle text-[11px] font-mono grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-                      <div>
-                        <div className="text-[10px] text-muted">Strategy</div>
-                        <div className="font-bold text-brand uppercase truncate" title={analysisResult.crawlerTelemetry.discoveryStrategy}>
-                          {analysisResult.crawlerTelemetry.discoveryStrategy?.replace(/_/g, ' ') || 'Crawler'}
+                  {analysisResult.crawlerTelemetry ? (
+                    <div className="space-y-2.5 my-2.5">
+                      {/* Dual-Depth Crawl Breakdown Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-left">
+                        {/* 1. Normal Crawl Card */}
+                        <div className="p-2.5 rounded-lg bg-surface border border-cyan-500/30 flex flex-col justify-between">
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="text-[10px] font-bold text-cyan-500 uppercase tracking-wider flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              <span>Normal Crawl</span>
+                            </span>
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-400 font-bold border border-cyan-500/20">
+                              Standard
+                            </span>
+                          </div>
+                          <div className="text-xl font-bold font-mono text-cyan-400">
+                            {analysisResult.crawlerTelemetry.normalCrawlCount ?? analysisResult.code?.endpoints?.filter(e => !e.isLazyLoaded).length ?? 0}
+                            <span className="text-xs font-sans font-normal text-muted ml-1">APIs</span>
+                          </div>
+                          <div className="text-[10px] text-muted font-sans mt-0.5">
+                            Entry Bundles ({analysisResult.crawlerTelemetry.normalChunksCount || analysisResult.crawlerTelemetry.crawlDepth?.normal?.chunksCount || 1} chunk)
+                          </div>
+                        </div>
+
+                        {/* 2. Lazy-Loaded Chunks Card */}
+                        <div className="p-2.5 rounded-lg bg-surface border border-purple-500/30 flex flex-col justify-between">
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1">
+                              <Layers className="h-3 w-3" />
+                              <span>Lazy-Loaded</span>
+                            </span>
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-400 font-bold border border-purple-500/20">
+                              Code-Split
+                            </span>
+                          </div>
+                          <div className="text-xl font-bold font-mono text-purple-400">
+                            +{analysisResult.crawlerTelemetry.lazyLoadedEndpointsCount ?? 0}
+                            <span className="text-xs font-sans font-normal text-muted ml-1">APIs</span>
+                          </div>
+                          <div className="text-[10px] text-muted font-sans mt-0.5">
+                            Uncovered via Dynamic Chunks
+                          </div>
+                        </div>
+
+                        {/* 3. Deep Crawl Total Card */}
+                        <div className="p-2.5 rounded-lg bg-surface border border-emerald-500/30 flex flex-col justify-between">
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                              <Sparkles className="h-3 w-3" />
+                              <span>Deep Crawl</span>
+                            </span>
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20">
+                              Total
+                            </span>
+                          </div>
+                          <div className="text-xl font-bold font-mono text-emerald-400">
+                            {analysisResult.crawlerTelemetry.deepCrawlCount ?? analysisResult.code?.endpoints?.length ?? 0}
+                            <span className="text-xs font-sans font-normal text-muted ml-1">APIs</span>
+                          </div>
+                          <div className="text-[10px] text-muted font-sans mt-0.5">
+                            All {analysisResult.crawlerTelemetry.chunksCrawledCount || 1} Chunks & Routes
+                          </div>
                         </div>
                       </div>
-                      <div>
-                        <div className="text-[10px] text-muted">Duration</div>
-                        <div className="font-bold text-emerald-400">
-                          {((analysisResult.crawlerTelemetry.crawlDurationMs || 0) / 1000).toFixed(2)}s
+
+                      {/* Formula / Composition Bar */}
+                      <div className="p-2 rounded-lg bg-surface border border-border text-[11px] font-mono flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-muted">Crawl Composition:</span>
+                          <span className="px-2 py-0.5 rounded bg-cyan-950/40 text-cyan-400 border border-cyan-500/20 font-bold">
+                            Normal: {analysisResult.crawlerTelemetry.normalCrawlCount ?? 0}
+                          </span>
+                          <span className="text-muted">+</span>
+                          <span className="px-2 py-0.5 rounded bg-purple-950/40 text-purple-400 border border-purple-500/20 font-bold">
+                            Lazy: {analysisResult.crawlerTelemetry.lazyLoadedEndpointsCount ?? 0}
+                          </span>
+                          <span className="text-muted">=</span>
+                          <span className="px-2 py-0.5 rounded bg-emerald-950/40 text-emerald-400 border border-emerald-500/20 font-bold">
+                            Deep: {analysisResult.crawlerTelemetry.deepCrawlCount ?? (analysisResult.code?.endpoints?.length || 0)} APIs
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-muted text-[10px]">
+                          <span>Duration: <strong className="text-foreground">{((analysisResult.crawlerTelemetry.crawlDurationMs || 0) / 1000).toFixed(2)}s</strong></span>
+                          <span>Chunks: <strong className="text-amber-400">{analysisResult.crawlerTelemetry.chunksCrawledCount || 1}</strong></span>
                         </div>
                       </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2 py-2 border-y border-border-subtle text-center text-xs my-2 font-mono">
                       <div>
-                        <div className="text-[10px] text-muted">Chunks Crawled</div>
-                        <div className="font-bold text-amber-400">
-                          {analysisResult.crawlerTelemetry.chunksCrawledCount || 1}
-                        </div>
+                        <div className="font-bold text-foreground">{analysisResult.scannedFilesCount || 0}</div>
+                        <div className="text-[10px] text-muted font-sans">Files</div>
                       </div>
                       <div>
-                        <div className="text-[10px] text-muted">Microservices</div>
-                        <div className="font-bold text-cyan-400">
-                          {analysisResult.crawlerTelemetry.backendDomains?.length || 1}
-                        </div>
+                        <div className="font-bold text-violet-400">{analysisResult.schema?.tables?.length || 0}</div>
+                        <div className="text-[10px] text-muted font-sans">Tables</div>
+                      </div>
+                      <div>
+                        <div className="font-bold text-rose-400">{analysisResult.code?.endpoints?.length || 0}</div>
+                        <div className="text-[10px] text-muted font-sans">Endpoints</div>
                       </div>
                     </div>
                   )}
-
-                  <div className="grid grid-cols-3 gap-2 py-2 border-y border-border-subtle text-center text-xs my-2 font-mono">
-                    <div>
-                      <div className="font-bold text-foreground">{analysisResult.scannedFilesCount || 0}</div>
-                      <div className="text-[10px] text-muted font-sans">Files</div>
-                    </div>
-                    <div>
-                      <div className="font-bold text-violet-400">{analysisResult.schema?.tables?.length || 0}</div>
-                      <div className="text-[10px] text-muted font-sans">Tables</div>
-                    </div>
-                    <div>
-                      <div className="font-bold text-rose-400">{analysisResult.code?.endpoints?.length || 0}</div>
-                      <div className="text-[10px] text-muted font-sans">Endpoints</div>
-                    </div>
-                  </div>
                   <button
                     type="button"
                     onClick={() => handleOpenLens('DEVELOPER')}

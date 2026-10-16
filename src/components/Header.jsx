@@ -169,10 +169,24 @@ export default function Header({
                   <span><strong className="text-foreground font-mono">{analysisData.schema?.tables?.length || 0}</strong> tables</span>
                 </span>
                 <span className="h-3 w-px bg-border hidden md:block" />
-                <span className="flex items-center gap-1.5 px-1 text-muted">
-                  <Cpu className="h-3.5 w-3.5 text-rose-500 shrink-0" />
-                  <span><strong className="text-foreground font-mono">{analysisData.code?.endpoints?.length || 0}</strong> APIs</span>
-                </span>
+                {analysisData.crawlerTelemetry ? (
+                  <>
+                    <span className="flex items-center gap-1.5 px-1 text-muted" title="Normal Crawl: Baseline API surface discovered in entry bundles">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-cyan-500 shrink-0" />
+                      <span>Normal: <strong className="text-cyan-400 font-mono">{analysisData.crawlerTelemetry.normalCrawlCount ?? analysisData.code?.endpoints?.filter(e => !e.isLazyLoaded).length ?? 0}</strong></span>
+                    </span>
+                    <span className="h-3 w-px bg-border hidden md:block" />
+                    <span className="flex items-center gap-1.5 px-1 text-muted" title="Deep Crawl: Total API surface discovered across all code-split chunks">
+                      <Sparkles className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                      <span>Deep: <strong className="text-emerald-400 font-mono">{analysisData.crawlerTelemetry.deepCrawlCount ?? analysisData.code?.endpoints?.length ?? 0}</strong> APIs</span>
+                    </span>
+                  </>
+                ) : (
+                  <span className="flex items-center gap-1.5 px-1 text-muted">
+                    <Cpu className="h-3.5 w-3.5 text-rose-500 shrink-0" />
+                    <span><strong className="text-foreground font-mono">{analysisData.code?.endpoints?.length || 0}</strong> APIs</span>
+                  </span>
+                )}
                 <span className="h-3 w-px bg-border hidden md:block" />
                 <span className="flex items-center gap-1.5 px-1 text-muted">
                   <Activity className="h-3.5 w-3.5 text-emerald-500 shrink-0" />

@@ -12,3 +12,4 @@ This directory serves as the persistent long-term memory for AI models interacti
 | [Persona Intelligence](file:///d:/BCBUZZ_Side_Project/data-project/.agents/memory/persona_intelligence.md) | Logic, metrics, risk scores, and formulas for Developer, Manager, and Business personas. |
 | [Diagram Generation Rules](file:///d:/BCBUZZ_Side_Project/data-project/.agents/memory/diagram_generation_rules.md) | Mermaid.js syntax constraints, sanitization rules, and diagram-specific conventions (ERD, HLD, LLD, Sequence). |
 | [Desktop Electron Lifecycle](file:///d:/BCBUZZ_Side_Project/data-project/.agents/memory/desktop_electron_lifecycle.md) | Electron main process, splash screen lifecycle, background Next.js server spawning, and Windows packaging. |
+| [Universal API Crawler](file:///d:/BCBUZZ_Side_Project/data-project/.agents/memory/universal_api_crawler.md) | Universal Barrier-Free Crawler, Dual-Depth (Normal vs Deep) crawl architecture, and AST extraction. |

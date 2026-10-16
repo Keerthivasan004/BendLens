@@ -70,7 +70,7 @@ This document maps all directories, modules, and significant files across BendLe
   - `updates/check/route.js`: Checks version and update availability.
   - `updates/apply/route.js`: Resilient, local-first engine updater that checks local `dist/` installers, performs git synchronization, streams GitHub release installers via native Windows `curl.exe` with retry and Schannel SSL, and cleanly releases file locks before NSIS installation.
   - `git-clone/route.js`: Universal URL & API Ingestion Engine. Clones remote Git repositories (GitHub/GitLab/CLI with PAT support) and fetches live REST API endpoints, OpenAPI/Swagger specs, Swagger UI HTML docs, and Postman collections.
-  - `crawl/route.js`: High-Level Universal Web & API Crawler route. Crawls any URL without errors, extracts code-split chunks, de-compiles source maps, and synthesizes complete OpenAPI and relational SQL models.
+  - `crawl/route.js`: High-Level Universal Web & API Crawler route. Crawls any URL without errors, supports Dual-Depth crawling (Normal Crawl for initial surface vs Deep Crawl for exhaustive lazy-loaded chunks), de-compiles source maps, and synthesizes complete OpenAPI specifications with enriched crawlTier telemetry.
   - `download-app/route.js`: Provides download links for the packaged desktop app.
 
 ---

@@ -1120,7 +1120,7 @@ ipcMain.on('app-quit-and-update', () => {
 });
 
 ipcMain.on('get-app-version', (event) => {
-  event.returnValue = app.getVersion() || '1.1.47';
+  event.returnValue = app.getVersion() || '1.1.48';
 });
 
 app.whenReady().then(() => {
@@ -1131,7 +1131,17 @@ app.whenReady().then(() => {
   });
 });
 
+let isApplyingUpdateOnQuit = false;
+
 app.on('before-quit', () => {
+  if (!isApplyingUpdateOnQuit && updateState.status === 'ready' && updateState.installerPath) {
+    if (isValidWindowsExe(updateState.installerPath)) {
+      isApplyingUpdateOnQuit = true;
+      console.log('[*] Automatically applying ready update package on app exit:', updateState.installerPath);
+      applyUpdateAndRestart({ installerPath: updateState.installerPath });
+      return;
+    }
+  }
   cleanupServer();
 });
 

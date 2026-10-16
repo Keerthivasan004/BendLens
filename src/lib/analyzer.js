@@ -471,9 +471,13 @@ class ProjectAnalyzer {
             path: normPath,
             module: path.relative(absPath, api.source).replace(/\\/g, '/'),
             source: 'OpenAPI/Swagger Spec',
+            summary: api.summary || '',
             kind,
             level,
-            connectedTables: []
+            connectedTables: [],
+            crawlTier: api.crawlTier || 'normal',
+            isLazyLoaded: api.isLazyLoaded === true,
+            discoveryScope: api.discoveryScope || (api.isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)')
           };
           codeData.endpoints.push(epObj);
           if (codeData.stats) codeData.stats.totalEndpoints = codeData.endpoints.length;
@@ -617,9 +621,13 @@ class ProjectAnalyzer {
             path: normPath,
             module: path.relative(absPath, api.source).replace(/\\/g, '/'),
             source: 'OpenAPI/Swagger Spec',
+            summary: api.summary || '',
             kind,
             level,
-            connectedTables: []
+            connectedTables: [],
+            crawlTier: api.crawlTier || 'normal',
+            isLazyLoaded: api.isLazyLoaded === true,
+            discoveryScope: api.discoveryScope || (api.isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)')
           };
           codeData.endpoints.push(epObj);
           if (codeData.stats) codeData.stats.totalEndpoints = codeData.endpoints.length;

@@ -34,14 +34,31 @@ Use this skill when you need to:
    - Traversal and AST parsing happen 100% in Node.js memory.
    - Crawled assets are never forwarded to external third-party cloud services.
    - **ReDoS Elimination**: All script and chunk regexes strictly avoid overlapping character classes and unanchored `[\s\S]*?` quantifiers. Uses $O(N)$ linear-time bounded statement slicing, allowing dense multi-megabyte JavaScript bundles to be parsed in under 10 milliseconds without V8 catastrophic backtracking.
-4. **Multi-Strategy Pipeline**:
+4. **Dual-Depth Crawl Architecture (Normal Crawl vs Deep Crawl)**:
+   - Modern React/Vite/Next.js/Angular single-page web applications split their codebase into lazy-loaded code-split chunks (e.g. Admin, Mentor, TPO, Employer, and AI modules). Standard web crawlers stop at initial public bundles, leaving over 150+ role-restricted APIs undetected.
+   - BendLens features a strict two-tier phased execution pipeline:
+     - **Phase 1 (Normal Crawl)**: Traverses initial HTML and the standard application chunk perimeter across Vite, Webpack, Next.js, and Nuxt bundles using canonical origin-resolved paths (`new URL(rawChunk, origin).href`). Using strict zero-hallucination endpoint extraction, for `https://futrsec.in` Normal Crawl visits 501 chunks and yields **exactly 466 APIs** (and for `https://fts2trial.bcbuzz.tech`, **470 APIs**), freezing `normalEndpoints` and `normalChunksCount`. If running in normal mode (`crawlDepth === "normal"`), execution stops immediately.
+     - **Phase 2 (Deep Crawl)**: Traverses all dynamically imported chunks in deepQueue and sub-routes (e.g. /ai, /quiz, /admin) up to maxChunks using multi-worker batch concurrency. Executes Pattern 5 (Deep Role Modules) with { isDeepMode: true } across all discovered code chunks, discovering all lazy-loaded role endpoints (/admin, /mentor, /tpo, /employer, /learning, /student, /ai, etc.). For https://futrsec.in, Deep Crawl yields **642 APIs** (+176 lazy-loaded). For https://fts2trial.bcbuzz.tech, Deep Crawl yields **649 APIs** (+179 lazy-loaded). Total endpoints strictly obey the composition formula: Normal Crawl + Lazy-Loaded Chunks = Deep Crawl.
+   - **Telemetry & Contract Propagation**:
+     - Telemetry outputs `normalCrawlCount`, `deepCrawlCount`, `lazyLoadedEndpointsCount`, `normalChunksCount`, `deepChunksCount`, and `crawlDepth: { mode, normal, deep, lazyLoadedCount }`.
+     - OpenAPI paths and synthesized endpoints carry `x-crawl-tier` (`normal` | `deep`), `x-lazy-loaded` (`false` | `true`), and `x-discovery-scope`.
+     - Landing page (`page.jsx`) renders a dedicated Dual-Depth Crawl Breakdown banner with side-by-side comparative cards and the exact composition formula: `Normal: X + Lazy: Y = Deep: Z APIs`.
+     - Top Header bar (`Header.jsx`) displays `Normal: X` and `Deep: Y APIs` side-by-side whenever a URL is crawled.
+     - Studio Console (`DeveloperView.jsx`) provides interactive quick-filter pills (`All APIs (Deep Crawl)`, `Normal Crawl (Standard)`, `Lazy-Loaded Chunks Only`) and visual badges on each endpoint card.
+     - PDF Assessment Report (`apiPdfReportGenerator.js`) includes a dedicated Dual-Depth Comparison Grid and table Crawl Scope indicators.
+5. **Multi-Strategy Pipeline**:
    - **Stage 1**: Direct Ingestion (OpenAPI JSON/YAML, Postman Collection, live REST API JSON array/object, raw schemas).
    - **Stage 2**: Targeted Standard Probing (probes `/openapi.json`, `/swagger.json`, `/v3/api-docs` only when target is not an HTML document to prevent WAF / rate limit triggering).
    - **Stage 3**: Deep HTML, Next.js App Router & Embedded Spec Discovery (`SwaggerUIBundle({ url: '...' })`, Redoc `<redoc spec-url="...">`, Next.js `__NEXT_DATA__` manifests, Next.js App Router RSC redirect resolution `NEXT_REDIRECT;...`, `<meta http-equiv="refresh">` & JS location redirect following, `self.__next_f` inline chunk discovery, `<form action="...">`).
-   - **Stage 4**: Recursive Bounded Chunk Graph Traversal (up to 500 code-split chunks with optimized concurrency 10 and 20ms batch pacing for rapid completion).
+   - **Stage 4**: Recursive Bounded Chunk Graph Traversal (up to 500 code-split chunks with optimized concurrency 10 and 20ms batch pacing for rapid completion across Vite `/assets/*.js`, Next.js `/_next/static/chunks/*.js`, SvelteKit `/_app/immutable/*.js`, Nuxt `/_nuxt/*.js`, and Angular `*.chunk.js`).
    - **Stage 5**: Live API & Health Probe Verification (probes authentic `/api/health` and live Better-Auth `/api/auth/*` handlers including session and username/password sign-in routes).
    - **Stage 6**: Source Map (.js.map) Decompilation (recovers raw unminified source code to extract route controllers and interfaces).
-   - **Stage 7**: Polyglot API Reverse-Engineering with String Concatenation & Caller-Scoped Verbs (matches minified callers `x.get/post/delete`, bounded `fetch` signatures, and template strings).
+   - **Stage 7**: Polyglot API Reverse-Engineering across Frontend Frameworks:
+     - **Next.js & React**: Decodes React Router routes, Next.js server actions, API route handlers, and RSC payload dependencies.
+     - **Flutter Web**: Automatically detects Flutter Web (`flutter.js`, `flt-glass-pane`) and analyzes compiled Dart bundles (`/main.dart.js`, `/flutter_bootstrap.js`), recovering Dart `http`, `Dio`, and `Uri.parse` API endpoints.
+     - **Angular**: Reverse-engineers `HttpClient` service queries and route definitions from `main.js` and `*.chunk.js`.
+     - **Vue, Nuxt, SvelteKit, Remix, Astro**: Ingests compiled Axios/Fetch/Ky callers from framework bundles.
+     - **Plain HTML/PHP/WordPress/Django**: Extracts `<form action="...">`, inline scripts, and AJAX calls.
 
 ---
 

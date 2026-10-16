@@ -44,7 +44,8 @@ export async function POST(request) {
         targetPath = 'https://' + targetPath;
       }
       const UniversalApiCrawler = require('@/lib/universalApiCrawler');
-      const crawlResult = await UniversalApiCrawler.crawl(targetPath, { maxChunks: 500, concurrency: 24 });
+      const crawlDepth = body.crawlDepth || 'deep';
+      const crawlResult = await UniversalApiCrawler.crawl(targetPath, { maxChunks: 500, concurrency: 24, crawlDepth });
       if (crawlResult?.telemetry?.crawlStatus === 'failed') {
         return NextResponse.json(
           { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetPath}. Please verify the target URL and network connection.` },

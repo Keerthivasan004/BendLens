@@ -149,7 +149,11 @@ class InfraParser {
                 path: fullPath,
                 method: method.toUpperCase(),
                 summary: (details && (details.summary || details.description)) || '',
-                source: filePath
+                source: filePath,
+                tags: (details && details.tags) || [],
+                crawlTier: details?.['x-crawl-tier'] || 'normal',
+                isLazyLoaded: details?.['x-lazy-loaded'] === true,
+                discoveryScope: details?.['x-discovery-scope'] || (details?.['x-lazy-loaded'] ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)')
               });
             }
           }
