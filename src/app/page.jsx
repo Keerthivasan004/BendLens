@@ -57,7 +57,13 @@ CREATE TABLE orders (
   const [theme, setTheme] = useState('dark');
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [downloadModalReason, setDownloadModalReason] = useState('DEFAULT');
-  const [isLocalApp, setIsLocalApp] = useState(true);
+  const [isLocalApp, setIsLocalApp] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const h = window.location.hostname || '';
+      return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '[::1]' || h.endsWith('.local') || h.startsWith('192.168.') || h.startsWith('10.');
+    }
+    return true;
+  });
   // Downloaded (Electron) users already have the app: hide all
   // "Download Desktop App" buttons for them.
   const isDesktop = useIsDesktop();
@@ -90,9 +96,8 @@ CREATE TABLE orders (
     }
 
     if (typeof window !== 'undefined') {
-      const isLocal = window.location.hostname === 'localhost' || 
-                      window.location.hostname === '127.0.0.1' || 
-                      window.location.hostname.endsWith('.local');
+      const h = window.location.hostname || '';
+      const isLocal = h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '[::1]' || h.endsWith('.local') || h.startsWith('192.168.') || h.startsWith('10.');
       setIsLocalApp(isLocal);
     }
 
@@ -1739,7 +1744,7 @@ CREATE TABLE audit_logs (
           {/* Bottom bar */}
           <div className="mt-6 lg:mt-8 pt-4 lg:pt-6 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-muted">
             <div className="flex flex-wrap items-center gap-4 text-[10px] font-mono">
-              <span className="inline-flex items-center gap-1.5"><Cpu className="h-3 w-3" /> v1.1.43</span>
+              <span className="inline-flex items-center gap-1.5"><Cpu className="h-3 w-3" /> v1.1.47</span>
               <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3 w-3 text-emerald-500" /> Local-first</span>
               <span className="inline-flex items-center gap-1.5"><Lock className="h-3 w-3" /> Private by default</span>
             </div>

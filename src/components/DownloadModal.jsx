@@ -155,6 +155,9 @@ export default function DownloadModal({ isOpen, onClose, reason = 'DEFAULT' }) {
             <a
               href="/api/download-app"
               onClick={() => {
+                try {
+                  localStorage.setItem('bendlens-desktop-downloaded', 'true');
+                } catch {}
                 document.body.style.overflow = '';
                 setTimeout(onClose, 800);
               }}

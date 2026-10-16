@@ -12,8 +12,8 @@ export default function UpdateIndicator() {
   const isDesktop = useIsDesktop();
   const [mounted, setMounted] = useState(false);
   const [updateInfo, setUpdateInfo] = useState({
-    currentVersion: '1.1.43',
-    latestVersion: '1.1.43',
+    currentVersion: '1.1.47',
+    latestVersion: '1.1.47',
     hasUpdate: false,
     releaseNotes: []
   });
@@ -213,7 +213,7 @@ export default function UpdateIndicator() {
     setUpdateElapsedTime(0);
     setUpdateFinalDuration('');
 
-    const targetVer = updateInfo?.latestVersion || '1.1.43';
+    const targetVer = updateInfo?.latestVersion || '1.1.47';
     const targetArtifact = updateInfo?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
     const directDownloadUrl = updateInfo?.downloadUrl || `https://github.com/Keerthivasan004/BendLens/releases/download/v${targetVer}/${targetArtifact}`;
 
@@ -470,17 +470,17 @@ export default function UpdateIndicator() {
           {autoUpdateStatus === 'ready' ? (
             <>
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-              <span>v{updateInfo.latestVersion} Ready (Restart to Apply)</span>
+              <span>v{updateInfo.currentVersion} (v{updateInfo.latestVersion} Ready)</span>
             </>
           ) : autoUpdateStatus === 'downloading' ? (
             <>
               <RefreshCw className="h-3.5 w-3.5 animate-spin text-sky-400" />
-              <span>v{updateInfo.latestVersion} ({downloadProgress.percent}%)</span>
+              <span>v{updateInfo.currentVersion} • Updating ({downloadProgress.percent}%)</span>
             </>
           ) : (
             <>
               <Sparkles className="h-3.5 w-3.5 text-sky-400" />
-              <span>Update Ready (v{updateInfo.latestVersion})</span>
+              <span>v{updateInfo.currentVersion} • Update Ready (v{updateInfo.latestVersion})</span>
             </>
           )}
         </button>

@@ -28,6 +28,15 @@ export default function Header({
   const hasAnalysis = !!analysisData;
   // Downloaded (Electron) users already have the app: never offer it again.
   const isDesktop = useIsDesktop();
+  const isLocal = isLocalApp || (typeof window !== 'undefined' && (
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname === '0.0.0.0' ||
+    window.location.hostname === '[::1]' ||
+    window.location.hostname.endsWith('.local') ||
+    window.location.hostname.startsWith('192.168.') ||
+    window.location.hostname.startsWith('10.')
+  ));
   const isUrl = (currentPath || '').startsWith('http://') || (currentPath || '').startsWith('https://') || /^(?:api\.|github\.com|gitlab\.com|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/|$))/i.test(currentPath || '');
 
   return (
@@ -120,7 +129,7 @@ export default function Header({
 
           {/* System controls */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            {onDownloadApp && !isDesktop && !isLocalApp && (
+            {onDownloadApp && !isDesktop && !isLocal && (
               <button
                 onClick={onDownloadApp}
                 className="btn-primary text-xs py-2 px-3 whitespace-nowrap hidden sm:flex"

@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-let appVersion = '1.1.43';
+let appVersion = '1.1.47';
 try {
   if (ipcRenderer && typeof ipcRenderer.sendSync === 'function') {
     const v = ipcRenderer.sendSync('get-app-version');
