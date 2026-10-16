@@ -14,9 +14,9 @@ class UniversalApiCrawler {
   /**
    * Browser-realistic request headers to prevent anti-bot blocking & Cloudflare challenges
    */
-  static getHeaders() {
+  static getHeaders(customHeaders = {}) {
     return {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 BendLens/1.0',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json,application/yaml,text/yaml,text/plain,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
       'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24"',
@@ -27,7 +27,8 @@ class UniversalApiCrawler {
       'Sec-Fetch-Site': 'none',
       'Sec-Fetch-User': '?1',
       'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache'
+      'Pragma': 'no-cache',
+      ...customHeaders
     };
   }
 
@@ -64,8 +65,9 @@ class UniversalApiCrawler {
   static async safeFetch(url, options = {}) {
     const timeout = options.timeout || 10000;
     try {
+      const headers = options.headers || this.getHeaders(options.customHeaders);
       const res = await fetch(url, {
-        headers: options.headers || this.getHeaders(),
+        headers,
         redirect: 'follow',
         signal: AbortSignal.timeout(timeout),
         ...(options.method ? { method: options.method } : {}),
@@ -126,6 +128,7 @@ class UniversalApiCrawler {
   static async crawl(targetUrl, options = {}) {
     const startTime = Date.now();
     const { parsedUrl, href, origin, hostname } = this.normalizeTargetUrl(targetUrl);
+    const customHeaders = options.headers || options.customHeaders || {};
 
     const maxChunks = options.maxChunks || 500;
     const concurrency = options.concurrency || 10;
@@ -143,23 +146,28 @@ class UniversalApiCrawler {
       // =========================================================================
       // STAGE 1: Target Ingestion & Direct Spec / API Sniffing
       // =========================================================================
-      let initRes = await this.safeFetch(href, { timeout: 15000 });
+      let initRes = await this.safeFetch(href, { timeout: 15000, customHeaders });
 
       // Protocol fallback if https fails on local/custom domains
       if (!initRes.ok && href.startsWith('https://')) {
         const httpHref = href.replace(/^https:\/\//i, 'http://');
-        const httpRes = await this.safeFetch(httpHref, { timeout: 10000 });
+        const httpRes = await this.safeFetch(httpHref, { timeout: 10000, customHeaders });
         if (httpRes.ok) {
           initRes = httpRes;
         }
       }
 
       if (!initRes.ok) {
+        const isWaf = /cf-ray|cloudflare|challenge-platform|Turnstile|Attention Required!|Access Denied|Incapsula|datadome/i.test(initRes.text || '');
+        const errMsg = isWaf
+          ? `The target "${targetUrl}" is protected by a Cloudflare or WAF Bot Management challenge (HTTP ${initRes.status}). Automated crawling is blocked by the target's firewall.`
+          : (initRes.statusText || `Could not establish connection to ${targetUrl}`);
+
         return this.emergencyFallback(
           targetUrl,
           hostname,
           origin,
-          new Error(initRes.statusText || `Could not establish connection to ${targetUrl}`),
+          new Error(errMsg),
           startTime
         );
       }
@@ -408,6 +416,83 @@ class UniversalApiCrawler {
         } catch {}
       }
 
+      // Next.js App Router (RSC) redirect resolution (e.g. NEXT_REDIRECT;replace;/login;307;)
+      const rscRedirectMatch = html.match(/NEXT_REDIRECT;(?:replace|push);([^;]+);/i);
+      if (rscRedirectMatch && rscRedirectMatch[1]) {
+        try {
+          const redirectTarget = rscRedirectMatch[1].trim();
+          const resolvedTarget = new URL(redirectTarget, origin);
+          if (resolvedTarget.origin === origin) {
+            discoveredPages.add(resolvedTarget.pathname);
+            // Fetch redirected HTML page to discover route-specific scripts & chunks
+            const redirectPageRes = await this.safeFetch(resolvedTarget.href, { timeout: 6000 });
+            if (redirectPageRes.ok && redirectPageRes.text) {
+              const rHtml = redirectPageRes.text;
+              const rScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+              let rsm;
+              while ((rsm = rScriptRegex.exec(rHtml)) !== null) {
+                const rSrc = rsm[1];
+                if (!this.isThirdPartyTracker(rSrc)) {
+                  try {
+                    discoveredScriptUrls.add(new URL(rSrc, origin).href);
+                  } catch {}
+                }
+              }
+              const rLinkRegex = /<link\b[^>]*?(?:href\s*=\s*["']([^"']+)["'][^>]*?rel\s*=\s*["'](?:modulepreload|preload)["']|rel\s*=\s*["'](?:modulepreload|preload)["'][^>]*?href\s*=\s*["']([^"']+)["'])[^>]*>/gi;
+              let rlm;
+              while ((rlm = rLinkRegex.exec(rHtml)) !== null) {
+                const rHref = rlm[1] || rlm[2];
+                if (rHref && (rHref.endsWith('.js') || rHref.includes('.js?')) && !this.isThirdPartyTracker(rHref)) {
+                  try {
+                    discoveredScriptUrls.add(new URL(rHref, origin).href);
+                  } catch {}
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // HTML <meta http-equiv="refresh" content="0; url=...">
+      const metaRefreshMatch = html.match(/<meta\b[^>]*?http-equiv\s*=\s*["']refresh["'][^>]*?content\s*=\s*["']\d+\s*;\s*url=([^"']+)["'][^>]*>/i);
+      if (metaRefreshMatch && metaRefreshMatch[1]) {
+        try {
+          const mUrl = new URL(metaRefreshMatch[1].trim(), origin);
+          if (mUrl.origin === origin) {
+            discoveredPages.add(mUrl.pathname);
+            const mRes = await this.safeFetch(mUrl.href, { timeout: 6000, customHeaders });
+            if (mRes.ok && mRes.text) {
+              const rScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+              let rsm;
+              while ((rsm = rScriptRegex.exec(mRes.text)) !== null) {
+                if (!this.isThirdPartyTracker(rsm[1])) {
+                  try { discoveredScriptUrls.add(new URL(rsm[1], origin).href); } catch {}
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // JavaScript location redirects (e.g. location.href = '/login' or location.replace('/login'))
+      const jsRedirectMatch = html.match(/(?:window\.)?location\.(?:href|replace)\s*=\s*["'](\/[a-zA-Z0-9_\-\/]+)["']/i);
+      if (jsRedirectMatch && jsRedirectMatch[1]) {
+        try {
+          const jsTarget = new URL(jsRedirectMatch[1].trim(), origin);
+          if (jsTarget.origin === origin) {
+            discoveredPages.add(jsTarget.pathname);
+          }
+        } catch {}
+      }
+
+      // Discover chunks referenced in Next.js self.__next_f payloads or inline scripts
+      const inlineChunkMatches = html.match(/(?:\/_next\/static\/chunks\/[^"'\s\\]+\.js)/g) || [];
+      for (const ic of inlineChunkMatches) {
+        try {
+          discoveredScriptUrls.add(new URL(ic, origin).href);
+        } catch {}
+      }
+
       // 4. Discover Script Tags: <script src="...">
       const scriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
       let sm;
@@ -486,7 +571,7 @@ class UniversalApiCrawler {
           if (visitedUrls.has(url)) return;
           visitedUrls.add(url);
 
-          const scriptRes = await this.safeFetch(url, { timeout: 6000 });
+          const scriptRes = await this.safeFetch(url, { timeout: 6000, customHeaders });
           if (!scriptRes.ok) return;
           const code = scriptRes.text;
 
@@ -536,7 +621,7 @@ class UniversalApiCrawler {
             if (!mapRel.startsWith('data:')) {
               try {
                 const mapUrl = new URL(mapRel, url).href;
-                const mapRes = await this.safeFetch(mapUrl, { timeout: 4000 });
+                const mapRes = await this.safeFetch(mapUrl, { timeout: 4000, customHeaders });
                 if (mapRes.ok) {
                   try {
                     const sourceMap = JSON.parse(mapRes.text);
@@ -560,6 +645,44 @@ class UniversalApiCrawler {
         // Polite delay between chunk batches to prevent WAF / fail2ban rate-limit triggering
         if (queue.length > 0) {
           await new Promise(r => setTimeout(r, 20));
+        }
+      }
+
+      // Probe verified health endpoint if framework indicates an active Node/Next/API backend
+      if (frameworksDetected.has('Next.js') || frameworksDetected.has('React') || frameworksDetected.has('Vite')) {
+        try {
+          const hUrl = new URL('/api/health', origin).href;
+          const hRes = await this.safeFetch(hUrl, { timeout: 3000, customHeaders });
+          if (hRes.ok && (hRes.contentType.includes('application/json') || hRes.text.includes('"status"'))) {
+            if (!allEndpoints.has('/api/health')) allEndpoints.set('/api/health', new Set());
+            allEndpoints.get('/api/health').add('GET');
+          }
+        } catch {}
+      }
+
+      // If Better-Auth (/api/auth) is detected, verify authentic sub-routes
+      if (allEndpoints.has('/api/auth')) {
+        const authProbes = [
+          { path: '/api/auth/get-session', method: 'GET' },
+          { path: '/api/auth/ok', method: 'GET' },
+          { path: '/api/auth/sign-in/username', method: 'POST', testPost: true },
+          { path: '/api/auth/sign-out', method: 'POST', testPost: true }
+        ];
+        for (const probe of authProbes) {
+          try {
+            const aUrl = new URL(probe.path, origin).href;
+            const aRes = await this.safeFetch(aUrl, {
+              method: probe.method,
+              timeout: 2500,
+              customHeaders,
+              body: probe.testPost ? JSON.stringify({}) : undefined,
+              headers: probe.testPost ? { ...this.getHeaders(customHeaders), 'Content-Type': 'application/json' } : undefined
+            });
+            if (aRes.status === 200 || aRes.status === 401 || (aRes.contentType && aRes.contentType.includes('application/json'))) {
+              if (!allEndpoints.has(probe.path)) allEndpoints.set(probe.path, new Set());
+              allEndpoints.get(probe.path).add(probe.method);
+            }
+          } catch {}
         }
       }
 

@@ -37,10 +37,11 @@ Use this skill when you need to:
 4. **Multi-Strategy Pipeline**:
    - **Stage 1**: Direct Ingestion (OpenAPI JSON/YAML, Postman Collection, live REST API JSON array/object, raw schemas).
    - **Stage 2**: Targeted Standard Probing (probes `/openapi.json`, `/swagger.json`, `/v3/api-docs` only when target is not an HTML document to prevent WAF / rate limit triggering).
-   - **Stage 3**: Deep HTML & Embedded Spec Discovery (`SwaggerUIBundle({ url: '...' })`, Redoc `<redoc spec-url="...">`, Next.js `__NEXT_DATA__` manifests, `<form action="...">`).
+   - **Stage 3**: Deep HTML, Next.js App Router & Embedded Spec Discovery (`SwaggerUIBundle({ url: '...' })`, Redoc `<redoc spec-url="...">`, Next.js `__NEXT_DATA__` manifests, Next.js App Router RSC redirect resolution `NEXT_REDIRECT;...`, `<meta http-equiv="refresh">` & JS location redirect following, `self.__next_f` inline chunk discovery, `<form action="...">`).
    - **Stage 4**: Recursive Bounded Chunk Graph Traversal (up to 500 code-split chunks with optimized concurrency 10 and 20ms batch pacing for rapid completion).
-   - **Stage 5**: Source Map (.js.map) Decompilation (recovers raw unminified source code to extract route controllers and interfaces).
-   - **Stage 6**: Polyglot API Reverse-Engineering with String Concatenation & Caller-Scoped Verbs (matches minified callers `x.get/post/delete`, bounded `fetch` signatures, and template strings).
+   - **Stage 5**: Live API & Health Probe Verification (probes authentic `/api/health` and live Better-Auth `/api/auth/*` handlers including session and username/password sign-in routes).
+   - **Stage 6**: Source Map (.js.map) Decompilation (recovers raw unminified source code to extract route controllers and interfaces).
+   - **Stage 7**: Polyglot API Reverse-Engineering with String Concatenation & Caller-Scoped Verbs (matches minified callers `x.get/post/delete`, bounded `fetch` signatures, and template strings).
 
 ---
 

@@ -28,7 +28,8 @@ flowchart TD
   - **Multi-Strategy Pipeline**:
     1. Direct Spec Sniffing: Direct OpenAPI 3.x / Swagger JSON/YAML, Postman Collection, live REST API JSON array/object, or raw SQL/Prisma.
     2. Parallel Standard Probing: Fast concurrent probes of `/openapi.json`, `/swagger.json`, `/v3/api-docs`, `/api-docs`, and `/graphql` (GraphQL introspection).
-    3. Deep HTML & Manifest Extraction: Extracts Next.js `__NEXT_DATA__` (`buildId`, page routes, `_buildManifest.js`), Nuxt `__NUXT__`, window global API configs, form actions, anchor links, and linked scripts.
+    3. Deep HTML & Manifest Extraction: Extracts Next.js `__NEXT_DATA__` (`buildId`, page routes, `_buildManifest.js`), Next.js App Router RSC redirect resolution (`NEXT_REDIRECT;...`), inline chunk discovery (`self.__next_f`), Nuxt `__NUXT__`, window global API configs, form actions, anchor links, and linked scripts.
+    3b. Live API & Health Probe Verification: Automatically probes verified `/api/health` and authentic Better-Auth handlers (`/api/auth/sign-in/username`, `/api/auth/sign-out`, `/api/auth/get-session`, `/api/auth/ok`).
     4. Multi-Framework Recursive Code Chunk Traversal: Crawls up to 500 lazy-loaded code-split chunks (Next.js, Vite, Webpack, Nuxt, Angular) in parallel (concurrency 24).
     5. Source Map (.map) Decompilation: Fetches `.js.map` files and de-compiles unminified TypeScript/JavaScript source code to recover clean route controllers, request payloads, and entity interfaces.
     6. Polyglot API Reverse-Engineering: Detects API client calls (`fetch`, `axios`, `apiClient`, `http`, `ky`, `superagent`, Angular `HttpClient`, React Query `useQuery`, `useMutation`, SWR, RTK Query) across relative and backend microservice domains (`https://api.*`, `https://backend.*`, Supabase, Firebase).

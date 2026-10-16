@@ -57,9 +57,10 @@ export async function POST(request) {
 
     const maxChunks = body.maxChunks || 500;
     const concurrency = body.concurrency || 24;
+    const customHeaders = body.headers || body.customHeaders || {};
 
     // Execute Enterprise Universal Crawler
-    const crawlResult = await UniversalApiCrawler.crawl(targetUrl, { maxChunks, concurrency });
+    const crawlResult = await UniversalApiCrawler.crawl(targetUrl, { maxChunks, concurrency, customHeaders });
 
     if (crawlResult?.telemetry?.crawlStatus === 'failed') {
       return NextResponse.json(
