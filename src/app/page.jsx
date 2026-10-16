@@ -377,7 +377,7 @@ CREATE TABLE orders (
               </div>
             )}
 
-            {!isDesktop && (
+            {!isDesktop && !isLocalApp && (
               <button
                 onClick={() => {
                   setDownloadModalReason('DEFAULT');
@@ -507,7 +507,7 @@ CREATE TABLE orders (
           {/* MODE 1: Local Folder Path */}
           {ingestMode === 'PATH' && (
             <div>
-              {!isLocalApp && (
+              {!isLocalApp && !isDesktop && (
                 <div className="mb-4 rounded-xl border border-brand/30 bg-gradient-to-b from-brand/[0.07] to-transparent p-4 sm:p-5 animate-fadeIn">
                   <div className="flex items-start gap-3">
                     <div className="h-10 w-10 rounded-xl btn-primary flex items-center justify-center shrink-0 shadow-card">
@@ -1410,7 +1410,7 @@ CREATE TABLE audit_logs (
                   <ArrowRight className="h-3.5 w-3.5 ml-1.5 transition-transform group-hover:translate-x-0.5" />
                 </button>
 
-                {!isLocalApp && (
+                {!isLocalApp && !isDesktop && (
                   <button
                     onClick={() => {
                       setDownloadModalReason('DEFAULT');
@@ -1739,7 +1739,7 @@ CREATE TABLE audit_logs (
           {/* Bottom bar */}
           <div className="mt-6 lg:mt-8 pt-4 lg:pt-6 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-muted">
             <div className="flex flex-wrap items-center gap-4 text-[10px] font-mono">
-              <span className="inline-flex items-center gap-1.5"><Cpu className="h-3 w-3" /> v1.1.0</span>
+              <span className="inline-flex items-center gap-1.5"><Cpu className="h-3 w-3" /> v1.1.43</span>
               <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3 w-3 text-emerald-500" /> Local-first</span>
               <span className="inline-flex items-center gap-1.5"><Lock className="h-3 w-3" /> Private by default</span>
             </div>

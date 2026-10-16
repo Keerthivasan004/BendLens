@@ -12,8 +12,8 @@ export default function UpdateIndicator() {
   const isDesktop = useIsDesktop();
   const [mounted, setMounted] = useState(false);
   const [updateInfo, setUpdateInfo] = useState({
-    currentVersion: '1.0.0',
-    latestVersion: '1.1.0',
+    currentVersion: '1.1.43',
+    latestVersion: '1.1.43',
     hasUpdate: false,
     releaseNotes: []
   });
@@ -49,6 +49,7 @@ export default function UpdateIndicator() {
 
   useEffect(() => {
     setMounted(true);
+    checkForUpdates();
     if (!isDesktop) return;
 
     // Listen to native Electron desktop auto-updater events
@@ -212,7 +213,7 @@ export default function UpdateIndicator() {
     setUpdateElapsedTime(0);
     setUpdateFinalDuration('');
 
-    const targetVer = updateInfo?.latestVersion || '1.1.38';
+    const targetVer = updateInfo?.latestVersion || '1.1.43';
     const targetArtifact = updateInfo?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
     const directDownloadUrl = updateInfo?.downloadUrl || `https://github.com/Keerthivasan004/BendLens/releases/download/v${targetVer}/${targetArtifact}`;
 
@@ -280,9 +281,43 @@ export default function UpdateIndicator() {
     }
   };
 
-  // Desktop-only surface: web users auto-update with each deploy, so they
-  // never see the popup, the navbar version button, or any update polling.
-  if (!isDesktop) return null;
+  // Web visitors always run the latest deployed build, so render the clean version badge
+  // without the native desktop auto-update download / restart prompt.
+  if (!isDesktop) {
+    return (
+      <>
+        <button
+          onClick={() => {
+            checkForUpdates();
+            setUpdateModalOpen(true);
+          }}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-surface-raised border border-border text-foreground hover:bg-surface-subtle transition-all cursor-pointer shadow-sm"
+          title="BendLens Architecture Platform · Click to view latest feature showcase"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <span className="font-mono">v{updateInfo.currentVersion}</span>
+        </button>
+
+        {mounted && typeof document !== 'undefined' && updateModalOpen && createPortal(
+          <UpdateShowcaseModal
+            isOpen={updateModalOpen}
+            onClose={handleCloseUpdateModal}
+            onApplyUpdate={handleApplyUpdate}
+            onRestartNow={handleRestartNow}
+            autoUpdateStatus={autoUpdateStatus}
+            downloadProgress={downloadProgress}
+            isUpdating={isUpdating}
+            updateStep={updateStep}
+            updateSuccess={updateSuccess}
+            updateInfo={updateInfo}
+            updateElapsedTime={updateElapsedTime}
+            updateFinalDuration={updateFinalDuration}
+          />,
+          document.body
+        )}
+      </>
+    );
+  }
 
   const floatingNotification = (mounted && updateInfo.hasUpdate && !isNotificationDismissed && !updateModalOpen) ? (
     <div className="fixed bottom-5 right-5 z-[9990] max-w-sm w-[calc(100vw-2.5rem)] sm:w-[390px] p-4 rounded-2xl bg-white/95 dark:bg-[#070b16]/95 border border-blue-200 dark:border-blue-500/40 shadow-modal dark:shadow-[0_20px_40px_-5px_rgba(0,0,0,0.8),0_0_25px_rgba(56,189,248,0.25)] backdrop-blur-xl animate-rise text-foreground select-none">

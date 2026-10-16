@@ -61,6 +61,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: false,
       backgroundThrottling: false,
       spellcheck: false,
       enableWebSQL: false
@@ -421,7 +422,7 @@ function startBackendServer(projectDir, port, onReady = null) {
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
           BENDLENS_APP_DIR: projectDir,
-          BENDLENS_APP_VERSION: app.getVersion() || '1.1.38',
+          BENDLENS_APP_VERSION: app.getVersion() || '1.1.43',
           PORT: String(port)
         }
       });
@@ -1119,7 +1120,7 @@ ipcMain.on('app-quit-and-update', () => {
 });
 
 ipcMain.on('get-app-version', (event) => {
-  event.returnValue = app.getVersion() || '1.1.38';
+  event.returnValue = app.getVersion() || '1.1.43';
 });
 
 app.whenReady().then(() => {

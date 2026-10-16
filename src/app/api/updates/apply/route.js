@@ -259,7 +259,7 @@ export async function POST(request) {
       effective = await getEffectiveLatest(projectRoot, { allowRemote: true });
     } catch {}
 
-    const targetVer = targetVersion || effective?.latestVersion || getLocalVersion(projectRoot) || '1.1.38';
+    const targetVer = targetVersion || effective?.latestVersion || getLocalVersion(projectRoot) || '1.1.43';
     let setupArtifactName = effective?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
     if (!setupArtifactName.endsWith('.exe')) {
       setupArtifactName = `BendLens-Setup-${targetVer}.exe`;

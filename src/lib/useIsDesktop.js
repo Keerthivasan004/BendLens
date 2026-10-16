@@ -3,24 +3,73 @@
 import { useState, useEffect } from 'react';
 
 /**
- * True only inside the downloaded BendLens Desktop app (Electron), where
- * `electron/preload.js` exposes `window.bendlensDesktop = { isDesktop: true }`.
- * Web users always run the latest deployed build, so desktop-only surfaces
- * (update notifications, folder scans) must gate on this — never on hostname.
+ * Universal detection of whether the user is in a downloaded / local desktop environment.
+ * Evaluates to true for:
+ * 1. Native Electron Desktop App (window.bendlensDesktop bridge, Electron userAgent, or window.process.versions.electron)
+ * 2. WebView2 Windows Desktop App (window.chrome.webview or window.bendlensDesktop)
+ * 3. Downloaded Local Machine Runtime (localhost, 127.0.0.1, [::1], *.local)
+ * 
+ * Web visitors accessing a remote cloud deployment (e.g. *.vercel.app, bendlens.com) evaluate to false,
+ * ensuring they see the "Download Desktop App" action.
  */
+export function checkIsDesktop() {
+  if (typeof window === 'undefined') return false;
+  try {
+    // 1. Explicit desktop bridge injected by Electron / WebView2
+    if (window.bendlensDesktop?.isDesktop === true) return true;
+
+    // 2. Electron or BendLens User-Agent detection
+    const ua = window.navigator?.userAgent || '';
+    if (/Electron|BendLens/i.test(ua)) return true;
+
+    // 3. Electron process versions in renderer
+    if (window.process?.versions?.electron) return true;
+
+    // 4. Microsoft Edge WebView2 runtime object
+    if (window.chrome?.webview) return true;
+
+    // 5. Downloaded local machine server runtime
+    // Only downloaded users run the engine locally on localhost / 127.0.0.1 / ::1
+    const hostname = window.location?.hostname || '';
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '[::1]' ||
+      hostname.endsWith('.local')
+    ) {
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
 export default function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(false);
 
   useEffect(() => {
-    try {
-      setIsDesktop(
-        typeof window !== 'undefined' &&
-        window.bendlensDesktop?.isDesktop === true
-      );
-    } catch {
-      setIsDesktop(false);
-    }
+    const detect = () => {
+      const desktop = checkIsDesktop();
+      setIsDesktop(desktop);
+      return desktop;
+    };
+
+    // Immediate check
+    if (detect()) return;
+
+    // Polling retry in case Electron preload or WebView2 bridge initializes slightly after hydration
+    const timer = setTimeout(detect, 150);
+    const interval = setInterval(() => {
+      if (detect()) {
+        clearInterval(interval);
+      }
+    }, 800);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, []);
 
   return isDesktop;
 }
+

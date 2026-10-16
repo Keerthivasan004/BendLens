@@ -120,7 +120,7 @@ export default function Header({
 
           {/* System controls */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            {onDownloadApp && !isDesktop && (
+            {onDownloadApp && !isDesktop && !isLocalApp && (
               <button
                 onClick={onDownloadApp}
                 className="btn-primary text-xs py-2 px-3 whitespace-nowrap hidden sm:flex"

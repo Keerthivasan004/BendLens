@@ -53,8 +53,8 @@ BendLens ships as a true native Windows application: double-click → splash →
     - **In-App UI Integration**: `UpdateIndicator` and `UpdateShowcaseModal` render live download progress indicators when downloading, and transform into a 1-click **Restart & Update** action button once the verified installer is ready.
 - **Desktop update discovery, acceleration & telemetry**:
   - A packaged install has no `dist/` folder. `GET /api/updates/check?source=desktop` discovers releases from GitHub (`Keerthivasan004/BendLens`) and installer assets (`BendLens-Setup-*.exe`) using `maxVersion(tagVersion, assetVersion)` to ensure published release tags are never suppressed. Returns direct `downloadUrl`.
-  - Baseline version is synchronized at `1.1.38` across `package.json`, `releaseInfo.js`, `MainWindow.cs`, `electron/main.js`, and `preload.js`.
-  - In `electron/preload.js`, the desktop version is queried directly via `ipcRenderer.sendSync('get-app-version')` (falling back to `package.json`), and exposes `window.bendlensDesktop.quitApp()` triggering IPC `app-quit-and-update`.
+  - Baseline version is synchronized at `1.1.43` across `package.json`, `releaseInfo.js`, `MainWindow.cs`, `electron/main.js`, and `preload.js`.
+  - In `electron/preload.js`, the desktop version is queried directly via `ipcRenderer.sendSync('get-app-version')` (without sandboxed-breaking `fs` imports), and exposes `window.bendlensDesktop.quitApp()` triggering IPC `app-quit-and-update`.
   - `electron/main.js` injects `BENDLENS_APP_VERSION: app.getVersion()` into the background engine process environment, and `src/lib/releaseInfo.js` checks `process.env.BENDLENS_APP_VERSION` first. This eliminates any internal version desynchronization between the Electron shell and the embedded Next.js engine.
   - In `.github/workflows/release.yml`, `Synchronize package version with Git tag` runs strictly **before** `pnpm run build` so that the compiled Next.js standalone bundle is stamped with the exact release tag version (preventing false "Update Ready" prompts on freshly installed builds).
   - `/api/updates/apply` implements multi-location local installer probing (`findLocalInstaller` across `dist/`, `%USERPROFILE%\Downloads`, `%TEMP%`, and AppData update dirs) with binary validation (`isValidWindowsExe` checking MZ header, valid size >= 20MB, and strict `targetVersion` matching to prevent stale installer execution) and silent `/S` detached execution.
@@ -77,8 +77,11 @@ BendLens ships as a true native Windows application: double-click → splash →
     - Next.js with Turbopack and pnpm hashes server external packages into aliases (`adm-zip-<hash>`), creating NTFS junctions in `.next/node_modules/` that do not exist or break in packaged desktop installations.
     - Centralized in `src/lib/safeAdmZip.js` using dynamic `eval('require')('adm-zip')` to bypass Turbopack static AST hashing across `/api/updates/apply`, `/api/upload`, and `/api/git-clone`.
     - `electron/server-runner.js` automatically detects and establishes local junctions in `node_modules/` for any legacy hashed aliases (`adm-zip-[0-9a-fA-F]+`) during boot.
-  - Fully offline environments fall back smoothly to the bundled baseline version (`1.1.25`).
-- **Desktop-only UI gating** (`src/lib/useIsDesktop.js`): `UpdateIndicator` returns null on web; both "Download Desktop App" buttons (landing nav in `page.jsx`, "Download App" in `Header.jsx`) render only when NOT desktop.
+  - Fully offline environments fall back smoothly to the bundled baseline version (`1.1.43`).
+- **Desktop & Downloaded UI Gating (`src/lib/useIsDesktop.js`)**:
+  - `checkIsDesktop()` performs multi-vector detection: `window.bendlensDesktop?.isDesktop === true`, user-agent regex (`/Electron|BendLens/i`), renderer process flags (`window.process.versions.electron`), WebView2 bridge (`window.chrome.webview`), and local machine runtime hostnames (`localhost`, `127.0.0.1`, `[::1]`, `*.local`).
+  - Downloaded users and desktop runtime users never see redundant "Download Desktop App" buttons (`!isDesktop && !isLocalApp` guard).
+  - Version number indicator is universally visible: downloaded desktop users see real-time update status (`v1.1.43 • Up to Date` / `Update Ready`), while remote web visitors see a clean version badge (`v1.1.43`) with interactive feature showcase access.
 - **Theme**: `darkMode: 'class'` + CSS vars under `:root`/`.dark`; `layout.jsx` applies the saved `bendlens-theme` in a pre-hydration head script and both pages mirror it in state, so the toggle can never desync or flash-wrong on load.
 
 ---
