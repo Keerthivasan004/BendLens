@@ -422,7 +422,7 @@ function startBackendServer(projectDir, port, onReady = null) {
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
           BENDLENS_APP_DIR: projectDir,
-          BENDLENS_APP_VERSION: app.getVersion() || '1.1.47',
+          BENDLENS_APP_VERSION: app.getVersion() || '1.1.49',
           PORT: String(port)
         }
       });
@@ -511,7 +511,7 @@ function startBackendServer(projectDir, port, onReady = null) {
     const hasPnpm = fs.existsSync(path.join(projectDir, 'pnpm-lock.yaml'));
     const pmCmd = hasPnpm ? (isWin ? 'pnpm.cmd' : 'pnpm') : (isWin ? 'npm.cmd' : 'npm');
 
-    const hasBuild = fs.existsSync(path.join(projectDir, '.next'));
+    const hasBuild = fs.existsSync(path.join(projectDir, '.next', 'BUILD_ID'));
     const startScript = hasBuild ? 'start' : 'dev';
     console.log(`[*] Spawning BendLens local engine via ${hasPnpm ? 'pnpm' : 'npm'} (${hasBuild ? 'PRODUCTION fast-mode' : 'DEV mode'}) on port ${port}...`);
 
@@ -843,7 +843,18 @@ function streamDownloadToFile(url, partPath, onProgress, maxRedirects = 10) {
         res.pipe(fileStream);
 
         fileStream.on('finish', () => {
-          fileStream.close(() => resolve({ downloadedBytes, totalBytes }));
+          fileStream.close(() => {
+            if (totalBytes > 0 && downloadedBytes < totalBytes) {
+              try { fs.unlinkSync(partPath); } catch {}
+              return reject(new Error(`Update download interrupted: ${downloadedBytes}/${totalBytes} bytes`));
+            }
+            resolve({ downloadedBytes, totalBytes });
+          });
+        });
+
+        res.on('error', (err) => {
+          try { fs.unlinkSync(partPath); } catch {}
+          reject(err);
         });
 
         fileStream.on('error', (err) => {
@@ -868,6 +879,19 @@ function streamDownloadToFile(url, partPath, onProgress, maxRedirects = 10) {
   });
 }
 
+function resolveRelaunchExe() {
+  const nsisExe = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'BendLens', 'BendLens.exe');
+  if (fs.existsSync(nsisExe)) return nsisExe;
+  const legacyExe = path.join(process.env.LOCALAPPDATA || '', 'BendLens', 'BendLens.exe');
+  if (fs.existsSync(legacyExe)) return legacyExe;
+  if (app.isPackaged && process.execPath && !process.execPath.toLowerCase().endsWith('electron.exe')) {
+    return process.execPath;
+  }
+  const rootExe = path.join(__dirname, '..', 'BendLens.exe');
+  if (fs.existsSync(rootExe)) return rootExe;
+  return nsisExe;
+}
+
 async function startUpdateDownload(info = {}) {
   const version = info.version || info.latestVersion || updateState.version;
   const artifactName = info.artifactName || info.updateArtifact || `BendLens-Setup-${version}.exe`;
@@ -885,23 +909,36 @@ async function startUpdateDownload(info = {}) {
   const destPath = path.join(updateDir, artifactName);
   const partPath = path.join(updateDir, `${artifactName}.part`);
 
-  // 1. If an installer for this exact version is already cached and valid, mark ready immediately
+  // 1. Dual-directory detection: check if installer is already cached in current or alternate AppData dir
+  let existingInstaller = null;
   if (isValidWindowsExe(destPath)) {
-    console.log('[*] Cached update installer found and verified:', destPath);
+    existingInstaller = destPath;
+  } else {
+    const altDir = updateDir.includes('bendlens-platform')
+      ? updateDir.replace('bendlens-platform', 'BendLens')
+      : updateDir.replace('BendLens', 'bendlens-platform');
+    const altPath = path.join(altDir, artifactName);
+    if (isValidWindowsExe(altPath)) {
+      existingInstaller = altPath;
+    }
+  }
+
+  if (existingInstaller) {
+    console.log('[*] Cached update installer found and verified:', existingInstaller);
     updateState.status = 'ready';
     updateState.version = version;
     updateState.artifactName = artifactName;
-    updateState.installerPath = destPath;
+    updateState.installerPath = existingInstaller;
     updateState.progress = { percent: 100, transferredMb: 'Ready', totalMb: 'Ready', speedMb: '0' };
     updateState.error = null;
 
     notifyRenderer('update-status-changed', updateState);
     notifyRenderer('update-download-complete', {
-      installerPath: destPath,
+      installerPath: existingInstaller,
       version,
       fromCache: true
     });
-    return { success: true, status: 'ready', installerPath: destPath, fromCache: true };
+    return { success: true, status: 'ready', installerPath: existingInstaller, fromCache: true };
   }
 
   // 2. If already downloading this artifact, return current status
@@ -1001,39 +1038,41 @@ function applyUpdateAndRestart(args = {}) {
   cleanupServer();
 
   if (targetInstaller && fs.existsSync(targetInstaller) && isValidWindowsExe(targetInstaller)) {
-    const currentExe = process.execPath;
-    console.log('[*] Launching detached silent installer (/S) with automatic relaunch into:', currentExe);
+    const currentExe = resolveRelaunchExe();
+    console.log('[*] Launching invisible silent installer (/S) with auto-relaunch into:', currentExe);
 
     if (process.platform === 'win32') {
-      // Use an isolated detached cmd script to eliminate parent-process termination issues
-      const updaterBat = path.join(os.tmpdir(), `bendlens-apply-update-${Date.now()}.cmd`);
-      const batContent = [
-        '@echo off',
-        'chcp 65001 >nul',
-        'echo [*] Preparing silent BendLens upgrade...',
-        'timeout /t 2 /nobreak >nul',
-        'taskkill /F /IM BendLens.exe >nul 2>&1',
-        'taskkill /F /IM electron.exe >nul 2>&1',
-        `start /wait "" "${targetInstaller}" /S`,
-        'timeout /t 1 /nobreak >nul',
-        `start "" "${currentExe}"`,
-        'timeout /t 2 /nobreak >nul',
-        'del "%~f0" >nul 2>&1',
-        'exit /b 0'
+      // 100% Invisible GUI runner via wscript.exe:
+      // Zero console window, zero terminal popups, window style 0 (SW_HIDE)
+      const updaterVbs = path.join(os.tmpdir(), `bendlens-apply-update-${Date.now()}.vbs`);
+      const vbsContent = [
+        'Set WshShell = CreateObject("WScript.Shell")',
+        'WScript.Sleep 1500',
+        'On Error Resume Next',
+        'WshShell.Run "taskkill /F /IM BendLens.exe", 0, True',
+        'WshShell.Run "taskkill /F /IM electron.exe", 0, True',
+        `WshShell.Run """" & "${targetInstaller.replace(/"/g, '""')}" & """ /S", 0, True`,
+        'WScript.Sleep 1000',
+        `WshShell.Run """" & "${currentExe.replace(/"/g, '""')}" & """", 1, False`,
+        'Set fso = CreateObject("Scripting.FileSystemObject")',
+        'fso.DeleteFile WScript.ScriptFullName, True'
       ].join('\r\n');
 
       try {
-        fs.writeFileSync(updaterBat, batContent, 'utf-8');
-        const child = spawn('cmd.exe', ['/c', updaterBat], {
+        fs.writeFileSync(updaterVbs, vbsContent, 'utf-8');
+        const child = spawn('wscript.exe', ['//B', '//Nologo', updaterVbs], {
           detached: true,
-          stdio: 'ignore',
-          windowsHide: true
+          stdio: 'ignore'
         });
         child.unref();
-      } catch (batErr) {
-        console.warn('[!] Failed to launch updater script, trying direct spawn fallback:', batErr.message);
+      } catch (vbsErr) {
+        console.warn('[!] Invisible updater spawn failed, trying direct spawn fallback:', vbsErr.message);
         try {
-          const child = spawn(targetInstaller, ['/S'], { detached: true, stdio: 'ignore' });
+          const child = spawn(targetInstaller, ['/S'], {
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: true
+          });
           child.unref();
         } catch {}
       }

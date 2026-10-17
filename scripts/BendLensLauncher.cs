@@ -108,7 +108,7 @@ namespace BendLensDesktop
 
                 bool hasRuntime = File.Exists(Path.Combine(projectDir, "package.json"))
                     && Directory.Exists(Path.Combine(projectDir, "node_modules"));
-                bool hasBuild = hasRuntime && Directory.Exists(Path.Combine(projectDir, ".next"));
+                bool hasBuild = hasRuntime && Directory.Exists(Path.Combine(projectDir, ".next")) && File.Exists(Path.Combine(projectDir, ".next", "BUILD_ID"));
                 bool hasNode = IsCommandAvailable("node");
 
                 if (!hasRuntime || !hasNode || !hasBuild)

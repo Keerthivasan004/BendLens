@@ -86,10 +86,23 @@ export default function UpdateIndicator() {
 
     checkForUpdates();
 
+    let lastCheckAt = 0;
     const pollId = setInterval(() => checkForUpdates(true), 5 * 60 * 1000);
-    const onFocus = () => checkForUpdates(true);
+    const onFocus = () => {
+      const now = Date.now();
+      if (now - lastCheckAt >= 60000) {
+        lastCheckAt = now;
+        checkForUpdates(true);
+      }
+    };
     const onVisible = () => {
-      if (document.visibilityState === 'visible') checkForUpdates(true);
+      if (document.visibilityState === 'visible') {
+        const now = Date.now();
+        if (now - lastCheckAt >= 60000) {
+          lastCheckAt = now;
+          checkForUpdates(true);
+        }
+      }
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisible);
@@ -107,15 +120,13 @@ export default function UpdateIndicator() {
   const checkForUpdates = async (silent = false) => {
     if (!silent) setIsChecking(true);
     try {
-      // Desktop-only component: ask for remote release discovery too, since a
-      // packaged install has no dist/ folder to compare against locally.
       const res = await fetch('/api/updates/check?source=desktop', { cache: 'no-store' });
       const data = await res.json();
       if (data.success) {
         setUpdateInfo(data);
         setCheckError('');
 
-        // Automatic background auto-update engine
+        // 1. Electron Native Desktop Auto-Update Engine
         if (typeof window !== 'undefined' && window.bendlensDesktop?.getUpdateStatus) {
           const statusObj = await window.bendlensDesktop.getUpdateStatus();
           if (statusObj?.status === 'ready') {
@@ -126,7 +137,7 @@ export default function UpdateIndicator() {
             setAutoUpdateStatus('downloading');
             if (statusObj.progress) setDownloadProgress(statusObj.progress);
           } else if (data.hasUpdate && (statusObj?.status === 'idle' || !statusObj)) {
-            // Automatically start background download for downloaded desktop users
+            // Automatically start background streaming download without user interaction
             setAutoUpdateStatus('downloading');
             if (typeof window.bendlensDesktop.startUpdateDownload === 'function') {
               window.bendlensDesktop.startUpdateDownload({
@@ -137,12 +148,10 @@ export default function UpdateIndicator() {
             }
           }
         } else if (data.hasUpdate) {
-          // Non-Electron local / browser environment: automatically update in background
-          triggerAutoBackgroundUpdate(data.latestVersion);
+          // 2. Non-Electron local runtime: background streaming download without disturbing current session
+          checkOrStartLocalBackgroundDownload(data);
         }
 
-        // Re-arm the banner whenever a NEWER release appears, even if an
-        // older one was dismissed.
         try {
           const wasDismissed = localStorage.getItem(dismissedKey(data.latestVersion)) === '1';
           setIsNotificationDismissed(wasDismissed);
@@ -151,8 +160,6 @@ export default function UpdateIndicator() {
         if (!silent) setCheckError(data.error || 'Update check failed.');
       }
     } catch (err) {
-      // Never fake success here: keep the previous state so a failed check
-      // cannot clear a pending update banner or spoof the version label.
       console.warn('Update check failed:', err);
       if (!silent) setCheckError('Could not reach the local update service.');
     } finally {
@@ -160,35 +167,44 @@ export default function UpdateIndicator() {
     }
   };
 
-  const triggerAutoBackgroundUpdate = async (targetVersion) => {
-    if (autoUpdateStatus === 'downloading' || autoUpdateStatus === 'applying') return;
-    setAutoUpdateStatus('downloading');
+  const checkOrStartLocalBackgroundDownload = async (data) => {
     try {
-      const res = await fetch('/api/updates/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetVersion })
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok && data?.success) {
-        const appliedVer = data.newVersion || targetVersion;
-        setUpdateInfo((prev) => ({
-          ...prev,
-          currentVersion: appliedVer,
-          latestVersion: appliedVer,
-          hasUpdate: false
-        }));
+      const statusRes = await fetch(`/api/updates/download?version=${data.latestVersion}&artifact=${encodeURIComponent(data.updateArtifact || '')}`);
+      const statusData = await statusRes.json().catch(() => null);
+
+      if (statusData?.status === 'ready') {
         setAutoUpdateStatus('ready');
-        setTimeout(() => {
-          setIsNotificationDismissed(true);
-          checkForUpdates(true);
-        }, 2500);
-      } else {
-        setAutoUpdateStatus('idle');
+        if (statusData.installerPath) setReadyInstallerPath(statusData.installerPath);
+        if (statusData.progress) setDownloadProgress(statusData.progress);
+        return;
+      }
+
+      if (statusData?.status === 'downloading') {
+        setAutoUpdateStatus('downloading');
+        if (statusData.progress) setDownloadProgress(statusData.progress);
+        return;
+      }
+
+      // Initiate background download into pending-update/ silently
+      if (autoUpdateStatus === 'idle' || autoUpdateStatus === 'error') {
+        setAutoUpdateStatus('downloading');
+        const dlRes = await fetch('/api/updates/download', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            version: data.latestVersion,
+            artifactName: data.updateArtifact,
+            downloadUrl: data.downloadUrl
+          })
+        });
+        const dlData = await dlRes.json().catch(() => null);
+        if (dlData?.status === 'ready') {
+          setAutoUpdateStatus('ready');
+          if (dlData.installerPath) setReadyInstallerPath(dlData.installerPath);
+        }
       }
     } catch (err) {
-      console.warn('Auto background update sync notice:', err);
-      setAutoUpdateStatus('idle');
+      console.warn('Background update check notice:', err);
     }
   };
 

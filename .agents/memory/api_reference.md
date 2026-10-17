@@ -219,3 +219,48 @@ Universal CORS-free proxy endpoint to test and fetch live APIs directly from the
   }
   ```
 
+---
+
+## 13. GET `/api/updates/check`
+Checks for available application releases across local dist and GitHub releases.
+- **Query Parameters**:
+  - `source=desktop`: Enables remote GitHub release discovery.
+  - `simulate=true`: Forces `hasUpdate: true` for testing UI indicators.
+- **Response**:
+  ```json
+  {
+    "success": true,
+    "currentVersion": "1.1.49",
+    "latestVersion": "1.1.49",
+    "hasUpdate": false,
+    "updateArtifact": "BendLens-Setup-1.1.49.exe",
+    "updateSource": "remote",
+    "downloadUrl": "https://github.com/Keerthivasan004/BendLens/releases/download/v1.1.49/BendLens-Setup-1.1.49.exe",
+    "featureShowcase": [...]
+  }
+  ```
+
+---
+
+## 14. GET / POST `/api/updates/download`
+Asynchronous background streaming download of the latest release package into `%APPDATA%\bendlens-platform\pending-update`.
+- **GET**: Returns `{ success: true, status: 'idle'|'downloading'|'ready', progress: { percent, ... } }`.
+- **POST Body**: `{ "version": "1.1.49", "artifactName": "BendLens-Setup-1.1.49.exe", "downloadUrl": "..." }`.
+- **Guarantees**: 100% in-process streaming via Node.js, zero external curl or PowerShell processes, zero console popups, automatic PE validation.
+
+---
+
+## 15. POST `/api/updates/apply`
+Applies a downloaded release or synchronizes local workspace versions.
+- **Request Body**:
+  ```json
+  {
+    "targetVersion": "1.1.49"
+  }
+  ```
+- **Guarantees**:
+  - Uses an invisible VBScript runner (`wscript.exe //B //Nologo`) with window style `0` (`SW_HIDE`).
+  - Zero command prompt or terminal windows.
+  - Automatically resolves native `BendLens.exe` to avoid launching `node.exe`.
+  - In git repositories, synchronizes codebase `package.json` cleanly.
+

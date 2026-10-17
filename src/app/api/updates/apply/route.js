@@ -26,43 +26,56 @@ function isValidWindowsExe(filePath) {
   }
 }
 
-function launchInstallerExe(exePath, { silent = true } = {}) {
+function resolveRelaunchExe(projectRoot) {
+  const nsisExe = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'BendLens', 'BendLens.exe');
+  if (fs.existsSync(nsisExe)) return nsisExe;
+  const legacyExe = path.join(process.env.LOCALAPPDATA || '', 'BendLens', 'BendLens.exe');
+  if (fs.existsSync(legacyExe)) return legacyExe;
+  if (projectRoot) {
+    const rootExe = path.join(projectRoot, 'BendLens.exe');
+    if (fs.existsSync(rootExe)) return rootExe;
+  }
+  return nsisExe;
+}
+
+function launchInstallerExe(exePath, { silent = true, projectRoot = '' } = {}) {
   try {
     if (!exePath || !fs.existsSync(exePath)) return false;
     if (process.platform === 'win32') {
-      const currentExe = process.execPath || path.join(process.env.LOCALAPPDATA || '', 'Programs', 'BendLens', 'BendLens.exe');
-      const updaterBat = path.join(os.tmpdir(), `bendlens-apply-update-${Date.now()}.cmd`);
+      const currentExe = resolveRelaunchExe(projectRoot);
       const flag = silent ? ' /S' : '';
-      const batContent = [
-        '@echo off',
-        'chcp 65001 >nul',
-        'echo [*] Preparing silent BendLens upgrade...',
-        'timeout /t 2 /nobreak >nul',
-        'taskkill /F /IM BendLens.exe >nul 2>&1',
-        'taskkill /F /IM electron.exe >nul 2>&1',
-        `start /wait "" "${exePath}"${flag}`,
-        'timeout /t 1 /nobreak >nul',
-        `start "" "${currentExe}"`,
-        'timeout /t 2 /nobreak >nul',
-        'del "%~f0" >nul 2>&1',
-        'exit /b 0'
+      const updaterVbs = path.join(os.tmpdir(), `bendlens-apply-update-${Date.now()}.vbs`);
+
+      // 100% Invisible GUI runner via wscript.exe:
+      // Zero console window, zero terminal popups, window style 0 (SW_HIDE)
+      const vbsContent = [
+        'Set WshShell = CreateObject("WScript.Shell")',
+        'WScript.Sleep 1500',
+        'On Error Resume Next',
+        'WshShell.Run "taskkill /F /IM BendLens.exe", 0, True',
+        'WshShell.Run "taskkill /F /IM electron.exe", 0, True',
+        `WshShell.Run """" & "${exePath.replace(/"/g, '""')}" & """${flag}", 0, True`,
+        'WScript.Sleep 1000',
+        `WshShell.Run """" & "${currentExe.replace(/"/g, '""')}" & """", 1, False`,
+        'Set fso = CreateObject("Scripting.FileSystemObject")',
+        'fso.DeleteFile WScript.ScriptFullName, True'
       ].join('\r\n');
 
       try {
-        fs.writeFileSync(updaterBat, batContent, 'utf-8');
-        const child = spawn('cmd.exe', ['/c', updaterBat], {
+        fs.writeFileSync(updaterVbs, vbsContent, 'utf-8');
+        const child = spawn('wscript.exe', ['//B', '//Nologo', updaterVbs], {
           detached: true,
-          stdio: 'ignore',
-          windowsHide: true
+          stdio: 'ignore'
         });
         child.unref();
         return true;
       } catch (spawnErr) {
-        console.warn('[updates/apply] Detached updater spawn failed, trying direct spawn fallback:', spawnErr.message);
+        console.warn('[updates/apply] Detached invisible updater spawn failed, trying direct spawn fallback:', spawnErr.message);
         try {
           const child = spawn(exePath, silent ? ['/S'] : [], {
             detached: true,
-            stdio: 'ignore'
+            stdio: 'ignore',
+            windowsHide: true
           });
           child.unref();
           return true;
@@ -75,7 +88,7 @@ function launchInstallerExe(exePath, { silent = true } = {}) {
   return false;
 }
 
-async function downloadAndLaunchInstaller(downloadUrl, artifactName) {
+async function downloadAndLaunchInstaller(downloadUrl, artifactName, projectRoot) {
   const destPath = path.join(os.tmpdir(), artifactName);
   const partPath = `${destPath}.part`;
   try {
@@ -83,7 +96,7 @@ async function downloadAndLaunchInstaller(downloadUrl, artifactName) {
     if (isValidWindowsExe(destPath)) {
       const stat = fs.statSync(destPath);
       if (stat.size >= 25 * 1024 * 1024) {
-        if (launchInstallerExe(destPath)) {
+        if (launchInstallerExe(destPath, { projectRoot })) {
           return { success: true, path: destPath, fromCache: true };
         }
       } else {
@@ -93,66 +106,37 @@ async function downloadAndLaunchInstaller(downloadUrl, artifactName) {
 
     let downloadSucceeded = false;
 
-    // 2. High-performance native Windows curl.exe download (handles multi-redirect AWS/Azure blobs, Schannel SSL, and retry)
+    // 2. Pure in-memory streaming Node.js fetch (zero external curl/PowerShell processes, zero console windows)
     try {
       if (fs.existsSync(partPath)) {
         try { fs.unlinkSync(partPath); } catch {}
       }
-      const curlCmd = `curl.exe -L -f -s -S --retry 3 --retry-delay 2 -o "${partPath}" "${downloadUrl}"`;
-      await execPromise(curlCmd, { timeout: 300000 });
-      if (isValidWindowsExe(partPath)) {
-        downloadSucceeded = true;
-      }
-    } catch (curlErr) {
-      console.warn('[updates/apply] curl.exe download attempt warning:', curlErr.message);
-    }
-
-    // 3. PowerShell Invoke-WebRequest fallback
-    if (!downloadSucceeded) {
-      try {
-        if (fs.existsSync(partPath)) {
-          try { fs.unlinkSync(partPath); } catch {}
-        }
-        const psCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '${downloadUrl.replace(/'/g, "''")}' -OutFile '${partPath.replace(/'/g, "''")}'"`;
-        await execPromise(psCmd, { timeout: 300000 });
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 300000);
+      const res = await fetch(downloadUrl, {
+        signal: ctrl.signal,
+        redirect: 'follow',
+        headers: { 'User-Agent': 'BendLens-Updater/1.0', Accept: 'application/octet-stream, */*' }
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const { Readable } = await import('stream');
+        const fileStream = fs.createWriteStream(partPath);
+        await new Promise((resolve, reject) => {
+          Readable.fromWeb(res.body)
+            .pipe(fileStream)
+            .on('finish', resolve)
+            .on('error', reject);
+        });
         if (isValidWindowsExe(partPath)) {
           downloadSucceeded = true;
         }
-      } catch (psErr) {
-        console.warn('[updates/apply] PowerShell download attempt warning:', psErr.message);
       }
+    } catch (fetchErr) {
+      console.warn('[updates/apply] Native streaming download warning:', fetchErr.message);
     }
 
-    // 4. Node.js fetch streaming fallback (if curl/PS failed)
-    if (!downloadSucceeded) {
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 180000);
-        const res = await fetch(downloadUrl, {
-          signal: ctrl.signal,
-          redirect: 'follow',
-          headers: { 'User-Agent': 'BendLens-Updater/1.0' }
-        });
-        clearTimeout(timer);
-        if (res.ok) {
-          const { Readable } = await import('stream');
-          const fileStream = fs.createWriteStream(partPath);
-          await new Promise((resolve, reject) => {
-            Readable.fromWeb(res.body)
-              .pipe(fileStream)
-              .on('finish', resolve)
-              .on('error', reject);
-          });
-          if (isValidWindowsExe(partPath)) {
-            downloadSucceeded = true;
-          }
-        }
-      } catch (nodeFetchErr) {
-        console.warn('[updates/apply] Node fetch fallback error:', nodeFetchErr.message);
-      }
-    }
-
-    if (isValidWindowsExe(partPath)) {
+    if (downloadSucceeded && isValidWindowsExe(partPath)) {
       const partStat = fs.statSync(partPath);
       if (partStat.size < 25 * 1024 * 1024) {
         throw new Error(`Installer file too small: ${partStat.size} bytes`);
@@ -161,7 +145,7 @@ async function downloadAndLaunchInstaller(downloadUrl, artifactName) {
         if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
       } catch {}
       fs.renameSync(partPath, destPath);
-      const launched = launchInstallerExe(destPath);
+      const launched = launchInstallerExe(destPath, { projectRoot });
       return { success: launched, path: destPath, fromCache: false };
     } else {
       try { if (fs.existsSync(partPath)) fs.unlinkSync(partPath); } catch {}
@@ -265,25 +249,36 @@ export async function POST(request) {
       setupArtifactName = `BendLens-Setup-${targetVer}.exe`;
     }
 
-    // 1. Check for any locally available installer first (dist, Downloads, Temp) matching targetVer
+    // 1. Development / Git source repository:
+    // Directly synchronize package.json version cleanly so the development workspace is updated
+    // without spawning installers or killing the active development server.
+    if (isGitRepo) {
+      try {
+        setLocalVersion(projectRoot, targetVer);
+        output = `Codebase version synchronized to v${targetVer}`;
+        return NextResponse.json({
+          success: true,
+          installerLaunched: false,
+          downloadTriggered: false,
+          newVersion: targetVer,
+          durationMs: Date.now() - updateStartTime,
+          message: `Codebase synchronized to v${targetVer}!`,
+          details: output
+        }, { status: 200 });
+      } catch (verErr) {
+        console.warn('[updates/apply] Version update warning:', verErr.message);
+        output = 'Codebase version preserved.';
+      }
+    }
+
+    // 2. Packaged desktop install: check for downloaded installer in pending-update or temp
     const localInstaller = findLocalInstaller(projectRoot, targetVer);
     if (localInstaller) {
-      const success = launchInstallerExe(localInstaller);
+      const success = launchInstallerExe(localInstaller, { projectRoot });
       if (success) {
         installerLaunched = true;
         launchedPath = localInstaller;
         output = `Launched installer: ${path.basename(localInstaller)}`;
-      }
-    }
-
-    // 2. Git codebase pull if in a git repository and no local installer was launched
-    if (!installerLaunched && isGitRepo) {
-      try {
-        setLocalVersion(projectRoot, targetVer);
-        output = `Codebase version synchronized to v${targetVer}`;
-      } catch (verErr) {
-        console.warn('[updates/apply] Version update warning:', verErr.message);
-        output = 'Codebase version preserved.';
       }
     }
 
@@ -325,7 +320,7 @@ export async function POST(request) {
       }
 
       if (setupDownloadUrl && process.platform === 'win32') {
-        const dlResult = await downloadAndLaunchInstaller(setupDownloadUrl, setupArtifactName);
+        const dlResult = await downloadAndLaunchInstaller(setupDownloadUrl, setupArtifactName, projectRoot);
         if (dlResult.success) {
           installerLaunched = true;
           launchedPath = dlResult.path;

@@ -27,7 +27,7 @@ function resolveRoot(projectRoot) {
  * update signal for testing the notification UI end-to-end.
  */
 
-export const BASELINE_LATEST_VERSION = '1.1.48';
+export const BASELINE_LATEST_VERSION = '1.1.49';
 
 /** Extract a semver triple from an installer filename, or null. */
 export function parseArtifactVersion(filename) {
@@ -127,18 +127,22 @@ export function getLatestRelease(projectRoot) {
 //
 // A packaged desktop install has no `dist/` folder, so purely local
 // detection could never announce a release to it. For desktop clients the
-// check endpoint therefore reads GitHub release tags and assets using the
-// secure repository release token.
-// Fully offline environments fall back seamlessly to local detection.
+// check endpoint reads GitHub release tags and assets.
+// Includes a zero-rate-limit redirect fallback (/releases/latest) that is
+// immune to GitHub REST API 60 req/hr IP quotas.
 const UPDATE_REPO = 'Keerthivasan004/BendLens';
 const GITHUB_TOKEN = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '').trim();
-const REMOTE_TTL_MS = 10 * 60 * 1000;
-let remoteCache = { at: 0, version: null, asset: null };
+const REMOTE_TTL_MS = 5 * 60 * 1000;
+let remoteCache = { at: 0, version: null, asset: null, downloadUrl: null };
 
 export async function getRemoteLatestRelease() {
   const now = Date.now();
   if (remoteCache?.version && now - remoteCache.at < REMOTE_TTL_MS) {
-    return { version: remoteCache.version, asset: remoteCache.asset };
+    return {
+      version: remoteCache.version,
+      asset: remoteCache.asset,
+      downloadUrl: remoteCache.downloadUrl
+    };
   }
   let timer;
   try {
@@ -152,45 +156,71 @@ export async function getRemoteLatestRelease() {
       headers['Authorization'] = `Bearer ${GITHUB_TOKEN}`;
     }
 
+    // 1. Primary check: GitHub Releases REST API (rich asset metadata)
     const res = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases`, {
       headers,
       signal: ctrl.signal
     });
     if (timer) clearTimeout(timer);
-    if (!res.ok) return { version: remoteCache?.version || null, asset: remoteCache?.asset || null };
-    const releases = await res.json().catch(() => []);
-    if (Array.isArray(releases) && releases.length > 0) {
-      const newest = releases[0];
-      const tagVersion = parseArtifactVersion(newest?.tag_name || newest?.name || '');
-      let assetName = null;
-      let assetVersion = null;
-      let downloadUrl = null;
-      if (Array.isArray(newest?.assets)) {
-        const setupAsset =
-          newest.assets.find((a) => /setup.*\.exe$/i.test(a?.name)) ||
-          newest.assets.find((a) => /\.exe$/i.test(a?.name));
-        if (setupAsset) {
-          assetName = setupAsset.name;
-          assetVersion = parseArtifactVersion(setupAsset.name);
-          downloadUrl = setupAsset.browser_download_url || null;
+
+    if (res.ok) {
+      const releases = await res.json().catch(() => []);
+      if (Array.isArray(releases) && releases.length > 0) {
+        const newest = releases[0];
+        const tagVersion = parseArtifactVersion(newest?.tag_name || newest?.name || '');
+        let assetName = null;
+        let assetVersion = null;
+        let downloadUrl = null;
+        if (Array.isArray(newest?.assets)) {
+          const setupAsset =
+            newest.assets.find((a) => /setup.*\.exe$/i.test(a?.name)) ||
+            newest.assets.find((a) => /\.exe$/i.test(a?.name));
+          if (setupAsset) {
+            assetName = setupAsset.name;
+            assetVersion = parseArtifactVersion(setupAsset.name);
+            downloadUrl = setupAsset.browser_download_url || null;
+          }
         }
-      }
-      // Use the newest version between the release tag and the asset filename
-      // so published releases are never suppressed even if an asset had a stale name.
-      const v = maxVersion(tagVersion, assetVersion);
-      if (v) {
-        if (!downloadUrl) {
-          downloadUrl = `https://github.com/${UPDATE_REPO}/releases/download/v${v}/${assetName || `BendLens-Setup-${v}.exe`}`;
+        const v = maxVersion(tagVersion, assetVersion);
+        if (v) {
+          if (!downloadUrl) {
+            downloadUrl = `https://github.com/${UPDATE_REPO}/releases/download/v${v}/${assetName || `BendLens-Setup-${v}.exe`}`;
+          }
+          const finalAsset = assetName || `BendLens-Setup-${v}.exe`;
+          remoteCache = { at: now, version: v, asset: finalAsset, downloadUrl };
+          return { version: v, asset: finalAsset, downloadUrl };
         }
-        remoteCache = { at: now, version: v, asset: assetName, downloadUrl };
-        return { version: v, asset: assetName, downloadUrl };
       }
     }
-    return { version: remoteCache?.version || null, asset: remoteCache?.asset || null, downloadUrl: remoteCache?.downloadUrl || null };
-  } catch {
-    if (timer) clearTimeout(timer);
-    return { version: remoteCache?.version || null, asset: remoteCache?.asset || null, downloadUrl: remoteCache?.downloadUrl || null };
-  }
+  } catch {}
+
+  // 2. High-reliability fallback: Zero-rate-limit redirect inspection (/releases/latest)
+  // GitHub returns HTTP 302 with Location: .../releases/tag/vX.Y.Z
+  // This endpoint has NO 60 req/hr rate limits and never returns 403 Forbidden.
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    const headRes = await fetch(`https://github.com/${UPDATE_REPO}/releases/latest`, {
+      redirect: 'manual',
+      headers: { 'User-Agent': 'BendLens-Updater/1.0' },
+      signal: ctrl.signal
+    });
+    clearTimeout(timer);
+    const redirectUrl = headRes.headers.get('location') || '';
+    const v = parseArtifactVersion(redirectUrl);
+    if (v) {
+      const assetName = `BendLens-Setup-${v}.exe`;
+      const downloadUrl = `https://github.com/${UPDATE_REPO}/releases/download/v${v}/${assetName}`;
+      remoteCache = { at: now, version: v, asset: assetName, downloadUrl };
+      return { version: v, asset: assetName, downloadUrl };
+    }
+  } catch {}
+
+  return {
+    version: remoteCache?.version || null,
+    asset: remoteCache?.asset || null,
+    downloadUrl: remoteCache?.downloadUrl || null
+  };
 }
 
 export async function getRemoteLatestVersion() {
@@ -200,7 +230,7 @@ export async function getRemoteLatestVersion() {
 
 /**
  * Effective newest release: max(local dist-scan, remote tag when allowed).
- * Returns { latestVersion, updateArtifact, updateSource }.
+ * Returns { latestVersion, updateArtifact, updateSource, downloadUrl }.
  */
 export async function getEffectiveLatest(projectRoot, { allowRemote = false } = {}) {
   const local = getLatestRelease(projectRoot) || { latestVersion: BASELINE_LATEST_VERSION, updateArtifact: null };
@@ -210,8 +240,8 @@ export async function getEffectiveLatest(projectRoot, { allowRemote = false } = 
     if (remote?.version) {
       const isNewer = isNewerVersion(remote.version, local.latestVersion);
       const bestVersion = isNewer ? remote.version : local.latestVersion;
-      const asset = remote.asset || local.updateArtifact || null;
-      const downloadUrl = remote.downloadUrl || null;
+      const asset = remote.asset || local.updateArtifact || `BendLens-Setup-${bestVersion}.exe`;
+      const downloadUrl = remote.downloadUrl || `https://github.com/${UPDATE_REPO}/releases/download/v${bestVersion}/${asset}`;
       return {
         latestVersion: bestVersion,
         updateArtifact: asset,

@@ -34,7 +34,7 @@ if not exist "node_modules" (
 
 :: Auto-detect production build for ultra-fast startup (~300ms) vs dev mode
 set "START_CMD=%PM_CMD% run dev"
-if exist ".next" (
+if exist ".next\BUILD_ID" (
     set "START_CMD=%PM_CMD% run start"
     echo [*] Fast Production Mode active
 )
@@ -46,7 +46,7 @@ start "" %START_CMD%
 set /a attempts=0
 :WAIT_LOOP
 timeout /t 1 /nobreak >nul
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$tcp = New-Object System.Net.Sockets.TcpClient; try { $tcp.Connect('127.0.0.1', 3000); exit 0 } catch { exit 1 }" 2>nul
+node -e "const net=require('net'),s=net.connect(3000,'127.0.0.1',()=>{s.destroy();process.exit(0)});s.on('error',()=>process.exit(1));setTimeout(()=>process.exit(1),350);" >nul 2>&1
 if %ERRORLEVEL% equ 0 goto OPEN_BROWSER
 
 set /a attempts+=1

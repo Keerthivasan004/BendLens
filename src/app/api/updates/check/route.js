@@ -15,8 +15,9 @@ export async function GET(request) {
     const simulateUpdate = searchParams.get('simulate') === 'true';
     // Desktop-only remote discovery: the packaged app has no dist/ folder,
     // so without this a downloaded install could never learn of a release.
-    // Plain (web/probe) callers stay purely local: fast and offline-safe.
-    const allowRemote = searchParams.get('source') === 'desktop';
+    const host = request.headers.get('host') || '';
+    const isLocal = host.includes('localhost') || host.includes('127.0.0.1') || host.includes('[::1]');
+    const allowRemote = searchParams.get('source') === 'desktop' || isLocal;
 
     const currentVersion = getLocalVersion();
     const { latestVersion, updateArtifact, updateSource, downloadUrl } = await getEffectiveLatest(

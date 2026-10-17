@@ -42,26 +42,31 @@ BendLens ships as a true native Windows application: double-click → splash →
     - `server-runner.js` maintains persistent HTTP socket keep-alive (`keepAliveTimeout: 65000ms`) to eliminate per-request connection overhead.
   - Intercepts external link navigation (`setWindowOpenHandler`) to open links in the system's default browser via `shell.openExternal`.
   - Configures `session.defaultSession.on('will-download')` to prevent native download prompts from stealing cursor focus or freezing the window.
-- **Native Desktop Streaming Auto-Update & Silent In-Place Upgrade Engine**:
+- **Native Desktop Streaming Auto-Update & Invisible In-Place Upgrade Engine**:
   - `electron/main.js` implements a dedicated `AutoUpdateManager`:
     - **Zero-Friction Automatic Background Downloads**: `checkForDesktopUpdates()` automatically discovers newer GitHub releases from `/api/updates/check?source=desktop` and initiates an asynchronous background stream download to `<userData>/pending-update/` using Node `https`/`http` with multi-hop redirect following (301/302/307/308 asset blobs from `objects.githubusercontent.com`). No manual "Update Now" click is required.
     - **Live Progress Telemetry**: Sends real-time byte metrics (`percent`, `transferredMb`, `totalMb`, `speedMb`) via IPC (`update-download-progress`, `update-status-changed`).
-    - **Validation**: Verifies PE binary integrity via `isValidWindowsExe` (checking MZ header and minimum 20MB file size).
-    - **Silent In-Place Installation (`/S`) & Instant Relaunch**: `applyUpdateAndRestart` gracefully terminates the local engine server (`cleanupServer()`), hides the window, and invokes a detached runner batch script (`bendlens-apply-update-*.cmd`). The runner script waits 2 seconds for Electron and engine processes to exit and release file locks, ensures processes are terminated via `taskkill /F /IM BendLens.exe`, runs `start /wait "" "${installer}" /S`, and relaunches `BendLens.exe` cleanly.
-      The NSIS installer applies the update completely silently in the background, wipes stale version caches, and automatically relaunches `BendLens.exe` within 2 seconds. The user never sees a manual installation wizard.
+    - **Dual UserData Probing**: Automatically detects cached installers in both `%APPDATA%\BendLens\pending-update` and `%APPDATA%\bendlens-platform\pending-update`.
+    - **Validation**: Verifies PE binary integrity via `isValidWindowsExe` (checking MZ header and minimum 25MB file size).
+    - **100% Invisible In-Place Installation (`/S`) & Instant Relaunch**:
+      - `applyUpdateAndRestart` gracefully terminates the local engine server (`cleanupServer()`), hides the window, and invokes an invisible VBScript runner (`bendlens-apply-update-*.vbs`) executed via native `wscript.exe` (`//B //Nologo`).
+      - Because `wscript.exe` runs in the Windows GUI subsystem (not console), **zero terminal or command prompt windows pop up**.
+      - All commands (`taskkill`, installer `/S`, relaunch) execute with window style `0` (`SW_HIDE`), guaranteeing complete invisibility with zero black flashing boxes or Windows Terminal tabs.
+      - Resolves the exact native executable via `resolveRelaunchExe()` (`%LOCALAPPDATA%\Programs\BendLens\BendLens.exe`), ensuring `node.exe` is never mistakenly launched.
+      - The NSIS installer applies the update completely silently in the background, wipes stale version caches, and automatically relaunches `BendLens.exe` within 2 seconds. The user never sees a manual installation wizard.
     - **Automatic Update on Quit**: When an update package has downloaded and verified, if the user quits the app (`app.on('before-quit')`), the silent installer is automatically invoked so the app opens into the updated version on next launch.
     - **Preload Bridge**: `electron/preload.js` exposes `window.bendlensDesktop.startUpdateDownload`, `getUpdateStatus`, `applyUpdateAndRestart`, `onUpdateProgress`, `onUpdateStatusChanged`, and `onUpdateComplete`.
-    - **In-App UI Integration**: `UpdateIndicator` and `UpdateShowcaseModal` render live download progress indicators when downloading, and transform into a 1-click **Restart & Update** action button once the verified installer is ready.
+    - **In-App UI Integration & Focus Throttling**: `UpdateIndicator` and `UpdateShowcaseModal` render live download progress indicators when downloading, and transform into a 1-click **Restart & Update** action button once the verified installer is ready. Focus checks are throttled to a minimum 60s cooldown to eliminate rapid-fire API spam, and auto-applying reboots on focus are strictly eliminated.
 - **Desktop update discovery, acceleration & telemetry**:
-  - A packaged install has no `dist/` folder. `GET /api/updates/check?source=desktop` discovers releases from GitHub (`Keerthivasan004/BendLens`) and installer assets (`BendLens-Setup-*.exe`) using `maxVersion(tagVersion, assetVersion)` to ensure published release tags are never suppressed. Returns direct `downloadUrl`.
-  - Baseline version is synchronized at `1.1.48` across `package.json`, `releaseInfo.js`, `MainWindow.cs`, `electron/main.js`, and `preload.js`.
+  - A packaged install has no `dist/` folder. `GET /api/updates/check?source=desktop` discovers releases from GitHub (`Keerthivasan004/BendLens`) and installer assets (`BendLens-Setup-*.exe`) using `maxVersion(tagVersion, assetVersion)`. Includes a zero-rate-limit redirect fallback (`/releases/latest`) that is immune to GitHub REST API 60 req/hr IP quotas. Returns direct `downloadUrl`.
+  - Baseline version is synchronized at `1.1.49` across `package.json`, `releaseInfo.js`, `electron/main.js`, and `preload.js`.
   - In `electron/preload.js`, the desktop version is queried directly via `ipcRenderer.sendSync('get-app-version')` (without sandboxed-breaking `fs` imports), and exposes `window.bendlensDesktop.quitApp()` triggering IPC `app-quit-and-update`.
   - `electron/main.js` injects `BENDLENS_APP_VERSION: app.getVersion()` into the background engine process environment, and `src/lib/releaseInfo.js` checks `process.env.BENDLENS_APP_VERSION` first. This eliminates any internal version desynchronization between the Electron shell and the embedded Next.js engine.
   - In `.github/workflows/release.yml`, `Synchronize package version with Git tag` runs strictly **before** `pnpm run build` so that the compiled Next.js standalone bundle is stamped with the exact release tag version (preventing false "Update Ready" prompts on freshly installed builds).
-  - `/api/updates/apply` implements multi-location local installer probing (`findLocalInstaller` across `dist/`, `%USERPROFILE%\Downloads`, `%TEMP%`, and AppData update dirs) with binary validation (`isValidWindowsExe` checking MZ header, valid size >= 20MB, and strict `targetVersion` matching to prevent stale installer execution) and silent `/S` detached execution.
+  - `/api/updates/download` provides a dedicated non-blocking background streaming download endpoint for local web runtimes, writing directly into `pending-update/` with PE validation without spawning external curl or PowerShell processes.
+  - `/api/updates/apply` implements multi-location local installer probing (`findLocalInstaller` across `dist/`, `%USERPROFILE%\Downloads`, `%TEMP%`, and AppData update dirs) with binary validation (`isValidWindowsExe` checking MZ header, valid size >= 25MB, and strict `targetVersion` matching to prevent stale installer execution) and silent `/S` invisible execution via `wscript.exe`.
   - **Git Workspace Safety**: In development/git workspaces, `/api/updates/apply` cleanly synchronizes `package.json` to the target version without executing interactive or destructive shell commands (`git pull`) that could prompt `Terminate batch job (Y/N)?` or cause merge conflicts.
-  - When no local installer is found, it performs high-performance native Windows `curl.exe` download (`curl.exe -L -f -s -S --retry 3 --retry-delay 2 -o ...`) directly to `%TEMP%\BendLens-Setup-${ver}.exe.part`. `curl.exe` uses native Windows Schannel SSL and effortlessly handles 130MB+ multi-redirect AWS/Azure blob downloads without Node.js `undici` socket dropouts (`UND_ERR_SOCKET`). Gracefully falls back to PowerShell `Invoke-WebRequest` and Node `fetch` if needed.
-  - **Graceful File-Lock Release & Exit**: When an installer is launched, `launchInstallerExe` delegates execution to an isolated detached cmd script that waits 2 seconds, terminates leftover `BendLens.exe` instances, runs the installer silently with `/S`, and automatically relaunches the updated `BendLens.exe`.
+  - **Graceful File-Lock Release & Exit**: When an installer is launched, `launchInstallerExe` delegates execution to an invisible VBScript runner that waits 1.5 seconds, terminates leftover `BendLens.exe` instances silently, runs the installer silently with `/S`, and automatically relaunches the updated `BendLens.exe`.
   - **Router Action Dispatch Crash Elimination**: `UpdateIndicator` uses isolated DOM anchor clicks (`a.target = '_blank'`) and window popups for external download links, completely avoiding `window.location.href` assignments that crash Next.js App Router SPA navigation.
   - Both `/api/updates/apply` and `/api/updates/check` strictly return HTTP 200 JSON in all error cases, preventing Next.js empty/HTML 500 error responses (`Engine returned non-JSON response (HTTP 500)`).
   - `UpdateIndicator` and `UpdateShowcaseModal` incorporate seamless fallback to direct release download URLs if an older installed engine returns a non-JSON or HTTP error, guaranteeing that installed users can always update without interruption.
@@ -119,9 +124,11 @@ npm run desktop
 node scripts/launch-desktop.js
 ```
 
-### 1-Click Windows Batch Files
-- `run.bat`: Native desktop window if Electron is present, else dev server + browser (developer flow).
-- `BendLens.bat`: Same with Desktop shortcut creation.
+### 1-Click Windows Batch Files & Dev Engine Guard
+- `run.bat`: Launches native desktop window if Electron is present, else starts dev server + opens browser (developer flow). Strictly checks for `.next\BUILD_ID` before attempting `run start`; if only a dev cache exists, it defaults to `run dev`, preventing fatal `Could not find a production build in the '.next' directory` errors.
+- `BendLens.bat`: Same with Desktop shortcut creation, guarded by `.next\BUILD_ID`.
+- `electron/main.js`: Line 514 checks `fs.existsSync(path.join(projectDir, '.next', 'BUILD_ID'))` so that running in development mode never accidentally invokes `next start` on incomplete dev caches.
+- `scripts/BendLensLauncher.cs`: Line 111 checks `File.Exists(Path.Combine(projectDir, ".next", "BUILD_ID"))`.
 
 ### Production Packaging
 ```bash
