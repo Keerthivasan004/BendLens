@@ -14,6 +14,7 @@ export default function UpdateShowcaseModal({
   onApplyUpdate,
   onRestartNow,
   autoUpdateStatus = 'idle',
+  autoApplyCountdown = null,
   downloadProgress = { percent: 0, transferredMb: '0', totalMb: '0', speedMb: '0' },
   isUpdating,
   updateStep,
@@ -511,7 +512,7 @@ export default function UpdateShowcaseModal({
                       </span>
                     </div>
                     <p className="text-xs text-emerald-300/80 mt-0.5">
-                      BendLens v{updateInfo?.latestVersion || '1.1.47'} is verified and ready. 1-click restart will update cleanly in 2 seconds with zero wizard prompts.
+                      BendLens v{updateInfo?.latestVersion || '1.1.51'} is verified and ready. Auto-applying update and restarting in {autoApplyCountdown !== null ? autoApplyCountdown : 0}s with zero prompts.
                     </p>
                   </div>
                 </div>
@@ -635,8 +636,8 @@ export default function UpdateShowcaseModal({
                 onClick={onRestartNow}
                 className="flex items-center justify-center gap-2 px-5 py-2 rounded-xl text-xs font-extrabold bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white shadow-[0_2px_15px_rgba(16,185,129,0.4)] transition-all cursor-pointer"
               >
-                <RefreshCw className="h-3.5 w-3.5" />
-                <span>Restart &amp; Apply Update (Ready)</span>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                <span>Auto-Restarting in {autoApplyCountdown !== null ? autoApplyCountdown : 0}s (Click to Apply Now)</span>
               </button>
             ) : autoUpdateStatus === 'downloading' ? (
               <button

@@ -50,11 +50,11 @@ function getUpdateDirs() {
 function findExistingInstaller(targetVersion, artifactName) {
   for (const dir of getUpdateDirs()) {
     try {
-      if (!fs.existsSync(dir)) continue;
+      if (!fs.existsSync(/*turbopackIgnore: true*/ dir)) continue;
       const targetPath = path.join(dir, artifactName);
       if (isValidWindowsExe(targetPath)) return targetPath;
 
-      const files = fs.readdirSync(dir);
+      const files = fs.readdirSync(/*turbopackIgnore: true*/ dir);
       const match = files.find(f => /bendlens.*setup/i.test(f) && f.toLowerCase().endsWith('.exe') && (targetVersion ? f.includes(targetVersion) : true));
       if (match) {
         const full = path.join(dir, match);

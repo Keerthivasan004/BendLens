@@ -12,8 +12,8 @@ export default function UpdateIndicator() {
   const isDesktop = useIsDesktop();
   const [mounted, setMounted] = useState(false);
   const [updateInfo, setUpdateInfo] = useState({
-    currentVersion: '1.1.48',
-    latestVersion: '1.1.48',
+    currentVersion: '1.1.51',
+    latestVersion: '1.1.51',
     hasUpdate: false,
     releaseNotes: []
   });
@@ -25,6 +25,8 @@ export default function UpdateIndicator() {
   });
   const [autoUpdateStatus, setAutoUpdateStatus] = useState('idle'); // 'idle' | 'downloading' | 'ready' | 'applying'
   const [readyInstallerPath, setReadyInstallerPath] = useState(null);
+  const [autoApplyCountdown, setAutoApplyCountdown] = useState(null);
+  const hasAutoAppliedRef = React.useRef(false);
 
   const [isChecking, setIsChecking] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -46,6 +48,77 @@ export default function UpdateIndicator() {
   // Dismissal is persisted per released version: dismissing v1.2.0 must not
   // silence v1.3.0. A new latestVersion automatically re-arms the banner.
   const dismissedKey = (version) => `bendlens-update-dismissed-${version || 'unknown'}`;
+
+  // Continuous background progress polling while downloading
+  useEffect(() => {
+    if (autoUpdateStatus !== 'downloading') return;
+    let isCancelled = false;
+
+    const poll = async () => {
+      try {
+        const ver = updateInfo?.latestVersion;
+        if (!ver) return;
+        const art = updateInfo?.updateArtifact || `BendLens-Setup-${ver}.exe`;
+        const res = await fetch(`/api/updates/download?version=${ver}&artifact=${encodeURIComponent(art)}`, { cache: 'no-store' });
+        const data = await res.json().catch(() => null);
+        if (isCancelled || !data) return;
+
+        if (data.status === 'ready') {
+          setAutoUpdateStatus('ready');
+          if (data.installerPath) setReadyInstallerPath(data.installerPath);
+          setDownloadProgress({
+            percent: 100,
+            transferredMb: data.progress?.totalMb || 'Ready',
+            totalMb: data.progress?.totalMb || 'Ready',
+            speedMb: '0'
+          });
+        } else if (data.status === 'downloading') {
+          if (data.progress) {
+            setDownloadProgress(data.progress);
+          }
+        }
+      } catch (err) {
+        console.warn('Update polling notice:', err);
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 750);
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, [autoUpdateStatus, updateInfo?.latestVersion, updateInfo?.updateArtifact]);
+
+  // Zero-click Auto-Apply and Auto-Restart when update is ready
+  useEffect(() => {
+    if (autoUpdateStatus !== 'ready') {
+      setAutoApplyCountdown(null);
+      return;
+    }
+
+    if (hasAutoAppliedRef.current) return;
+
+    let countdown = 3;
+    setAutoApplyCountdown(countdown);
+
+    const timer = setInterval(() => {
+      countdown -= 1;
+      if (countdown <= 0) {
+        clearInterval(timer);
+        setAutoApplyCountdown(0);
+        if (!hasAutoAppliedRef.current) {
+          hasAutoAppliedRef.current = true;
+          handleRestartNow();
+        }
+      } else {
+        setAutoApplyCountdown(countdown);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoUpdateStatus]);
 
   useEffect(() => {
     setMounted(true);
@@ -169,26 +242,27 @@ export default function UpdateIndicator() {
 
   const checkOrStartLocalBackgroundDownload = async (data) => {
     try {
-      const statusRes = await fetch(`/api/updates/download?version=${data.latestVersion}&artifact=${encodeURIComponent(data.updateArtifact || '')}`);
+      const statusRes = await fetch(`/api/updates/download?version=${data.latestVersion}&artifact=${encodeURIComponent(data.updateArtifact || '')}`, { cache: 'no-store' });
       const statusData = await statusRes.json().catch(() => null);
 
       if (statusData?.status === 'ready') {
         setAutoUpdateStatus('ready');
         if (statusData.installerPath) setReadyInstallerPath(statusData.installerPath);
-        if (statusData.progress) setDownloadProgress(statusData.progress);
+        setDownloadProgress({
+          percent: 100,
+          transferredMb: statusData.progress?.totalMb || 'Ready',
+          totalMb: statusData.progress?.totalMb || 'Ready',
+          speedMb: '0'
+        });
         return;
       }
 
-      if (statusData?.status === 'downloading') {
-        setAutoUpdateStatus('downloading');
-        if (statusData.progress) setDownloadProgress(statusData.progress);
-        return;
-      }
+      setAutoUpdateStatus('downloading');
+      if (statusData?.progress) setDownloadProgress(statusData.progress);
 
-      // Initiate background download into pending-update/ silently
-      if (autoUpdateStatus === 'idle' || autoUpdateStatus === 'error') {
-        setAutoUpdateStatus('downloading');
-        const dlRes = await fetch('/api/updates/download', {
+      // Initiate background download into pending-update/ silently if not already downloading
+      if (statusData?.status !== 'downloading') {
+        fetch('/api/updates/download', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -196,12 +270,18 @@ export default function UpdateIndicator() {
             artifactName: data.updateArtifact,
             downloadUrl: data.downloadUrl
           })
-        });
-        const dlData = await dlRes.json().catch(() => null);
-        if (dlData?.status === 'ready') {
-          setAutoUpdateStatus('ready');
-          if (dlData.installerPath) setReadyInstallerPath(dlData.installerPath);
-        }
+        }).then(r => r.json()).then(dlData => {
+          if (dlData?.status === 'ready') {
+            setAutoUpdateStatus('ready');
+            if (dlData.installerPath) setReadyInstallerPath(dlData.installerPath);
+            setDownloadProgress({
+              percent: 100,
+              transferredMb: dlData.progress?.totalMb || 'Ready',
+              totalMb: dlData.progress?.totalMb || 'Ready',
+              speedMb: '0'
+            });
+          }
+        }).catch(() => {});
       }
     } catch (err) {
       console.warn('Background update check notice:', err);
@@ -227,39 +307,21 @@ export default function UpdateIndicator() {
   };
 
   const handleRestartNow = () => {
+    hasAutoAppliedRef.current = true;
     setAutoUpdateStatus('applying');
     setIsUpdating(true);
-    setUpdateStep('Closing BendLens & applying updates silently in background...');
+    setUpdateStep('Closing BendLens & applying updates automatically...');
     if (typeof window !== 'undefined' && window.bendlensDesktop?.applyUpdateAndRestart) {
-      window.bendlensDesktop.applyUpdateAndRestart(readyInstallerPath);
-    } else {
-      handleApplyUpdate();
+      try {
+        window.bendlensDesktop.applyUpdateAndRestart(readyInstallerPath);
+      } catch (err) {
+        console.warn('Desktop apply update error:', err);
+      }
     }
+    handleApplyUpdate();
   };
 
   const handleApplyUpdate = async () => {
-    if (autoUpdateStatus === 'ready') {
-      handleRestartNow();
-      return;
-    }
-
-    if (autoUpdateStatus === 'downloading') {
-      setUpdateModalOpen(true);
-      return;
-    }
-
-    // If on desktop and not yet started, trigger native background downloader
-    if (typeof window !== 'undefined' && window.bendlensDesktop?.startUpdateDownload) {
-      setAutoUpdateStatus('downloading');
-      window.bendlensDesktop.startUpdateDownload({
-        version: updateInfo?.latestVersion,
-        artifactName: updateInfo?.updateArtifact,
-        downloadUrl: updateInfo?.downloadUrl
-      });
-      setUpdateModalOpen(true);
-      return;
-    }
-
     setIsUpdating(true);
     setUpdateStep('Checking installer package & preparing update...');
     setUpdateElapsedTime(0);
@@ -292,7 +354,7 @@ export default function UpdateIndicator() {
       setUpdateElapsedTime(parseFloat(finalDuration));
       setUpdateFinalDuration(finalDuration);
 
-      if (res.ok && data?.success) {
+        if (res.ok && data?.success) {
         setIsUpdating(false);
         setUpdateSuccess(true);
         const appliedVersion = data.newVersion || targetVer;
@@ -302,15 +364,16 @@ export default function UpdateIndicator() {
           latestVersion: appliedVersion,
           hasUpdate: false
         }));
+        setAutoUpdateStatus('idle');
         if (data.installerLaunched) {
-          setUpdateStep(`Installer launched: ${data.installerName || targetArtifact}. BendLens Studio will close in 3 seconds so the setup wizard can finish updating cleanly.`);
+          setUpdateStep(`Installer launched: ${data.installerName || targetArtifact}. BendLens Studio will restart automatically in 2 seconds.`);
           setTimeout(() => {
             if (typeof window !== 'undefined' && window.bendlensDesktop?.quitApp) {
               window.bendlensDesktop.quitApp();
             }
-          }, 3000);
+          }, 2000);
         } else if (data.downloadTriggered) {
-          setUpdateStep(`Downloading ${data.installerName || targetArtifact}. Run the installer once download finishes!`);
+          setUpdateStep(`Downloading ${data.installerName || targetArtifact}. Running installer automatically once download finishes!`);
         } else {
           setUpdateStep(data.message || `BendLens automatically updated to v${appliedVersion}!`);
           setTimeout(() => {
@@ -380,6 +443,7 @@ export default function UpdateIndicator() {
             onApplyUpdate={handleApplyUpdate}
             onRestartNow={handleRestartNow}
             autoUpdateStatus={autoUpdateStatus}
+            autoApplyCountdown={autoApplyCountdown}
             downloadProgress={downloadProgress}
             isUpdating={isUpdating}
             updateStep={updateStep}
@@ -404,14 +468,19 @@ export default function UpdateIndicator() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
             </span>
+          ) : autoUpdateStatus === 'applying' ? (
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-sky-500" />
+            </span>
           ) : (
             <span className="relative flex h-2.5 w-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
             </span>
           )}
-          <span className={`text-[11px] font-mono font-extrabold uppercase tracking-wider ${autoUpdateStatus === 'ready' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-700 dark:text-sky-400'}`}>
-            {autoUpdateStatus === 'ready' ? `v${updateInfo.latestVersion} Ready to Install` : autoUpdateStatus === 'downloading' ? `v${updateInfo.latestVersion} Downloading...` : `v${updateInfo.latestVersion} Available`}
+          <span className={`text-[11px] font-mono font-extrabold uppercase tracking-wider ${autoUpdateStatus === 'ready' ? 'text-emerald-600 dark:text-emerald-400' : autoUpdateStatus === 'applying' ? 'text-sky-600 dark:text-sky-400' : 'text-blue-700 dark:text-sky-400'}`}>
+            {autoUpdateStatus === 'ready' ? `v${updateInfo.latestVersion} Ready • Auto-Restarting (${autoApplyCountdown !== null ? autoApplyCountdown : 0}s)` : autoUpdateStatus === 'applying' ? `v${updateInfo.latestVersion} Applying Update...` : autoUpdateStatus === 'downloading' ? `v${updateInfo.latestVersion} Downloading...` : `v${updateInfo.latestVersion} Available`}
           </span>
         </div>
 
@@ -426,15 +495,31 @@ export default function UpdateIndicator() {
       </div>
 
       {/* Notification Body */}
-      {autoUpdateStatus === 'ready' ? (
+      {autoUpdateStatus === 'applying' ? (
         <div className="space-y-1.5 mb-3.5">
+          <div className="flex items-center gap-1.5 text-sky-600 dark:text-sky-400">
+            <RefreshCw className="h-4 w-4 animate-spin shrink-0" />
+            <h4 className="text-xs font-extrabold">Applying Update Automatically</h4>
+          </div>
+          <p className="text-[11px] text-muted leading-relaxed">
+            {updateStep || `Applying v${updateInfo.latestVersion} update silently and restarting BendLens Studio...`}
+          </p>
+        </div>
+      ) : autoUpdateStatus === 'ready' ? (
+        <div className="space-y-2 mb-3.5">
           <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 className="h-4 w-4 shrink-0" />
             <h4 className="text-xs font-extrabold">Update Downloaded &amp; Verified</h4>
           </div>
           <p className="text-[11px] text-muted leading-relaxed">
-            BendLens v{updateInfo.latestVersion} is ready. 1-click restart will apply the update silently in 2 seconds with zero setup wizards.
+            BendLens v{updateInfo.latestVersion} is downloaded. Applying update and restarting automatically in <strong className="text-emerald-500 font-mono">{autoApplyCountdown !== null ? autoApplyCountdown : 0}s</strong>...
           </p>
+          <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-white/10 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-1000 rounded-full"
+              style={{ width: `${Math.max(10, ((autoApplyCountdown ?? 3) / 3) * 100)}%` }}
+            />
+          </div>
         </div>
       ) : autoUpdateStatus === 'downloading' ? (
         <div className="space-y-2 mb-3.5">
@@ -476,7 +561,12 @@ export default function UpdateIndicator() {
 
       {/* Action Buttons */}
       <div className="flex items-center gap-2 pt-1 border-t border-border dark:border-white/10">
-        {autoUpdateStatus === 'ready' ? (
+        {autoUpdateStatus === 'applying' ? (
+          <div className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
+            <RefreshCw className="h-3.5 w-3.5 animate-spin text-sky-400" />
+            <span>Restarting BendLens Studio...</span>
+          </div>
+        ) : autoUpdateStatus === 'ready' ? (
           <>
             <button
               onClick={() => setUpdateModalOpen(true)}
@@ -489,8 +579,8 @@ export default function UpdateIndicator() {
               onClick={handleRestartNow}
               className="flex-1 py-2 px-3 rounded-xl text-xs font-extrabold bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white shadow-[0_2px_15px_rgba(16,185,129,0.4)] transition-all cursor-pointer flex items-center justify-center gap-1.5"
             >
-              <RefreshCw className="h-3.5 w-3.5" />
-              <span>Restart &amp; Update</span>
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              <span>Auto-Restarting ({autoApplyCountdown !== null ? autoApplyCountdown : 0}s)</span>
             </button>
           </>
         ) : autoUpdateStatus === 'downloading' ? (
@@ -536,16 +626,23 @@ export default function UpdateIndicator() {
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer ${
             autoUpdateStatus === 'ready'
               ? 'bg-emerald-600/15 text-emerald-600 border border-emerald-500/40 hover:bg-emerald-600/25 dark:text-emerald-300 dark:border-emerald-500/50 dark:shadow-[0_2px_12px_rgba(16,185,129,0.3)] animate-pulse'
+              : autoUpdateStatus === 'applying'
+              ? 'bg-sky-600/15 text-sky-600 border border-sky-500/40 hover:bg-sky-600/25 dark:text-sky-300 dark:border-sky-500/50 dark:shadow-[0_2px_12px_rgba(56,189,248,0.3)] animate-pulse'
               : autoUpdateStatus === 'downloading'
               ? 'bg-sky-600/15 text-sky-600 border border-sky-500/40 hover:bg-sky-600/25 dark:text-sky-300 dark:border-sky-500/50 dark:shadow-[0_2px_12px_rgba(56,189,248,0.3)]'
               : 'bg-blue-600/10 text-blue-700 border border-blue-500/30 hover:border-blue-500/60 hover:bg-blue-600/[0.14] dark:from-blue-500/20 dark:to-sky-500/20 dark:bg-gradient-to-r dark:text-sky-300 dark:border-blue-500/40 dark:hover:border-blue-400 dark:shadow-[0_2px_10px_rgba(56,189,248,0.25)] animate-pulse'
           }`}
           title="Click to view update details & feature showcase"
         >
-          {autoUpdateStatus === 'ready' ? (
+          {autoUpdateStatus === 'applying' ? (
             <>
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-              <span>v{updateInfo.currentVersion} (v{updateInfo.latestVersion} Ready)</span>
+              <RefreshCw className="h-3.5 w-3.5 animate-spin text-sky-400" />
+              <span>v{updateInfo.currentVersion} • Applying Update...</span>
+            </>
+          ) : autoUpdateStatus === 'ready' ? (
+            <>
+              <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+              <span>v{updateInfo.currentVersion} • Auto-Restarting ({autoApplyCountdown !== null ? autoApplyCountdown : 0}s)</span>
             </>
           ) : autoUpdateStatus === 'downloading' ? (
             <>
@@ -584,6 +681,7 @@ export default function UpdateIndicator() {
           onApplyUpdate={handleApplyUpdate}
           onRestartNow={handleRestartNow}
           autoUpdateStatus={autoUpdateStatus}
+          autoApplyCountdown={autoApplyCountdown}
           downloadProgress={downloadProgress}
           isUpdating={isUpdating}
           updateStep={updateStep}
