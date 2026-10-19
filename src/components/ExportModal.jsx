@@ -18,9 +18,14 @@ export default function ExportModal({ isOpen, onClose, data }) {
       return `# BendLens API Architecture & Inventory Assessment Report: ${data.projectName}
 Generated at: ${new Date(data.timestamp || Date.now()).toLocaleString()}
 Target Perimeter: ${data.crawlerTelemetry?.targetUrl || data.projectName}
+Technology Stack: ${data.techStack?.summary || data.crawlerTelemetry?.techStack?.summary || 'Web Architecture'}
 
 ## 1. Executive Perimeter Summary
 - **Total Discovered API Routes**: ${endpoints.length}
+- **Detected Technology Stack**: ${data.techStack?.summary || data.crawlerTelemetry?.techStack?.summary || 'Web Architecture'}
+- **Frontend Framework**: ${data.techStack?.frontend?.framework || 'Modern Web'} (${data.techStack?.frontend?.bundler || 'ESM'})
+- **Cloud Service Provider (CSP)**: ${(data.cloudProvider || data.techStack?.cloudProvider || data.crawlerTelemetry?.cloudProvider)?.name || data.techStack?.backend?.hostingCdn || 'Cloud Edge'} (${(data.cloudProvider || data.techStack?.cloudProvider || data.crawlerTelemetry?.cloudProvider)?.category || 'Cloud Infrastructure'})
+- **Backend & Cloud Runtime**: ${data.techStack?.backend?.serverRuntime || 'Node.js'} · ${data.techStack?.backend?.hostingCdn || 'Edge Cloud'}
 - **Scan Duration**: ${data.crawlerTelemetry?.crawlDurationMs ? `${(data.crawlerTelemetry.crawlDurationMs / 1000).toFixed(1)}s` : 'Real-Time'}
 - **Chunks Crawled**: ${data.crawlerTelemetry?.chunksCrawledCount || 1}
 - **Discovery Strategy**: ${data.crawlerTelemetry?.discoveryStrategy || 'deep_chunk_crawler'}

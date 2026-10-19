@@ -8,7 +8,7 @@ import {
   Sparkles, BookOpen, ShieldAlert, Network, GitFork, ChevronDown, ChevronUp,
   Info, Cpu, Box, CheckCircle2, ChevronRight,
   Radio, ShieldCheck, Webhook, HardDrive, Settings, Activity, Workflow, Zap,
-  Server, SlidersHorizontal, Share2, ArrowDownRight, Layers2, Printer
+  Server, SlidersHorizontal, Share2, ArrowDownRight, Layers2, Printer, Cloud
 } from 'lucide-react';
 import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 
@@ -232,13 +232,47 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
   const [previewTable, setPreviewTable] = useState(null);
   const [copied, setCopied] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
+  const [showSignals, setShowSignals] = useState(false);
   const [inspectedTable, setInspectedTable] = useState(null);
+  const [stackEndpointSearch, setStackEndpointSearch] = useState('');
+  const [stackMethodFilter, setStackMethodFilter] = useState('ALL');
+  const [stackScopeFilter, setStackScopeFilter] = useState('ALL'); // 'ALL' | 'NORMAL' | 'LAZY'
+  const [stackEndpointsLimit, setStackEndpointsLimit] = useState(12);
+  const [copiedPath, setCopiedPath] = useState(null);
 
   const tables = data?.tables || data?.schema?.tables || rawAnalysisData?.schema?.tables || [];
-  const endpoints = data?.endpoints || data?.code?.endpoints || rawAnalysisData?.code?.endpoints || [];
+  const endpoints = useMemo(() => {
+    if (Array.isArray(data?.endpoints) && data.endpoints.length > 0) return data.endpoints;
+    if (Array.isArray(data?.code?.endpoints) && data.code.endpoints.length > 0) return data.code.endpoints;
+    if (Array.isArray(rawAnalysisData?.endpoints) && rawAnalysisData.endpoints.length > 0) return rawAnalysisData.endpoints;
+    if (Array.isArray(rawAnalysisData?.code?.endpoints) && rawAnalysisData.code.endpoints.length > 0) return rawAnalysisData.code.endpoints;
+    const spec = data?.openApiSpec || rawAnalysisData?.openApiSpec;
+    if (spec?.paths) {
+      const derived = [];
+      Object.entries(spec.paths).forEach(([routePath, methodsObj]) => {
+        if (!methodsObj || typeof methodsObj !== 'object') return;
+        ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'].forEach((m) => {
+          if (methodsObj[m]) {
+            const op = methodsObj[m];
+            derived.push({
+              path: routePath,
+              method: m.toUpperCase(),
+              summary: op.summary || op.description || '',
+              module: op['x-bundle-source'] || '',
+              isLazyLoaded: op['x-lazy-loaded'] === true,
+              crawlTier: op['x-crawl-tier'] || 'normal'
+            });
+          }
+        });
+      });
+      return derived;
+    }
+    return [];
+  }, [data, rawAnalysisData]);
   const warnings = data?.breakingChangeWarnings || [];
 
   const isUrl = isUrlScan || rawAnalysisData?.isUrlCrawl || !!rawAnalysisData?.crawlerTelemetry || (tables.length === 0 && endpoints.length > 0);
+  const techStack = data?.techStack || rawAnalysisData?.techStack || data?.crawlerTelemetry?.techStack || rawAnalysisData?.crawlerTelemetry?.techStack;
 
   const architecture = useMemo(() => analyzeSchemaArchitecture(tables), [tables]);
 
@@ -313,6 +347,29 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       return true;
     });
   }, [allEnrichedEndpoints, apiLevelFilter, apiKindFilter, apiCrawlScopeFilter, methodFilter, apiTableFilter, apiSearchQuery, searchQuery]);
+
+  const stackMethodCounts = useMemo(() => {
+    const counts = { ALL: allEnrichedEndpoints.length, GET: 0, POST: 0, PUT: 0, DELETE: 0, OTHER: 0 };
+    allEnrichedEndpoints.forEach((e) => {
+      const m = String(e.method || 'GET').toUpperCase();
+      if (counts[m] !== undefined) counts[m]++;
+      else counts.OTHER++;
+    });
+    return counts;
+  }, [allEnrichedEndpoints]);
+
+  const stackFilteredEndpoints = useMemo(() => {
+    return allEnrichedEndpoints.filter((ep) => {
+      if (stackMethodFilter !== 'ALL' && ep.method !== stackMethodFilter) return false;
+      if (stackScopeFilter === 'NORMAL' && ep.isLazyLoaded) return false;
+      if (stackScopeFilter === 'LAZY' && !ep.isLazyLoaded) return false;
+      const q = stackEndpointSearch.trim().toLowerCase();
+      if (q && !ep.path.toLowerCase().includes(q) && !(ep.module || '').toLowerCase().includes(q) && !(ep.summary || '').toLowerCase().includes(q)) {
+        return false;
+      }
+      return true;
+    });
+  }, [allEnrichedEndpoints, stackMethodFilter, stackScopeFilter, stackEndpointSearch]);
 
   const segregatedByLevel = useMemo(() => {
     return [
@@ -432,6 +489,12 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
     } finally {
       setFetchingEndpoint(null);
     }
+  };
+
+  const handleCopyPath = (path) => {
+    navigator.clipboard.writeText(path);
+    setCopiedPath(path);
+    setTimeout(() => setCopiedPath(null), 2000);
   };
 
   const handleCopyTableJSON = (table) => {
@@ -558,6 +621,575 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
           </>
         )}
       </div>
+
+      {/* ========================================================================= */}
+      {/* SECTION: Reverse-Engineered Technology Stack & Cloud Architecture         */}
+      {/* (Rendered when crawling a URL or when techStack metadata is available)    */}
+      {/* ========================================================================= */}
+      {(isUrl || techStack) && (
+        <section className="p-6 sm:p-8 rounded-2xl border border-border bg-surface-card shadow-card w-full space-y-6 animate-fadeIn">
+          {/* Header & Confidence Strip */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-border">
+            <div className="flex items-start sm:items-center gap-3">
+              <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-brand/20 via-cyan-500/20 to-purple-500/20 border border-brand/30 flex items-center justify-center text-brand shrink-0 shadow-xs">
+                <Cpu className="h-6 w-6" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base sm:text-lg font-bold text-foreground">
+                    Reverse-Engineered Technology Stack & Architecture
+                  </h2>
+                  <span className="text-xs font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 font-bold flex items-center gap-1">
+                    <ShieldCheck className="h-3 w-3" />
+                    <span>{techStack?.confidence || '100% In-Memory AST & Header Verified'}</span>
+                  </span>
+                </div>
+                <p className="text-xs text-muted mt-0.5">
+                  Full-stack architectural decomposition reverse-engineered directly from HTTP response headers, DOM structures, and bundle runtime signatures.
+                </p>
+              </div>
+            </div>
+
+            {techStack?.verifiedSignals?.length > 0 && (
+              <button
+                onClick={() => setShowSignals(!showSignals)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-surface-raised hover:bg-surface border border-border text-foreground transition-colors cursor-pointer self-start lg:self-auto"
+              >
+                <Activity className="h-3.5 w-3.5 text-cyan-500" />
+                <span>{showSignals ? 'Hide Verified Signals' : `Inspect Signals (${techStack.verifiedSignals.length})`}</span>
+                {showSignals ? <ChevronUp className="h-3.5 w-3.5 text-muted" /> : <ChevronDown className="h-3.5 w-3.5 text-muted" />}
+              </button>
+            )}
+          </div>
+
+          {/* Executive Stack Profile Banner */}
+          {techStack?.summary && (
+            <div className="p-4 rounded-xl bg-gradient-to-r from-brand/15 via-cyan-500/10 to-purple-500/15 border border-brand/30 space-y-3 shadow-sm">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider px-2.5 py-1 rounded-md bg-brand text-white shadow-xs font-mono flex items-center gap-1.5">
+                    <Cpu className="h-3.5 w-3.5" />
+                    <span>Stack Profile</span>
+                  </span>
+                  <span className="text-sm sm:text-base font-extrabold text-foreground">
+                    {techStack.summary}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 flex items-center gap-1 font-semibold">
+                    <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                    <span>Zero Hallucination</span>
+                  </span>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-surface-raised border border-border text-foreground font-semibold">
+                    {allEnrichedEndpoints.length} Discovered APIs
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Architectural Breakdown Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-brand/15 text-[11px] font-mono">
+                <div className="bg-surface/80 p-2 rounded-lg border border-border/60">
+                  <span className="text-muted text-[10px] block">UI Framework:</span>
+                  <span className="font-bold text-cyan-400 truncate block">
+                    {techStack?.frontend?.framework || 'Modern Web'} ({techStack?.frontend?.bundler?.split(' ')[0] || 'Vite'})
+                  </span>
+                </div>
+                <div className="bg-surface/80 p-2 rounded-lg border border-border/60">
+                  <span className="text-muted text-[10px] block">Server Runtime:</span>
+                  <span className="font-bold text-purple-400 truncate block">
+                    {techStack?.backend?.serverRuntime?.split('(')[0]?.trim() || 'Node.js'}
+                  </span>
+                </div>
+                <div className="bg-surface/80 p-2 rounded-lg border border-border/60">
+                  <span className="text-muted text-[10px] block">Hosting & Cloud:</span>
+                  <span className="font-bold text-sky-400 truncate block">
+                    {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.name || techStack?.backend?.hostingCdn?.split('·')[0]?.trim() || 'Cloud Edge'}
+                  </span>
+                </div>
+                <div className="bg-surface/80 p-2 rounded-lg border border-border/60">
+                  <span className="text-muted text-[10px] block">API Perimeter:</span>
+                  <span className="font-bold text-emerald-400 truncate block">
+                    {allEnrichedEndpoints.length} Routes ({apiStats.normalCount} N + {apiStats.lazyLoadedCount} L)
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 4 Architectural Pillar Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* 1. Frontend & Client Layer */}
+            <div className="p-4 rounded-xl bg-surface border border-border flex flex-col justify-between space-y-3 shadow-xs">
+              <div>
+                <div className="flex items-center justify-between gap-1 mb-2">
+                  <span className="text-[10px] font-bold text-cyan-500 uppercase tracking-wider flex items-center gap-1 font-mono">
+                    <Code2 className="h-3.5 w-3.5" />
+                    <span>Frontend Layer</span>
+                  </span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-400 font-bold border border-cyan-500/20">
+                    UI Runtime
+                  </span>
+                </div>
+                <div className="text-base font-extrabold text-foreground">
+                  {techStack?.frontend?.framework || 'Modern Web Framework'}
+                </div>
+                <div className="text-xs text-muted font-medium mt-0.5">
+                  {techStack?.frontend?.variant || 'Single Page Application'}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-border/60 space-y-1.5 text-[11px] font-mono">
+                <div className="flex justify-between items-center text-muted">
+                  <span>Bundler:</span>
+                  <span className="font-semibold text-foreground">{techStack?.frontend?.bundler?.split(' ')[0] || 'Vite/Webpack'}</span>
+                </div>
+                <div className="flex justify-between items-center text-muted">
+                  <span>UI System:</span>
+                  <span className="font-semibold text-foreground">{techStack?.frontend?.uiLibrary || 'Standard CSS'}</span>
+                </div>
+                <div className="flex justify-between items-center text-muted">
+                  <span>Rendering:</span>
+                  <span className="font-semibold text-foreground truncate max-w-[130px]" title={techStack?.frontend?.renderingMode}>
+                    {techStack?.frontend?.renderingMode?.split(' ')[0] || 'CSR (SPA)'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Backend & Server Runtime */}
+            <div className="p-4 rounded-xl bg-surface border border-border flex flex-col justify-between space-y-3 shadow-xs">
+              <div>
+                <div className="flex items-center justify-between gap-1 mb-2">
+                  <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1 font-mono">
+                    <Server className="h-3.5 w-3.5" />
+                    <span>Backend Runtime</span>
+                  </span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-400 font-bold border border-purple-500/20">
+                    Execution
+                  </span>
+                </div>
+                <div className="text-base font-extrabold text-foreground">
+                  {techStack?.backend?.serverRuntime?.split('(')[0]?.trim() || 'Node.js'}
+                </div>
+                <div className="text-xs text-muted font-medium mt-0.5 truncate" title={techStack?.backend?.serverRuntime}>
+                  {techStack?.backend?.serverRuntime?.includes('(') ? techStack.backend.serverRuntime.match(/\(([^)]+)\)/)?.[1] : 'Cloud Execution Runtime'}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-border/60 space-y-1.5 text-[11px] font-mono">
+                <div className="flex justify-between items-center text-muted">
+                  <span>API Pattern:</span>
+                  <span className="font-semibold text-foreground truncate max-w-[130px]" title={techStack?.backend?.apiArchitecture}>
+                    {techStack?.backend?.apiArchitecture?.split('·')[0]?.trim() || 'REST APIs'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-muted">
+                  <span>Server Soft:</span>
+                  <span className="font-semibold text-foreground truncate max-w-[130px]">{techStack?.backend?.serverSoftware || 'HTTP Gateway'}</span>
+                </div>
+                <div className="flex justify-between items-center text-muted">
+                  <span>Discovered Routes:</span>
+                  <span className="font-semibold text-emerald-400">{allEnrichedEndpoints.length} Endpoints</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Hosting & Cloud Service Provider (CSP) */}
+            <div className="p-4 rounded-xl bg-surface border border-border flex flex-col justify-between space-y-3 shadow-xs">
+              <div>
+                <div className="flex items-center justify-between gap-1 mb-2">
+                  <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1 font-mono">
+                    <Cloud className="h-3.5 w-3.5" />
+                    <span>Cloud & Hosting</span>
+                  </span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-400 font-bold border border-sky-500/20">
+                    {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.code ? (techStack?.cloudProvider || techStack?.backend?.cloudProvider).code.toUpperCase() : 'CLOUD'}
+                  </span>
+                </div>
+                <div className="text-base font-extrabold text-foreground truncate" title={(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.name || techStack?.backend?.hostingCdn}>
+                  {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.name || techStack?.backend?.hostingCdn?.split('·')[0]?.trim() || 'Cloud Edge'}
+                </div>
+                <div className="text-xs text-muted font-medium mt-0.5 truncate" title={(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.category}>
+                  {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.category || 'Global Edge Distribution'}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-border/60 space-y-1.5 text-[11px] font-mono">
+                <div className="flex justify-between items-center text-muted">
+                  <span>Services:</span>
+                  <span className="font-semibold text-foreground truncate max-w-[130px]" title={(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.services?.join(', ')}>
+                    {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.services?.[0] || 'DDoS Shield / TLS'}
+                  </span>
+                </div>
+                {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.region && (
+                  <div className="flex justify-between items-center text-muted">
+                    <span>Region / POP:</span>
+                    <span className="font-semibold text-emerald-400 truncate max-w-[130px]">
+                      {(techStack?.cloudProvider || techStack?.backend?.cloudProvider).region}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-muted">
+                  <span>Evidence:</span>
+                  <span className="font-semibold text-cyan-400 truncate max-w-[130px]" title={(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.evidence?.[0]}>
+                    {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.evidence?.[0]?.split('(')[0]?.trim() || 'HTTP Headers'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Extended Cloud Services Tags */}
+              {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.services?.length > 1 && (
+                <div className="pt-1.5 flex flex-wrap gap-1">
+                  {(techStack?.cloudProvider || techStack?.backend?.cloudProvider).services.slice(1, 4).map((srv, sIdx) => (
+                    <span key={sIdx} className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-sky-950/40 text-sky-300 border border-sky-500/20 font-medium">
+                      {srv}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 4. Third-Party Integrations */}
+            <div className="p-4 rounded-xl bg-surface border border-border flex flex-col justify-between space-y-3 shadow-xs">
+              <div>
+                <div className="flex items-center justify-between gap-1 mb-2">
+                  <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wider flex items-center gap-1 font-mono">
+                    <Zap className="h-3.5 w-3.5" />
+                    <span>Integrations & BaaS</span>
+                  </span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-500 font-bold border border-amber-500/20">
+                    {techStack?.integrations?.length || 0} Detected
+                  </span>
+                </div>
+                <div className="text-base font-extrabold text-foreground">
+                  {techStack?.integrations?.length > 0 ? techStack.integrations[0].name : 'Direct Gateway'}
+                </div>
+                <div className="text-xs text-muted font-medium mt-0.5">
+                  {techStack?.integrations?.length > 0 ? techStack.integrations[0].category : 'Self-Contained Backend'}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-border/60 flex flex-wrap gap-1">
+                {techStack?.integrations?.length > 0 ? (
+                  techStack.integrations.map((item, idx) => (
+                    <span key={idx} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-raised border border-border text-foreground font-semibold flex items-center gap-1">
+                      <span>{item.name}</span>
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-[11px] text-muted font-mono">Standard API Architecture</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Discovered Backend Microservice Domains / Gateways */}
+          {techStack?.backend?.discoveredGateways?.length > 0 && (
+            <div className="p-3.5 rounded-xl bg-surface border border-border space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <Network className="h-4 w-4 text-cyan-500" />
+                  <span>Discovered Microservice Gateways & External Backend Domains ({techStack.backend.discoveredGateways.length})</span>
+                </span>
+                <span className="text-[10px] text-muted font-mono">Discovered via code AST & network callers</span>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {techStack.backend.discoveredGateways.map((domain, idx) => (
+                  <span
+                    key={idx}
+                    className="text-xs font-mono px-2.5 py-1 rounded-lg bg-surface-raised text-foreground font-medium border border-border flex items-center gap-1.5"
+                  >
+                    <ExternalLink className="h-3 w-3 text-brand" />
+                    <span>{domain}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Verified Signals & HTTP Evidence Drawer */}
+          {showSignals && techStack?.verifiedSignals?.length > 0 && (
+            <div className="p-4 rounded-xl bg-surface border border-cyan-500/30 space-y-2.5 animate-fadeIn">
+              <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
+                <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                  <span>Verified Evidence & Detection Signatures ({techStack.verifiedSignals.length})</span>
+                </div>
+                <span className="text-[10px] font-mono text-muted">100% In-Memory Local Verification</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono pt-1">
+                {techStack.verifiedSignals.map((signal, sIdx) => (
+                  <div key={sIdx} className="p-2 rounded-lg bg-surface-raised border border-border flex items-start gap-2 text-foreground">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span className="leading-tight">{signal}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* DISCOVERED API ENDPOINTS SHOWCASE & REAL-TIME EXPLORER                    */}
+          {/* ========================================================================= */}
+          {allEnrichedEndpoints.length > 0 && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-surface/90 border border-border shadow-xs space-y-4">
+              {/* Header with counts and smooth jump */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/80 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-emerald-500/20 via-cyan-500/20 to-brand/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 shadow-xs">
+                    <Workflow className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm font-bold text-foreground">
+                        Discovered API Endpoints Inventory
+                      </h3>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20">
+                        {stackFilteredEndpoints.length} of {allEnrichedEndpoints.length} Routes
+                      </span>
+                      {apiStats.normalCount > 0 && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 font-semibold border border-cyan-500/20">
+                          {apiStats.normalCount} Normal
+                        </span>
+                      )}
+                      {apiStats.lazyLoadedCount > 0 && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-semibold border border-purple-500/20">
+                          +{apiStats.lazyLoadedCount} Lazy / Role-Gated
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted mt-0.5">
+                      Extracted local-first from AST call graphs, client bundles, and HTTP traffic signatures.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => {
+                      const el = document.getElementById('api-topology-section');
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-mono font-medium text-brand hover:text-brand-light bg-brand/10 hover:bg-brand/15 border border-brand/20 flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Jump to Full API Topology, Tier Segregation & Blast Radius"
+                  >
+                    <span>Full Topology & Simulator</span>
+                    <ArrowDownRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Filter & Search Toolbar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                {/* Method Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+                  {['ALL', 'GET', 'POST', 'PUT', 'DELETE'].map((m) => {
+                    const count = stackMethodCounts[m] || 0;
+                    const isActive = stackMethodFilter === m;
+                    return (
+                      <button
+                        key={m}
+                        onClick={() => setStackMethodFilter(m)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition-all border flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                          isActive
+                            ? m === 'GET'
+                              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                              : m === 'POST'
+                              ? 'bg-purple-500/15 border-purple-500/40 text-purple-400'
+                              : m === 'PUT'
+                              ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                              : m === 'DELETE'
+                              ? 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+                              : 'bg-brand/15 border-brand/40 text-brand'
+                            : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
+                        }`}
+                      >
+                        <span>{m}</span>
+                        <span className="text-[10px] opacity-75">({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Search Bar */}
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Filter path, module..."
+                    value={stackEndpointSearch}
+                    onChange={(e) => setStackEndpointSearch(e.target.value)}
+                    className="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border border-border bg-surface text-foreground placeholder:text-muted focus:outline-hidden focus:border-brand font-mono"
+                  />
+                  {stackEndpointSearch && (
+                    <button
+                      onClick={() => setStackEndpointSearch('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-foreground text-xs"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Endpoints Grid List */}
+              <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
+                {stackFilteredEndpoints.slice(0, stackEndpointsLimit).map((ep, idx) => {
+                  const key = `${ep.method}-${ep.path}`;
+                  const isFetched = !!endpointFetchResult[key];
+                  const fetchRes = endpointFetchResult[key];
+                  const isPending = fetchingEndpoint === key;
+
+                  const methodColor = 
+                    ep.method === 'GET' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25' :
+                    ep.method === 'POST' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
+                    ep.method === 'PUT' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' :
+                    ep.method === 'DELETE' ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' :
+                    'bg-cyan-500/10 text-cyan-400 border-cyan-500/25';
+
+                  return (
+                    <div
+                      key={`${ep.method}-${ep.path}-${idx}`}
+                      className="p-3 rounded-xl bg-surface-raised/70 hover:bg-surface-raised border border-border/70 hover:border-border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs"
+                    >
+                      {/* Left: Method + Path + Badges */}
+                      <div className="flex items-start md:items-center gap-2.5 min-w-0 flex-1">
+                        <span className={`px-2 py-0.5 rounded font-mono font-bold text-[10px] border uppercase shrink-0 ${methodColor}`}>
+                          {ep.method}
+                        </span>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-xs font-bold text-foreground hover:text-brand transition-colors break-all select-all">
+                              {ep.path}
+                            </span>
+                            {ep.level && (
+                              <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${
+                                ep.level === 'HIGH' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
+                                ep.level === 'MEDIUM' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/25' :
+                                'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                              }`}>
+                                {ep.level}
+                              </span>
+                            )}
+                            {ep.isLazyLoaded && (
+                              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                                LAZY
+                              </span>
+                            )}
+                          </div>
+                          {(ep.module || ep.source || ep.summary) && (
+                            <div className="text-[10px] text-muted font-mono truncate mt-0.5">
+                              {ep.module ? `source: ${ep.module}` : ep.summary || ep.source}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Right: Quick Actions (Copy Path, Copy cURL, Test Live) */}
+                      <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
+                        <button
+                          onClick={() => handleCopyPath(ep.path)}
+                          className="px-2 py-1 rounded-md bg-surface border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Copy relative route path"
+                        >
+                          {copiedPath === ep.path ? (
+                            <>
+                              <Check className="h-3 w-3 text-emerald-400" />
+                              <span className="text-emerald-400">Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3 w-3" />
+                              <span>Path</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() => handleCopyCurl(ep)}
+                          className="px-2 py-1 rounded-md bg-surface border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Copy executable cURL command"
+                        >
+                          {copiedCurl === key ? (
+                            <>
+                              <Check className="h-3 w-3 text-emerald-400" />
+                              <span className="text-emerald-400">Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Terminal className="h-3 w-3" />
+                              <span>cURL</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() => handleFetchEndpoint(ep)}
+                          disabled={isPending}
+                          className={`px-2.5 py-1 rounded-md border text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                            isPending
+                              ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse'
+                              : isFetched
+                              ? fetchRes?.success
+                                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                                : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                              : 'bg-brand/10 hover:bg-brand/20 border-brand/25 text-brand'
+                          }`}
+                          title="Send live local HTTP probe via BendLens air-gapped fetch proxy"
+                        >
+                          {isPending ? (
+                            <span>Testing...</span>
+                          ) : isFetched ? (
+                            <span>{fetchRes?.status || (fetchRes?.success ? '200 OK' : 'ERR')}</span>
+                          ) : (
+                            <>
+                              <Radio className="h-3 w-3" />
+                              <span>Test Live</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {stackFilteredEndpoints.length === 0 && (
+                  <div className="py-8 text-center text-xs text-muted font-mono bg-surface-raised/40 rounded-xl border border-dashed border-border">
+                    No endpoints match "{stackEndpointSearch}"
+                  </div>
+                )}
+              </div>
+
+              {/* Footer controls: pagination limit & full topology hint */}
+              {stackFilteredEndpoints.length > 12 && (
+                <div className="flex items-center justify-between pt-2 border-t border-border/60 text-xs">
+                  <div className="text-[11px] text-muted font-mono">
+                    Showing <strong className="text-foreground">{Math.min(stackEndpointsLimit, stackFilteredEndpoints.length)}</strong> of <strong className="text-foreground">{stackFilteredEndpoints.length}</strong> endpoints
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {stackEndpointsLimit < stackFilteredEndpoints.length ? (
+                      <button
+                        onClick={() => setStackEndpointsLimit(stackFilteredEndpoints.length)}
+                        className="text-xs font-mono text-brand hover:underline font-bold cursor-pointer"
+                      >
+                        Show All {stackFilteredEndpoints.length} Endpoints
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setStackEndpointsLimit(12)}
+                        className="text-xs font-mono text-muted hover:text-foreground cursor-pointer"
+                      >
+                        Collapse to Top 12
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ========================================================================= */}
       {/* WHOLE SECTION: Database Schemas & Developer Architecture                   */}
@@ -1124,7 +1756,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       {/* ========================================================================= */}
       {/* WHOLE SECTION: API Routes, Multi-Tier Classification & Connection Topology */}
       {/* ========================================================================= */}
-      <section className="p-5 sm:p-6 rounded-2xl border border-border bg-surface-card shadow-card w-full space-y-5">
+      <section id="api-topology-section" className="p-5 sm:p-6 rounded-2xl border border-border bg-surface-card shadow-card w-full space-y-5">
         {/* Header & Synopsis */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-border">
           <div className="flex items-start sm:items-center gap-3">

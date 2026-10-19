@@ -82,6 +82,8 @@ export async function POST(request) {
     const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
     result.projectName = crawlResult.projectName;
     result.crawlerTelemetry = crawlResult.telemetry;
+    result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
+    result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
     result.isUrlCrawl = true;
     result.schema = { tables: [], relationships: [] };
 
@@ -90,7 +92,9 @@ export async function POST(request) {
     return NextResponse.json({
       success: true,
       data: result,
-      telemetry: crawlResult.telemetry
+      telemetry: crawlResult.telemetry,
+      techStack: result.techStack,
+      cloudProvider: result.cloudProvider
     });
   } catch (error) {
     console.error('Universal Crawler Route Error:', error);

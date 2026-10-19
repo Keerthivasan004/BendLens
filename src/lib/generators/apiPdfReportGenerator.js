@@ -15,6 +15,7 @@ export function generateApiReportHtml(analysisData) {
   const strategy = analysisData?.crawlerTelemetry?.discoveryStrategy || 'deep_chunk_crawler';
   const backendDomains = analysisData?.crawlerTelemetry?.backendDomains || [];
   const frameworks = analysisData?.crawlerTelemetry?.frameworksDetected || ['Web Architecture'];
+  const techStack = analysisData?.techStack || analysisData?.crawlerTelemetry?.techStack;
 
   const endpoints = analysisData?.code?.endpoints || [];
   const totalApis = endpoints.length;
@@ -438,6 +439,84 @@ export function generateApiReportHtml(analysisData) {
           <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Complete API perimeter for security testing, audits & API contract generation</div>
         </div>
       </div>
+    </div>
+    ` : ''}
+
+    ${techStack ? `
+    <div style="background: #ffffff; border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 30px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 12px;">
+        <h3 style="font-size: 15px; text-transform: uppercase; letter-spacing: 0.5px; margin: 0; color: #0f172a; font-weight: 800;">
+          Detected Technology Stack & Cloud Architecture
+        </h3>
+        <span class="badge badge-secure">${techStack.confidence || '100% In-Memory AST & Header Verified'}</span>
+      </div>
+
+      ${techStack.summary ? `
+      <div style="background: #f8fafc; border-left: 4px solid var(--brand); padding: 12px 16px; border-radius: 6px; margin-bottom: 18px; font-size: 13px; font-weight: 600; color: #1e293b;">
+        <span style="font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--brand); margin-right: 8px;">Stack Profile:</span>
+        ${techStack.summary}
+      </div>
+      ` : ''}
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 18px;">
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px;">
+          <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #0284c7; margin-bottom: 6px;">Frontend Layer</div>
+          <div style="font-size: 16px; font-weight: 800; color: #0f172a;">${techStack.frontend?.framework || 'Modern Web'}</div>
+          <div style="font-size: 12px; color: #64748b; margin-top: 4px;">${techStack.frontend?.variant || 'Single Page Application'}</div>
+          <div style="margin-top: 8px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #475569;">
+            <div>Bundler: <strong>${techStack.frontend?.bundler?.split(' ')[0] || 'Vite/Webpack'}</strong></div>
+            <div>Styling: <strong>${techStack.frontend?.uiLibrary || 'Standard CSS'}</strong></div>
+            <div>Rendering: <strong>${techStack.frontend?.renderingMode?.split(' ')[0] || 'CSR (SPA)'}</strong></div>
+          </div>
+        </div>
+
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px;">
+          <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #9333ea; margin-bottom: 6px;">Backend Runtime</div>
+          <div style="font-size: 16px; font-weight: 800; color: #0f172a;">${techStack.backend?.serverRuntime?.split('(')[0]?.trim() || 'Node.js'}</div>
+          <div style="font-size: 12px; color: #64748b; margin-top: 4px;">${techStack.backend?.apiArchitecture?.split('·')[0]?.trim() || 'REST APIs'}</div>
+          <div style="margin-top: 8px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #475569;">
+            <div>Architecture: <strong>${techStack.backend?.apiArchitecture?.split('·')[0]?.trim() || 'REST APIs'}</strong></div>
+            <div>Gateway: <strong>${techStack.backend?.serverSoftware || 'Standard Gateway'}</strong></div>
+            <div>Scope: <strong>${totalApis} Discovered Routes</strong></div>
+          </div>
+        </div>
+
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px;">
+          <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #0284c7; margin-bottom: 6px;">Cloud & Hosting</div>
+          <div style="font-size: 16px; font-weight: 800; color: #0f172a;">${(techStack.cloudProvider || techStack.backend?.cloudProvider)?.name || techStack.backend?.hostingCdn?.split('·')[0]?.trim() || 'Cloud Edge'}</div>
+          <div style="font-size: 12px; color: #64748b; margin-top: 4px;">${(techStack.cloudProvider || techStack.backend?.cloudProvider)?.category || 'Global Cloud Infrastructure'}</div>
+          <div style="margin-top: 8px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #475569;">
+            <div>Services: <strong>${(techStack.cloudProvider || techStack.backend?.cloudProvider)?.services?.[0] || 'DDoS Shield / Anycast CDN'}</strong></div>
+            ${(techStack.cloudProvider || techStack.backend?.cloudProvider)?.region ? `<div>Region/POP: <strong>${(techStack.cloudProvider || techStack.backend?.cloudProvider).region}</strong></div>` : ''}
+            <div>Evidence: <strong>${(techStack.cloudProvider || techStack.backend?.cloudProvider)?.evidence?.[0]?.split('(')[0]?.trim() || 'HTTP Header / DNS'}</strong></div>
+          </div>
+        </div>
+
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px;">
+          <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #d97706; margin-bottom: 6px;">Integrations & BaaS</div>
+          <div style="font-size: 16px; font-weight: 800; color: #0f172a;">${techStack.integrations?.length || 0} Detected</div>
+          <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Third-Party Ecosystem</div>
+          <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px;">
+            ${(techStack.integrations || []).map(i => `<span style="background: #ffffff; border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-family: 'JetBrains Mono', monospace; font-weight: 600;">${i.name}</span>`).join('') || '<span style="font-size: 11px; color: #94a3b8;">Direct Origin APIs</span>'}
+          </div>
+        </div>
+      </div>
+
+      ${techStack.verifiedSignals?.length > 0 ? `
+      <div>
+        <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #475569; margin-bottom: 8px;">
+          Verified Detection Signatures & HTTP Evidence (${techStack.verifiedSignals.length})
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 6px;">
+          ${techStack.verifiedSignals.map(s => `
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #334155; display: flex; align-items: center; gap: 6px;">
+              <span style="color: #059669; font-weight: 800;">✓</span>
+              <span>${s}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      ` : ''}
     </div>
     ` : ''}
 

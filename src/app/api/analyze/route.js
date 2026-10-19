@@ -70,6 +70,8 @@ export async function POST(request) {
       result.projectName = crawlResult.projectName;
       result.projectPath = targetPath;
       result.crawlerTelemetry = crawlResult.telemetry;
+      result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
+      result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
       result.isUrlCrawl = true;
       if (!crawlResult.sqlSchema) {
         result.schema = { tables: [], relationships: [] };

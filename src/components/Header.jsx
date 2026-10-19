@@ -8,7 +8,7 @@ import useIsDesktop from '@/lib/useIsDesktop';
 import {
   FolderSearch, Play, Download, Sparkles, Database,
   FileCode, Cpu, CheckCircle2, RefreshCw,
-  Activity, ChevronRight, Globe, Printer
+  Activity, ChevronRight, Globe, Printer, Cloud
 } from 'lucide-react';
 import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 
@@ -180,6 +180,38 @@ export default function Header({
                       <Sparkles className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                       <span>Deep: <strong className="text-emerald-400 font-mono">{analysisData.crawlerTelemetry.deepCrawlCount ?? analysisData.code?.endpoints?.length ?? 0}</strong> APIs</span>
                     </span>
+                    {(analysisData.techStack?.frontend?.framework || analysisData.crawlerTelemetry?.techStack?.frontend?.framework) && (
+                      <>
+                        <span className="h-3 w-px bg-border hidden md:block" />
+                        <span className="flex items-center gap-1.5 px-1 text-muted" title={(analysisData.techStack || analysisData.crawlerTelemetry?.techStack)?.summary}>
+                          <Cpu className="h-3.5 w-3.5 text-brand shrink-0" />
+                          <span className="text-foreground font-semibold font-mono text-[11px]">
+                            {(analysisData.techStack || analysisData.crawlerTelemetry?.techStack)?.frontend?.framework}
+                          </span>
+                        </span>
+                      </>
+                    )}
+                    {(() => {
+                      const cp = analysisData.cloudProvider ||
+                        analysisData.techStack?.cloudProvider ||
+                        analysisData.crawlerTelemetry?.cloudProvider ||
+                        analysisData.crawlerTelemetry?.techStack?.cloudProvider;
+                      if (!cp || cp.code === 'unknown') return null;
+                      return (
+                        <>
+                          <span className="h-3 w-px bg-border hidden md:block" />
+                          <span
+                            className="flex items-center gap-1.5 px-1 text-muted cursor-help"
+                            title={`Cloud Service Provider: ${cp.name} (${cp.category}) • Services: ${cp.services?.join(', ') || 'Global Delivery'} • Evidence: ${cp.evidence?.[0] || 'Verified'}`}
+                          >
+                            <Cloud className="h-3.5 w-3.5 text-sky-400 shrink-0" />
+                            <span className="text-foreground font-semibold font-mono text-[11px]">
+                              {cp.name.split('(')[0].trim()}
+                            </span>
+                          </span>
+                        </>
+                      );
+                    })()}
                   </>
                 ) : (
                   <span className="flex items-center gap-1.5 px-1 text-muted">

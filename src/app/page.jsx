@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Logo from '@/components/Logo';
 import UpdateIndicator from '@/components/UpdateIndicator';
@@ -11,7 +11,7 @@ import {
   FolderSearch, Play, Sparkles, Database, FileCode, Cpu, Layers,
   CheckCircle2, ArrowRight, ShieldCheck, HardDrive, Terminal,
   UploadCloud, GitBranch, Globe, Laptop, Lock, AlertTriangle, AlertCircle, Download, Zap, RefreshCw,
-  Clock, Timer, X
+  Clock, Timer, X, Cloud, Search, Copy, Check, ChevronDown, ChevronUp, ExternalLink, Code2, Server, Network, Workflow
 } from 'lucide-react';
 
 export default function LandingPage() {
@@ -54,6 +54,65 @@ CREATE TABLE orders (
   const [scanFinalDuration, setScanFinalDuration] = useState('');
   const [analysisResult, setAnalysisResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [landingEndpointSearch, setLandingEndpointSearch] = useState('');
+  const [landingMethodFilter, setLandingMethodFilter] = useState('ALL');
+  const [landingEndpointsLimit, setLandingEndpointsLimit] = useState(8);
+  const [landingCopiedPath, setLandingCopiedPath] = useState(null);
+
+  const landingEndpointsList = useMemo(() => {
+    if (Array.isArray(analysisResult?.code?.endpoints) && analysisResult.code.endpoints.length > 0) {
+      return analysisResult.code.endpoints;
+    }
+    if (Array.isArray(analysisResult?.endpoints) && analysisResult.endpoints.length > 0) {
+      return analysisResult.endpoints;
+    }
+    if (analysisResult?.openApiSpec?.paths) {
+      const derived = [];
+      Object.entries(analysisResult.openApiSpec.paths).forEach(([routePath, methodsObj]) => {
+        if (!methodsObj || typeof methodsObj !== 'object') return;
+        ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'].forEach((m) => {
+          if (methodsObj[m]) {
+            const op = methodsObj[m];
+            derived.push({
+              path: routePath,
+              method: m.toUpperCase(),
+              summary: op.summary || op.description || '',
+              module: op['x-bundle-source'] || '',
+              isLazyLoaded: op['x-lazy-loaded'] === true,
+              crawlTier: op['x-crawl-tier'] || 'normal'
+            });
+          }
+        });
+      });
+      return derived;
+    }
+    return [];
+  }, [analysisResult]);
+  const landingMethodCounts = useMemo(() => {
+    const counts = { ALL: landingEndpointsList.length, GET: 0, POST: 0, PUT: 0, DELETE: 0 };
+    landingEndpointsList.forEach((e) => {
+      const m = String(e.method || 'GET').toUpperCase();
+      if (counts[m] !== undefined) counts[m]++;
+    });
+    return counts;
+  }, [landingEndpointsList]);
+
+  const landingFilteredEndpoints = useMemo(() => {
+    return landingEndpointsList.filter((ep) => {
+      if (landingMethodFilter !== 'ALL' && ep.method !== landingMethodFilter) return false;
+      const q = landingEndpointSearch.trim().toLowerCase();
+      if (q && !ep.path?.toLowerCase().includes(q) && !(ep.module || '').toLowerCase().includes(q)) {
+        return false;
+      }
+      return true;
+    });
+  }, [landingEndpointsList, landingMethodFilter, landingEndpointSearch]);
+
+  const handleLandingCopyPath = (path) => {
+    navigator.clipboard.writeText(path);
+    setLandingCopiedPath(path);
+    setTimeout(() => setLandingCopiedPath(null), 2000);
+  };
   const [localHistory, setLocalHistory] = useState([]);
   const [theme, setTheme] = useState('dark');
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
@@ -1183,6 +1242,278 @@ CREATE TABLE audit_logs (
                           <span>Chunks: <strong className="text-amber-400">{analysisResult.crawlerTelemetry.chunksCrawledCount || 1}</strong></span>
                         </div>
                       </div>
+
+                      {/* Detailed Application Stack Profile Card */}
+                      {(() => {
+                        const ts = analysisResult.techStack || analysisResult.crawlerTelemetry?.techStack;
+                        const cp = analysisResult.cloudProvider ||
+                          analysisResult.techStack?.cloudProvider ||
+                          analysisResult.crawlerTelemetry?.cloudProvider ||
+                          analysisResult.crawlerTelemetry?.techStack?.cloudProvider;
+                        if (!ts && !cp) return null;
+
+                        return (
+                          <div className="p-3.5 rounded-xl bg-surface border border-brand/30 space-y-3 text-xs text-left">
+                            {/* Executive Header */}
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-border/80 pb-2.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-brand/10 text-brand border border-brand/25 flex items-center gap-1 font-mono">
+                                  <Cpu className="h-3 w-3" />
+                                  <span>Stack Profile</span>
+                                </span>
+                                <span className="font-bold text-foreground text-xs font-sans">
+                                  {ts?.summary || 'Universal Web Architecture'}
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20">
+                                Air-Gapped Zero-Leakage
+                              </span>
+                            </div>
+
+                            {/* 4 Architectural Pillars Grid */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                              {/* 1. Frontend */}
+                              <div className="p-2.5 rounded-lg bg-surface-raised border border-border/80 space-y-1">
+                                <span className="text-[9px] font-bold text-cyan-400 font-mono uppercase flex items-center gap-1">
+                                  <Code2 className="h-3 w-3" />
+                                  <span>Frontend Layer</span>
+                                </span>
+                                <div className="font-bold text-foreground truncate text-xs">
+                                  {ts?.frontend?.framework || 'Modern Web UI'}
+                                </div>
+                                <div className="text-[10px] text-muted font-mono space-y-0.5 pt-0.5">
+                                  <div className="truncate">Bundler: <strong className="text-foreground">{ts?.frontend?.bundler?.split(' ')[0] || 'Vite/ESBuild'}</strong></div>
+                                  <div className="truncate">UI: <strong className="text-foreground">{ts?.frontend?.uiLibrary || 'Standard CSS'}</strong></div>
+                                  <div className="truncate">Mode: <strong className="text-foreground">{ts?.frontend?.renderingMode?.split(' ')[0] || 'CSR (SPA)'}</strong></div>
+                                </div>
+                              </div>
+
+                              {/* 2. Backend */}
+                              <div className="p-2.5 rounded-lg bg-surface-raised border border-border/80 space-y-1">
+                                <span className="text-[9px] font-bold text-purple-400 font-mono uppercase flex items-center gap-1">
+                                  <Server className="h-3 w-3" />
+                                  <span>Backend Runtime</span>
+                                </span>
+                                <div className="font-bold text-foreground truncate text-xs">
+                                  {ts?.backend?.serverRuntime?.split('(')[0]?.trim() || 'Node.js'}
+                                </div>
+                                <div className="text-[10px] text-muted font-mono space-y-0.5 pt-0.5">
+                                  <div className="truncate">Pattern: <strong className="text-foreground">{ts?.backend?.apiArchitecture?.split('·')[0]?.trim() || 'REST APIs'}</strong></div>
+                                  <div className="truncate">Server: <strong className="text-foreground">{ts?.backend?.serverSoftware || 'HTTP Gateway'}</strong></div>
+                                  <div className="truncate">Routes: <strong className="text-emerald-400">{landingEndpointsList.length} Endpoints</strong></div>
+                                </div>
+                              </div>
+
+                              {/* 3. Cloud Provider & Hosting */}
+                              <div className="p-2.5 rounded-lg bg-surface-raised border border-border/80 space-y-1">
+                                <span className="text-[9px] font-bold text-sky-400 font-mono uppercase flex items-center gap-1">
+                                  <Cloud className="h-3 w-3" />
+                                  <span>Cloud & Hosting</span>
+                                </span>
+                                <div className="font-bold text-foreground truncate text-xs">
+                                  {cp?.name || ts?.backend?.hostingCdn?.split('·')[0]?.trim() || 'Cloud Edge'}
+                                </div>
+                                <div className="text-[10px] text-muted font-mono space-y-0.5 pt-0.5">
+                                  <div className="truncate">Category: <strong className="text-foreground">{cp?.category?.split('/')[0]?.trim() || 'Edge CDN'}</strong></div>
+                                  {cp?.region && (
+                                    <div className="truncate">Region: <strong className="text-emerald-400">{cp.region}</strong></div>
+                                  )}
+                                  <div className="truncate">Services: <strong className="text-foreground">{cp?.services?.[0] || 'DDoS Shield'}</strong></div>
+                                </div>
+                              </div>
+
+                              {/* 4. Integrations & BaaS */}
+                              <div className="p-2.5 rounded-lg bg-surface-raised border border-border/80 space-y-1">
+                                <span className="text-[9px] font-bold text-amber-500 font-mono uppercase flex items-center gap-1">
+                                  <Zap className="h-3 w-3" />
+                                  <span>Integrations</span>
+                                </span>
+                                <div className="font-bold text-foreground truncate text-xs">
+                                  {ts?.integrations?.length > 0 ? ts.integrations[0].name : 'Direct Gateway'}
+                                </div>
+                                <div className="pt-0.5 flex flex-wrap gap-1">
+                                  {ts?.integrations?.length > 0 ? (
+                                    ts.integrations.slice(0, 2).map((item, idx) => (
+                                      <span key={idx} className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-surface border border-border text-foreground">
+                                        {item.name}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-[10px] text-muted font-mono">Self-Contained Backend</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Discovered Microservice Gateways if present */}
+                            {ts?.backend?.discoveredGateways?.length > 0 && (
+                              <div className="p-2 rounded-lg bg-surface-raised border border-border/60 flex items-center gap-2 flex-wrap text-[11px] font-mono">
+                                <span className="text-cyan-400 font-bold flex items-center gap-1">
+                                  <Network className="h-3 w-3" />
+                                  <span>Gateways:</span>
+                                </span>
+                                {ts.backend.discoveredGateways.map((domain, gIdx) => (
+                                  <span key={gIdx} className="px-1.5 py-0.5 rounded bg-surface border border-border text-foreground font-medium flex items-center gap-1">
+                                    <ExternalLink className="h-2.5 w-2.5 text-brand" />
+                                    <span>{domain}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Interactive Discovered API Endpoints Inventory Card */}
+                      {landingEndpointsList.length > 0 && (
+                        <div className="p-3.5 rounded-xl bg-surface border border-border space-y-3 text-left">
+                          {/* Header with counts */}
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-border/80 pb-2.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 flex items-center gap-1 font-mono">
+                                <Workflow className="h-3 w-3" />
+                                <span>Discovered Endpoints</span>
+                              </span>
+                              <span className="font-bold text-foreground text-xs font-mono">
+                                {landingFilteredEndpoints.length} of {landingEndpointsList.length} Routes
+                              </span>
+                            </div>
+
+                            {/* Search Bar */}
+                            <div className="relative w-full sm:w-48">
+                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted pointer-events-none" />
+                              <input
+                                type="text"
+                                placeholder="Filter routes..."
+                                value={landingEndpointSearch}
+                                onChange={(e) => setLandingEndpointSearch(e.target.value)}
+                                className="w-full pl-7 pr-6 py-1 text-xs rounded-lg border border-border bg-surface-raised text-foreground placeholder:text-muted focus:outline-hidden focus:border-brand font-mono"
+                              />
+                              {landingEndpointSearch && (
+                                <button
+                                  onClick={() => setLandingEndpointSearch('')}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-foreground text-xs"
+                                >
+                                  <X className="h-2.5 w-2.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Method Filter Tabs */}
+                          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                            {['ALL', 'GET', 'POST', 'PUT', 'DELETE'].map((m) => {
+                              const count = landingMethodCounts[m] || 0;
+                              const isActive = landingMethodFilter === m;
+                              return (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() => setLandingMethodFilter(m)}
+                                  className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold transition-all border flex items-center gap-1 cursor-pointer whitespace-nowrap ${
+                                    isActive
+                                      ? m === 'GET'
+                                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                                        : m === 'POST'
+                                        ? 'bg-purple-500/15 border-purple-500/40 text-purple-400'
+                                        : m === 'PUT'
+                                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                                        : m === 'DELETE'
+                                        ? 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+                                        : 'bg-brand/15 border-brand/40 text-brand'
+                                      : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
+                                  }`}
+                                >
+                                  <span>{m}</span>
+                                  <span className="opacity-75">({count})</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Scrollable Endpoints List */}
+                          <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                            {landingFilteredEndpoints.slice(0, landingEndpointsLimit).map((ep, idx) => {
+                              const methodColor = 
+                                ep.method === 'GET' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25' :
+                                ep.method === 'POST' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
+                                ep.method === 'PUT' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' :
+                                ep.method === 'DELETE' ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' :
+                                'bg-cyan-500/10 text-cyan-400 border-cyan-500/25';
+
+                              return (
+                                <div
+                                  key={`${ep.method}-${ep.path}-${idx}`}
+                                  className="p-2 rounded-lg bg-surface-raised hover:bg-surface-raised/80 border border-border/70 flex items-center justify-between gap-2 text-xs"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <span className={`px-1.5 py-0.2 rounded font-mono font-bold text-[9px] border uppercase shrink-0 ${methodColor}`}>
+                                      {ep.method}
+                                    </span>
+                                    <span className="font-mono text-xs font-semibold text-foreground truncate select-all" title={ep.path}>
+                                      {ep.path}
+                                    </span>
+                                    {ep.isLazyLoaded && (
+                                      <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 shrink-0">
+                                        LAZY
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleLandingCopyPath(ep.path)}
+                                    className="px-2 py-0.5 rounded bg-surface border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground shrink-0 flex items-center gap-1 cursor-pointer"
+                                    title="Copy route path"
+                                  >
+                                    {landingCopiedPath === ep.path ? (
+                                      <>
+                                        <Check className="h-2.5 w-2.5 text-emerald-400" />
+                                        <span className="text-emerald-400">Copied</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="h-2.5 w-2.5" />
+                                        <span>Copy</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              );
+                            })}
+
+                            {landingFilteredEndpoints.length === 0 && (
+                              <div className="py-6 text-center text-xs text-muted font-mono bg-surface-raised/50 rounded-lg border border-dashed border-border">
+                                No endpoints match "{landingEndpointSearch}"
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Pagination & Toggle */}
+                          {landingFilteredEndpoints.length > 8 && (
+                            <div className="flex items-center justify-between pt-1 text-[11px] font-mono text-muted">
+                              <span>Showing {Math.min(landingEndpointsLimit, landingFilteredEndpoints.length)} of {landingFilteredEndpoints.length}</span>
+                              {landingEndpointsLimit < landingFilteredEndpoints.length ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setLandingEndpointsLimit(landingFilteredEndpoints.length)}
+                                  className="text-brand hover:underline font-bold cursor-pointer"
+                                >
+                                  View All {landingFilteredEndpoints.length} Endpoints
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setLandingEndpointsLimit(8)}
+                                  className="text-muted hover:text-foreground cursor-pointer"
+                                >
+                                  Collapse to 8
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="grid grid-cols-3 gap-2 py-2 border-y border-border-subtle text-center text-xs my-2 font-mono">
