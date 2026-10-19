@@ -153,7 +153,9 @@ class InfraParser {
                 tags: (details && details.tags) || [],
                 crawlTier: details?.['x-crawl-tier'] || 'normal',
                 isLazyLoaded: details?.['x-lazy-loaded'] === true,
-                discoveryScope: details?.['x-discovery-scope'] || (details?.['x-lazy-loaded'] ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)')
+                discoveryScope: details?.['x-discovery-scope'] || (details?.['x-lazy-loaded'] ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)'),
+                routeType: details?.['x-route-type'] || 'API',
+                isUiRoute: details?.['x-is-ui-route'] === true
               });
             }
           }

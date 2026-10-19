@@ -477,7 +477,9 @@ class ProjectAnalyzer {
             connectedTables: [],
             crawlTier: api.crawlTier || 'normal',
             isLazyLoaded: api.isLazyLoaded === true,
-            discoveryScope: api.discoveryScope || (api.isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)')
+            discoveryScope: api.discoveryScope || (api.isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)'),
+            routeType: api.routeType || 'API',
+            isUiRoute: api.isUiRoute === true
           };
           codeData.endpoints.push(epObj);
           if (codeData.stats) codeData.stats.totalEndpoints = codeData.endpoints.length;

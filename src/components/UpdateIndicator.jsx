@@ -421,7 +421,8 @@ export default function UpdateIndicator() {
 
   // Web visitors always run the latest deployed build, so render the clean version badge
   // without the native desktop auto-update download / restart prompt.
-  if (!isDesktop) {
+  // Before component is mounted on client, render the SSR-matching version to guarantee 0 hydration mismatch.
+  if (!mounted || !isDesktop) {
     return (
       <>
         <button

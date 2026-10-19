@@ -58,12 +58,7 @@ export function checkIsDesktop() {
 }
 
 export default function useIsDesktop() {
-  const [isDesktop, setIsDesktop] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return checkIsDesktop();
-    }
-    return false;
-  });
+  const [isDesktop, setIsDesktop] = useState(false);
 
   useEffect(() => {
     const detect = () => {

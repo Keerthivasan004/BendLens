@@ -144,6 +144,7 @@ class UniversalApiCrawler {
     const concurrency = options.concurrency || 20;
     const allEndpoints = new Map(); // path -> Set of HTTP methods
     const normalEndpoints = new Map(); // path -> Set of HTTP methods (Phase 1 / Normal Crawl snapshot)
+    const verifiedApiRoutes = new Set(); // Routes confirmed to be HTTP callers / REST / RPC endpoints
     const endpointDetails = new Map(); // path -> { parameters: [], summary: '', tags: [] }
     const backendDomains = new Set();
     const distinctEntities = new Set();
@@ -776,7 +777,7 @@ class UniversalApiCrawler {
       while ((ism = inlineScriptRegex.exec(html)) !== null) {
         const inlineCode = ism[1];
         if (inlineCode && inlineCode.length > 20) {
-          this.extractEndpointsFromCode(inlineCode, href, origin, allEndpoints, backendDomains, distinctEntities);
+          this.extractEndpointsFromCode(inlineCode, href, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages });
         }
       }
 
@@ -883,7 +884,7 @@ class UniversalApiCrawler {
                     if (Array.isArray(sourceMap.sourcesContent)) {
                       for (const rawSource of sourceMap.sourcesContent) {
                         if (typeof rawSource === 'string' && rawSource.length > 50) {
-                          this.extractEndpointsFromCode(rawSource, url, origin, allEndpoints, backendDomains, distinctEntities);
+                          this.extractEndpointsFromCode(rawSource, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages });
                         }
                       }
                     }
@@ -902,9 +903,17 @@ class UniversalApiCrawler {
               discoveredPages.add(rPath.split('?')[0]);
             }
           }
+          const jsxRouteRegex = /<Route\b[^>]*?\bpath\s*=\s*["'](\/[a-zA-Z0-9_\-\/]+)["']/gi;
+          let jrm;
+          while ((jrm = jsxRouteRegex.exec(code)) !== null) {
+            const jPath = jrm[1];
+            if (!jPath.startsWith('/api/') && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(jPath)) {
+              discoveredPages.add(jPath.split('?')[0]);
+            }
+          }
 
           // Extract endpoints from standard chunk code (Normal mode)
-          this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities);
+          this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages });
         }));
 
         if (normalQueue.length > 0) {
@@ -1008,7 +1017,7 @@ class UniversalApiCrawler {
 
         // Extract deep role-gated and lazy-loaded endpoints across all discovered chunks
         for (const [chunkUrl, chunkCode] of scriptContents.entries()) {
-          this.extractEndpointsFromCode(chunkCode, chunkUrl, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: true });
+          this.extractEndpointsFromCode(chunkCode, chunkUrl, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: true, verifiedApiRoutes, discoveredPages });
         }
       }
 
@@ -1071,7 +1080,29 @@ class UniversalApiCrawler {
       // STAGE 6: OpenAPI 3.0 & Relational Architecture Representation
       // =========================================================================
       const paths = {};
+      let genuineApisCount = 0;
+      let uiPagesCount = 0;
+
       for (const [ep, methods] of allEndpoints.entries()) {
+        const isExplicitApi = verifiedApiRoutes.has(ep) ||
+          ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') ||
+          ep.startsWith('/auth/') || ep.startsWith('/oauth/') || ep.startsWith('/rest/') || ep.startsWith('/graphql') ||
+          ep.startsWith('/wp-json/') || ep.startsWith('/wp/v2/') ||
+          Array.from(methods).some(m => ['POST', 'PUT', 'DELETE', 'PATCH'].includes(String(m).toUpperCase()));
+
+        const isKnownUiPage = discoveredPages.has(ep) ||
+          discoveredPages.has(ep.replace(/\{[^}]+\}/g, '')) ||
+          (!isExplicitApi && ['/privacy-policy', '/privacy-policies', '/terms', '/careers', '/events', '/about', '/contact', '/faq', '/pricing'].some(p => ep.startsWith(p)));
+
+        const routeType = (!isExplicitApi && isKnownUiPage) ? 'PAGE' : 'API';
+        const isUiRoute = routeType === 'PAGE';
+
+        if (isUiRoute) {
+          uiPagesCount++;
+        } else {
+          genuineApisCount++;
+        }
+
         paths[ep] = {};
         const segments = ep.split('/').filter(Boolean);
         const tag = segments.length > 1 ? this.capitalize(segments[1] || segments[0]) : 'General';
@@ -1088,10 +1119,12 @@ class UniversalApiCrawler {
           paths[ep][method] = {
             tags: [tag],
             summary: `${m} ${ep}`,
-            description: `API route for ${actionName}`,
+            description: isUiRoute ? `Frontend UI Page route for ${actionName}` : `API route for ${actionName}`,
             'x-crawl-tier': crawlTier,
             'x-lazy-loaded': isLazyLoaded,
             'x-discovery-scope': discoveryScope,
+            'x-route-type': routeType,
+            'x-is-ui-route': isUiRoute,
             responses: {
               '200': { description: 'Successful execution' }
             }
@@ -1173,6 +1206,9 @@ class UniversalApiCrawler {
           normalCrawlCount: normalCount,
           deepCrawlCount: deepCount,
           lazyLoadedEndpointsCount: lazyCount,
+          genuineApisCount: genuineApisCount || normalCount,
+          uiPagesCount: uiPagesCount || 0,
+          totalSurfacesCount: allEndpoints.size,
           crawlDepth: {
             mode: crawlDepth,
             normal: {
@@ -1219,12 +1255,13 @@ class UniversalApiCrawler {
       if (normalized) {
         if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
         allEndpoints.get(normalized).add(method);
+        if (crawlerOptions && crawlerOptions.verifiedApiRoutes) crawlerOptions.verifiedApiRoutes.add(normalized);
         this.extractEntitiesFromPath(normalized, distinctEntities);
       }
     }
 
     // Pattern 1b: HTTP Client calls with explicit method: axios.get, client.post, apiClient.put, $.get, etc.
-    const clientCallRegex = /(?:axios|apiClient|httpClient|client|http|api|superagent|ky|wretch|\$|jQuery)\s*\.\s*(get|post|put|delete|patch|head|options)\s*\(\s*([`'"][^`'"]+[`'"])/gi;
+    const clientCallRegex = /(?:axios|apiClient|httpClient|client|http|api|superagent|ky|wretch|\$|jQuery|apiFetch)\s*\.\s*(get|post|put|delete|patch|head|options)\s*\(\s*([`'"][^`'"]+[`'"])/gi;
     let cm;
     while ((cm = clientCallRegex.exec(code)) !== null) {
       const method = cm[1].toUpperCase();
@@ -1233,19 +1270,24 @@ class UniversalApiCrawler {
       if (normalized) {
         if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
         allEndpoints.get(normalized).add(method);
+        if (crawlerOptions && crawlerOptions.verifiedApiRoutes) crawlerOptions.verifiedApiRoutes.add(normalized);
         this.extractEntitiesFromPath(normalized, distinctEntities);
       }
     }
 
-    // Pattern 1c: Functional & Hook Callers across Vue/Nuxt, Svelte, Dart/Flutter, and modern frameworks
-    const hookCallRegex = /(?:useFetch|useAsyncData|\$fetch|fetcher|request|wretch|Uri\.parse)\s*\(\s*([`'"][^`'"]+[`'"])/gi;
+    // Pattern 1c: Functional & Hook Callers across Vue/Nuxt, Svelte, Dart/Flutter, and custom app fetch wrappers (apiFetch, authFetch, etc.)
+    const hookCallRegex = /(?:apiFetch|authFetch|fetchWithAuth|customFetch|apiCall|apiRequest|apiPost|apiGet|apiPut|apiDelete|httpGet|httpPost|sendRequest|request|fetcher|useFetch|useAsyncData|\$fetch|wretch|Uri\.parse)\s*\(\s*([`'"][^`'"]+[`'"])(?:\s*,\s*\{([^}]*)\})?/gi;
     let hm;
     while ((hm = hookCallRegex.exec(code)) !== null) {
       let rawPath = hm[1].slice(1, -1);
+      const options = hm[2] || '';
+      const methodMatch = options.match(/method\s*:\s*["'](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']/i);
+      const method = methodMatch ? methodMatch[1].toUpperCase() : this.inferMethodFromKeyword(rawPath);
       const normalized = this.normalizeApiPath(rawPath);
       if (normalized) {
         if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
-        allEndpoints.get(normalized).add(this.inferMethodFromKeyword(normalized));
+        allEndpoints.get(normalized).add(method);
+        if (crawlerOptions && crawlerOptions.verifiedApiRoutes) crawlerOptions.verifiedApiRoutes.add(normalized);
         this.extractEntitiesFromPath(normalized, distinctEntities);
       }
     }
@@ -1262,6 +1304,7 @@ class UniversalApiCrawler {
           allEndpoints.set(normalized, new Set([method]));
           this.extractEntitiesFromPath(normalized, distinctEntities);
         }
+        if (crawlerOptions && crawlerOptions.verifiedApiRoutes) crawlerOptions.verifiedApiRoutes.add(normalized);
       }
     }
 
@@ -1275,6 +1318,7 @@ class UniversalApiCrawler {
           const method = this.inferMethodFromKeyword(normalized);
           allEndpoints.set(normalized, new Set([method]));
         }
+        if (crawlerOptions && crawlerOptions.verifiedApiRoutes) crawlerOptions.verifiedApiRoutes.add(normalized);
       }
     }
 
@@ -1295,6 +1339,7 @@ class UniversalApiCrawler {
             if (!allEndpoints.has(normalized)) {
               allEndpoints.set(normalized, new Set([this.inferMethodFromKeyword(normalized)]));
             }
+            if (crawlerOptions && crawlerOptions.verifiedApiRoutes) crawlerOptions.verifiedApiRoutes.add(normalized);
           }
         }
       } catch {}

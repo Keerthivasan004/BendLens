@@ -30,6 +30,12 @@ export function generateApiReportHtml(analysisData) {
   const lazyLoadedCount = analysisData?.crawlerTelemetry?.lazyLoadedEndpointsCount 
     || endpoints.filter(e => e.isLazyLoaded || e.crawlTier === 'DEEP_LAZY').length 
     || 0;
+  const genuineApisCount = analysisData?.crawlerTelemetry?.genuineApisCount 
+    || endpoints.filter(e => !e.isUiRoute && e.routeType !== 'PAGE').length 
+    || totalApis;
+  const uiPagesCount = analysisData?.crawlerTelemetry?.uiPagesCount 
+    || endpoints.filter(e => e.isUiRoute || e.routeType === 'PAGE').length 
+    || 0;
 
   // Enrich endpoints by level - mutually exclusive and exhaustive partition
   const highLevel = [];
@@ -367,6 +373,7 @@ export function generateApiReportHtml(analysisData) {
           <span class="badge" style="background: var(--brand-light); color: var(--brand); font-weight: 700;">🚀 Normal Crawl: ${normalCrawlCount}</span>
           <span class="badge" style="background: var(--purple-bg); color: var(--purple); font-weight: 700;">⚡ Lazy Chunks: +${lazyLoadedCount}</span>
           <span class="badge" style="background: var(--emerald-bg); color: var(--emerald); font-weight: 700;">🔍 Deep Crawl: ${deepCrawlCount}</span>
+          ${uiPagesCount > 0 ? `<span class="badge" style="background: rgba(100, 116, 139, 0.12); color: #475569; font-weight: 700;">🖥️ UI Pages: ${uiPagesCount}</span>` : ''}
         ` : ''}
         <span class="badge badge-secure">🛡️ 100% Local-First & Air-Gapped</span>
       </div>
@@ -374,9 +381,9 @@ export function generateApiReportHtml(analysisData) {
 
     <div class="kpi-grid">
       <div class="kpi-card">
-        <div class="kpi-value" style="color: var(--brand);">${totalApis}</div>
-        <div class="kpi-label">Total Discovered APIs</div>
-        <div class="kpi-sub">Authentic route endpoints</div>
+        <div class="kpi-value" style="color: var(--brand);">${genuineApisCount}</div>
+        <div class="kpi-label">Verified Backend APIs</div>
+        <div class="kpi-sub">${uiPagesCount > 0 ? `${totalApis} Total (${uiPagesCount} UI Pages Segregated)` : 'Authentic route endpoints'}</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-value" style="color: var(--purple);">${highLevel.length}</div>
@@ -436,7 +443,7 @@ export function generateApiReportHtml(analysisData) {
             <span style="font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; background: var(--emerald-bg); color: var(--emerald);">EXHAUSTIVE</span>
           </div>
           <div style="font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--emerald); margin-top: 6px;">${deepCrawlCount}</div>
-          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Complete API perimeter for security testing, audits & API contract generation</div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">${uiPagesCount > 0 ? `${genuineApisCount} verified backend APIs & ${uiPagesCount} client-side UI pages` : 'Complete API perimeter for security testing, audits & API contract generation'}</div>
         </div>
       </div>
     </div>
@@ -587,13 +594,18 @@ export function generateApiReportHtml(analysisData) {
               const isLow = lowLevel.includes(ep);
               const tierLabel = isHigh ? 'HIGH' : isLow ? 'LOW' : 'MEDIUM';
               const tierColor = isHigh ? 'color: var(--purple); font-weight: 700;' : isLow ? 'color: var(--emerald);' : 'color: #0284c7; font-weight: 600;';
-              const kind = (ep.path || '').includes('auth') ? 'AUTH' : (ep.path || '').includes('admin') ? 'ADMIN' : (ep.path || '').includes('ai') ? 'AI / ML' : 'REST API';
+              const isPage = ep.isUiRoute || ep.routeType === 'PAGE';
+              const kind = isPage ? 'UI PAGE' : ((ep.path || '').includes('auth') ? 'AUTH' : (ep.path || '').includes('admin') ? 'ADMIN' : (ep.path || '').includes('ai') ? 'AI / ML' : 'REST API');
 
               return `
                 <tr>
                   <td><span class="badge-method method-${m}">${m}</span></td>
                   <td><span class="endpoint-path">${ep.path}</span></td>
-                  <td><span style="font-size: 12px; color: #475569;">${kind}</span></td>
+                  <td>
+                    ${isPage 
+                      ? `<span class="badge" style="font-size: 9px; font-weight: 700; background: rgba(100, 116, 139, 0.12); color: #475569;">🖥️ UI PAGE</span>` 
+                      : `<span style="font-size: 12px; color: #475569; font-weight: 600;">⚡ ${kind}</span>`}
+                  </td>
                   ${isCrawlScan ? `
                     <td>
                       <span class="badge" style="font-size: 10px; font-weight: 700; ${ep.isLazyLoaded ? 'background: var(--purple-bg); color: var(--purple); border-color: rgba(124, 58, 237, 0.2);' : 'background: var(--brand-light); color: var(--brand); border-color: rgba(37, 99, 235, 0.2);'}">

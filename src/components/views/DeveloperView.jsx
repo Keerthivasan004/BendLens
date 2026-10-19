@@ -260,7 +260,9 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               summary: op.summary || op.description || '',
               module: op['x-bundle-source'] || '',
               isLazyLoaded: op['x-lazy-loaded'] === true,
-              crawlTier: op['x-crawl-tier'] || 'normal'
+              crawlTier: op['x-crawl-tier'] || 'normal',
+              routeType: op['x-route-type'] || 'API',
+              isUiRoute: op['x-is-ui-route'] === true
             });
           }
         });
@@ -318,8 +320,10 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
     const normalCount = rawAnalysisData?.crawlerTelemetry?.normalCrawlCount ?? allEnrichedEndpoints.filter(e => !e.isLazyLoaded).length;
     const deepCount = rawAnalysisData?.crawlerTelemetry?.deepCrawlCount ?? total;
     const lazyLoadedCount = rawAnalysisData?.crawlerTelemetry?.lazyLoadedEndpointsCount ?? allEnrichedEndpoints.filter(e => e.isLazyLoaded).length;
+    const genuineCount = rawAnalysisData?.crawlerTelemetry?.genuineApisCount ?? allEnrichedEndpoints.filter(e => !e.isUiRoute && e.routeType !== 'PAGE').length;
+    const uiPageCount = rawAnalysisData?.crawlerTelemetry?.uiPagesCount ?? allEnrichedEndpoints.filter(e => e.isUiRoute || e.routeType === 'PAGE').length;
 
-    return { total, high, medium, low, connected, kinds, normalCount, deepCount, lazyLoadedCount };
+    return { total, high, medium, low, connected, kinds, normalCount, deepCount, lazyLoadedCount, genuineCount, uiPageCount };
   }, [allEnrichedEndpoints, rawAnalysisData]);
 
   const filteredApiEndpoints = useMemo(() => {
@@ -328,6 +332,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       if (apiKindFilter !== 'ALL' && ep.kind !== apiKindFilter) return false;
       if (apiCrawlScopeFilter === 'NORMAL' && ep.isLazyLoaded) return false;
       if (apiCrawlScopeFilter === 'LAZY' && !ep.isLazyLoaded) return false;
+      if (apiCrawlScopeFilter === 'API' && (ep.isUiRoute || ep.routeType === 'PAGE')) return false;
+      if (apiCrawlScopeFilter === 'PAGE' && !ep.isUiRoute && ep.routeType !== 'PAGE') return false;
       if (methodFilter !== 'ALL' && ep.method !== methodFilter) return false;
       if (apiTableFilter !== 'ALL') {
         const touches = (ep.connectedTables || []).some((ct) => ct.name === apiTableFilter);
@@ -363,6 +369,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       if (stackMethodFilter !== 'ALL' && ep.method !== stackMethodFilter) return false;
       if (stackScopeFilter === 'NORMAL' && ep.isLazyLoaded) return false;
       if (stackScopeFilter === 'LAZY' && !ep.isLazyLoaded) return false;
+      if (stackScopeFilter === 'API' && (ep.isUiRoute || ep.routeType === 'PAGE')) return false;
+      if (stackScopeFilter === 'PAGE' && !ep.isUiRoute && ep.routeType !== 'PAGE') return false;
       const q = stackEndpointSearch.trim().toLowerCase();
       if (q && !ep.path.toLowerCase().includes(q) && !(ep.module || '').toLowerCase().includes(q) && !(ep.summary || '').toLowerCase().includes(q)) {
         return false;
@@ -2024,9 +2032,11 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                 <span>Crawl Depth:</span>
               </span>
               {[
-                { id: 'ALL', label: 'All APIs (Deep Crawl)', count: apiStats.deepCount, icon: Sparkles, color: 'text-emerald-500' },
+                { id: 'ALL', label: 'All Discovered Surfaces', count: apiStats.deepCount, icon: Sparkles, color: 'text-emerald-500' },
+                { id: 'API', label: 'Backend APIs Only', count: apiStats.genuineCount, icon: CheckCircle2, color: 'text-brand' },
                 { id: 'NORMAL', label: 'Normal Crawl (Standard)', count: apiStats.normalCount, icon: CheckCircle2, color: 'text-cyan-500' },
-                { id: 'LAZY', label: 'Lazy-Loaded Chunks Only', count: apiStats.lazyLoadedCount, icon: Layers, color: 'text-purple-500' }
+                { id: 'LAZY', label: 'Lazy-Loaded Chunks', count: apiStats.lazyLoadedCount, icon: Layers, color: 'text-purple-500' },
+                ...(apiStats.uiPageCount > 0 ? [{ id: 'PAGE', label: 'UI Pages Only', count: apiStats.uiPageCount, icon: Layers, color: 'text-slate-400' }] : [])
               ].map((cd) => {
                 const Icon = cd.icon;
                 const isActive = apiCrawlScopeFilter === cd.id;
@@ -2050,11 +2060,11 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               })}
             </div>
             <div className="text-[11px] font-mono text-muted hidden lg:flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-surface border border-border text-cyan-400">Normal: {apiStats.normalCount}</span>
-              <span>+</span>
-              <span className="px-2 py-0.5 rounded bg-surface border border-border text-purple-400">Lazy: {apiStats.lazyLoadedCount}</span>
-              <span>=</span>
-              <span className="px-2 py-0.5 rounded bg-surface border border-border text-emerald-400 font-bold">Deep: {apiStats.deepCount}</span>
+              <span className="px-2 py-0.5 rounded bg-surface border border-border text-cyan-400 font-semibold">APIs: {apiStats.genuineCount}</span>
+              {apiStats.uiPageCount > 0 && (
+                <span className="px-2 py-0.5 rounded bg-surface border border-border text-slate-400">UI Pages: {apiStats.uiPageCount}</span>
+              )}
+              <span className="px-2 py-0.5 rounded bg-surface border border-border text-emerald-400 font-bold">Total: {apiStats.deepCount}</span>
             </div>
           </div>
         )}
