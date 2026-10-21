@@ -778,7 +778,7 @@ export default function BlastRadiusSimulator({
                 <div className="flex items-center gap-2">
                   <Code2 className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
                   <h3 className="text-sm font-bold text-foreground">
-                    Impacted Code, Handlers & APIs ({filteredCode.length})
+                    Impacted Code, Handlers & Endpoints ({filteredCode.length})
                   </h3>
                 </div>
                 <span className="text-[10px] font-semibold text-muted uppercase tracking-wider">

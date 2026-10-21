@@ -11,6 +11,7 @@ import {
   Server, SlidersHorizontal, Share2, ArrowDownRight, Layers2, Printer, Cloud
 } from 'lucide-react';
 import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
+import { getApiServicesCount } from '@/lib/apiCountHelper';
 
 /**
  * Analyzes database tables and foreign keys to synthesize architectural breakdown.
@@ -241,6 +242,9 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
   const [copiedPath, setCopiedPath] = useState(null);
 
   const tables = data?.tables || data?.schema?.tables || rawAnalysisData?.schema?.tables || [];
+  const apisCount = useMemo(() => {
+    return getApiServicesCount(rawAnalysisData || data);
+  }, [rawAnalysisData, data]);
   const endpoints = useMemo(() => {
     if (Array.isArray(data?.endpoints) && data.endpoints.length > 0) return data.endpoints;
     if (Array.isArray(data?.code?.endpoints) && data.code.endpoints.length > 0) return data.code.endpoints;
@@ -383,7 +387,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
     return [
       {
         level: 'HIGH',
-        title: 'High-Level APIs (Business Orchestration & Gateway)',
+        title: 'High-Level Endpoints (Business Orchestration & Gateway)',
         badge: 'HIGH-LEVEL',
         badgeColor: 'border-purple-500/30 bg-purple-500/10 text-purple-600 dark:text-purple-400',
         dotColor: 'bg-purple-500',
@@ -392,7 +396,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       },
       {
         level: 'MEDIUM',
-        title: 'Medium-Level APIs (Domain Services & Resource CRUD)',
+        title: 'Medium-Level Endpoints (Domain Services & Resource CRUD)',
         badge: 'MEDIUM-LEVEL',
         badgeColor: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
         dotColor: 'bg-cyan-500',
@@ -401,7 +405,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       },
       {
         level: 'LOW',
-        title: 'Low-Level APIs (System Infrastructure & Diagnostics)',
+        title: 'Low-Level Endpoints (System Infrastructure & Diagnostics)',
         badge: 'LOW-LEVEL',
         badgeColor: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
         dotColor: 'bg-emerald-500',
@@ -543,9 +547,22 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Top Quick Metrics Ribbon */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-border border-y border-border py-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-border border-y border-border py-3">
         {isUrl ? (
           <>
+            <div className="py-2 sm:py-0 px-4">
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-extrabold text-brand font-mono">{apisCount}</span>
+                <span className="text-[10px] font-bold text-brand font-mono bg-brand/10 px-1.5 py-0.5 rounded border border-brand/20">
+                  SERVICES
+                </span>
+              </div>
+              <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
+                <Cpu className="h-3 w-3 text-brand" />
+                <span>Backend APIs</span>
+              </div>
+            </div>
+
             <div className="py-2 sm:py-0 px-4">
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-extrabold text-foreground font-mono">{apiStats.deepCount || endpoints.length}</span>
@@ -555,7 +572,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               </div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
                 <Sparkles className="h-3 w-3 text-emerald-500" />
-                <span>Deep Crawl APIs</span>
+                <span>Total Endpoints</span>
               </div>
             </div>
 
@@ -568,7 +585,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               </div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
                 <Code2 className="h-3 w-3 text-cyan-500" />
-                <span>Normal Crawl APIs</span>
+                <span>Normal Endpoints</span>
               </div>
             </div>
 
@@ -581,7 +598,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               </div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
                 <Layers className="h-3 w-3 text-purple-500" />
-                <span>Lazy-Loaded Modules</span>
+                <span>Lazy Modules</span>
               </div>
             </div>
 
@@ -589,7 +606,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               <div className="text-2xl font-extrabold text-foreground font-mono">{rawAnalysisData?.crawlerTelemetry?.chunksCrawledCount || 1}</div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
                 <Layers2 className="h-3 w-3 text-blue-500" />
-                <span>Code-Split Chunks</span>
+                <span>Code Chunks</span>
               </div>
             </div>
           </>
@@ -598,8 +615,16 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
             <div className="py-2 sm:py-0 px-4">
               <div className="text-2xl font-extrabold text-foreground font-mono">{tables.length}</div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
-                <Database className="h-3 w-3 text-brand" />
+                <Database className="h-3 w-3 text-violet-500" />
                 <span>Database Tables</span>
+              </div>
+            </div>
+
+            <div className="py-2 sm:py-0 px-4">
+              <div className="text-2xl font-extrabold text-foreground font-mono">{apisCount}</div>
+              <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
+                <Cpu className="h-3 w-3 text-brand" />
+                <span>API Modules</span>
               </div>
             </div>
 
@@ -614,7 +639,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
             <div className="py-2 sm:py-0 px-4">
               <div className="text-2xl font-extrabold text-foreground font-mono">{data?.functions?.length || 0}</div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
-                <Layers className="h-3 w-3 text-violet-500" />
+                <Layers className="h-3 w-3 text-purple-500" />
                 <span>AST Functions</span>
               </div>
             </div>
@@ -689,7 +714,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                     <span>Zero Hallucination</span>
                   </span>
                   <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-surface-raised border border-border text-foreground font-semibold">
-                    {allEnrichedEndpoints.length} Discovered APIs
+                    {allEnrichedEndpoints.length} Discovered Endpoints
                   </span>
                 </div>
               </div>
@@ -1853,7 +1878,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                   </span>
                 </div>
                 <p className="text-[11px] text-muted mt-0.5 leading-relaxed">
-                  Both <span className="text-cyan-500 font-semibold font-mono">Normal Crawl ({apiStats.normalCount} public APIs)</span> and <span className="text-emerald-500 font-semibold font-mono">Deep Crawl ({apiStats.deepCount} total APIs)</span> surfaces have been captured. Deep crawl traversed <span className="text-purple-500 font-semibold font-mono">+{apiStats.lazyLoadedCount} lazy-loaded endpoints</span> across role-restricted bundles (Admin, Mentor, TPO, Employer) for exhaustive penetration & API testing.
+                  Both <span className="text-cyan-500 font-semibold font-mono">Normal Crawl ({apiStats.normalCount} public endpoints)</span> and <span className="text-emerald-500 font-semibold font-mono">Deep Crawl ({apiStats.deepCount} total endpoints)</span> surfaces have been captured. Deep crawl traversed <span className="text-purple-500 font-semibold font-mono">+{apiStats.lazyLoadedCount} lazy-loaded endpoints</span> across role-restricted bundles (Admin, Mentor, TPO, Employer) for exhaustive penetration & API testing.
                 </p>
               </div>
             </div>
@@ -2033,7 +2058,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               </span>
               {[
                 { id: 'ALL', label: 'All Discovered Surfaces', count: apiStats.deepCount, icon: Sparkles, color: 'text-emerald-500' },
-                { id: 'API', label: 'Backend APIs Only', count: apiStats.genuineCount, icon: CheckCircle2, color: 'text-brand' },
+                { id: 'API', label: 'Backend Endpoints Only', count: apiStats.genuineCount, icon: CheckCircle2, color: 'text-brand' },
                 { id: 'NORMAL', label: 'Normal Crawl (Standard)', count: apiStats.normalCount, icon: CheckCircle2, color: 'text-cyan-500' },
                 { id: 'LAZY', label: 'Lazy-Loaded Chunks', count: apiStats.lazyLoadedCount, icon: Layers, color: 'text-purple-500' },
                 ...(apiStats.uiPageCount > 0 ? [{ id: 'PAGE', label: 'UI Pages Only', count: apiStats.uiPageCount, icon: Layers, color: 'text-slate-400' }] : [])
@@ -2060,7 +2085,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               })}
             </div>
             <div className="text-[11px] font-mono text-muted hidden lg:flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-surface border border-border text-cyan-400 font-semibold">APIs: {apiStats.genuineCount}</span>
+              <span className="px-2 py-0.5 rounded bg-surface border border-border text-brand font-semibold">APIs: {apisCount}</span>
+              <span className="px-2 py-0.5 rounded bg-surface border border-border text-cyan-400 font-semibold">Endpoints: {apiStats.genuineCount}</span>
               {apiStats.uiPageCount > 0 && (
                 <span className="px-2 py-0.5 rounded bg-surface border border-border text-slate-400">UI Pages: {apiStats.uiPageCount}</span>
               )}

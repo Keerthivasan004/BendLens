@@ -12,9 +12,9 @@ BendLens features a multi-persona intelligence translation layer (`src/lib/gener
   - `totalFunctions` & `totalClasses`: Code AST breakdown.
   - `linesOfCode`: Total scanned source lines.
   - `apiIntelligence`:
-    - `high`: Count of High-Level APIs (Business Orchestration, Multi-table mutations, Composite transactions, Gateway).
-    - `medium`: Count of Medium-Level APIs (Domain Resource CRUD & entity services).
-    - `low`: Count of Low-Level APIs (System diagnostics, health checks, telemetry, metadata lookups).
+    - `high`: Count of High-Level Endpoints (Business Orchestration, Multi-table mutations, Composite transactions, Gateway).
+    - `medium`: Count of Medium-Level Endpoints (Domain Resource CRUD & entity services).
+    - `low`: Count of Low-Level Endpoints (System diagnostics, health checks, telemetry, metadata lookups).
     - `connected`: Count of endpoints with explicit database entity dependencies.
     - `byKind`: Protocol distribution (`REST`, `WEBSOCKET`, `AUTH`, `STORAGE`, `ADMIN`, `WEBHOOK`, `SYSTEM`, `GRAPHQL`).
 - **Interactive Multi-Tier API Topology**:

@@ -11,6 +11,7 @@ import {
   Activity, ChevronRight, Globe, Printer, Cloud
 } from 'lucide-react';
 import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
+import { getApiServicesCount } from '@/lib/apiCountHelper';
 
 export default function Header({
   onAnalyze,
@@ -109,7 +110,7 @@ export default function Header({
               <button
                 onClick={() => openAndPrintApiReport(analysisData)}
                 className="btn-primary text-xs py-2 px-3 whitespace-nowrap flex items-center gap-1.5 shadow-sm"
-                title="Download / Print Discovered APIs Assessment PDF Report"
+                title="Download / Print Discovered Endpoints Assessment PDF Report"
               >
                 <Printer className="h-3 w-3" />
                 <span>API PDF</span>
@@ -169,16 +170,28 @@ export default function Header({
                   <span><strong className="text-foreground font-mono">{analysisData.schema?.tables?.length || 0}</strong> tables</span>
                 </span>
                 <span className="h-3 w-px bg-border hidden md:block" />
+                {(() => {
+                  const apisCount = getApiServicesCount(analysisData);
+                  return (
+                    <>
+                      <span className="flex items-center gap-1.5 px-1 text-muted" title={`${apisCount} Discovered Backend API Services / Gateways`}>
+                        <Cpu className="h-3.5 w-3.5 text-violet-400 shrink-0" />
+                        <span><strong className="text-violet-400 font-mono">{apisCount}</strong> {apisCount === 1 ? 'API' : 'APIs'}</span>
+                      </span>
+                      <span className="h-3 w-px bg-border hidden md:block" />
+                    </>
+                  );
+                })()}
                 {analysisData.crawlerTelemetry ? (
                   <>
-                    <span className="flex items-center gap-1.5 px-1 text-muted" title="Normal Crawl: Baseline API surface discovered in entry bundles">
+                    <span className="flex items-center gap-1.5 px-1 text-muted" title="Normal Crawl: Baseline API endpoints discovered in entry bundles">
                       <CheckCircle2 className="h-3.5 w-3.5 text-cyan-500 shrink-0" />
                       <span>Normal: <strong className="text-cyan-400 font-mono">{analysisData.crawlerTelemetry.normalCrawlCount ?? analysisData.code?.endpoints?.filter(e => !e.isLazyLoaded).length ?? 0}</strong></span>
                     </span>
                     <span className="h-3 w-px bg-border hidden md:block" />
-                    <span className="flex items-center gap-1.5 px-1 text-muted" title="Deep Crawl: Total API surface discovered across all code-split chunks">
+                    <span className="flex items-center gap-1.5 px-1 text-muted" title="Deep Crawl: Total API endpoints discovered across all code-split chunks">
                       <Sparkles className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                      <span>Deep: <strong className="text-emerald-400 font-mono">{analysisData.crawlerTelemetry.deepCrawlCount ?? analysisData.code?.endpoints?.length ?? 0}</strong> APIs</span>
+                      <span>Deep: <strong className="text-emerald-400 font-mono">{analysisData.crawlerTelemetry.deepCrawlCount ?? analysisData.code?.endpoints?.length ?? 0}</strong> endpoints</span>
                     </span>
                     {(analysisData.techStack?.frontend?.framework || analysisData.crawlerTelemetry?.techStack?.frontend?.framework) && (
                       <>
@@ -215,8 +228,8 @@ export default function Header({
                   </>
                 ) : (
                   <span className="flex items-center gap-1.5 px-1 text-muted">
-                    <Cpu className="h-3.5 w-3.5 text-rose-500 shrink-0" />
-                    <span><strong className="text-foreground font-mono">{analysisData.code?.endpoints?.length || 0}</strong> APIs</span>
+                    <Code2 className="h-3.5 w-3.5 text-rose-500 shrink-0" />
+                    <span><strong className="text-foreground font-mono">{analysisData.code?.endpoints?.length || 0}</strong> endpoints</span>
                   </span>
                 )}
                 <span className="h-3 w-px bg-border hidden md:block" />

@@ -66,8 +66,9 @@ Use this skill when you need to:
          - Extracts exact WordPress core version from `<meta name="generator" content="WordPress X.Y.Z">`.
          - Automatically identifies page builders, editors, and major plugins: WooCommerce (`woocommerce`), Elementor (`elementor-`), Divi (`et_builder`), Gutenberg Block Editor (`wp-block-*`), Yoast SEO (`yoast`), and Contact Form 7 (`wpcf7`).
          - Automatically resolves and probes the authentic WordPress REST API manifest at `/wp-json/` or `<link rel="https://api.w.org/" href="...">`.
+         - Mounts all discovered REST endpoints under the `/wp-json/` base prefix for 100% callable accuracy.
          - Maps Python-style regex route parameters (`(?P<id>[\d]+)`, `(?<slug>[\w-]+)`) into standard OpenAPI `{id}` / `{slug}` parameters.
-         - Ingests all authentic REST endpoints (e.g. 538+ routes across `wp/v2`, `wporg/v1`, plugins) with genuine HTTP verbs (GET, POST, PUT, DELETE) and arguments.
+         - Ingests all authentic REST endpoints (e.g. 160-500+ endpoints across `wp/v2`, `wporg/v1`, plugins) with genuine HTTP verbs (GET, POST, PUT, DELETE) and arguments.
          - Automatically maps architecture to `Server-Side Rendered (SSR) / Multi-Page CMS` and `WordPress Permalinks (Server-Routed)`.
        - Extracts `<form action="/..." method="...">` submissions.
        - Discovers anchor links pointing to REST/API surfaces (`<a href="/api/...">`).

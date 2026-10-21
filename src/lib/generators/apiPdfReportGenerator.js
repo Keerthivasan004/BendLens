@@ -4,6 +4,8 @@
  * for crawled API surfaces with zero external cloud dependencies.
  */
 
+import { getApiServicesCount } from '@/lib/apiCountHelper';
+
 export function generateApiReportHtml(analysisData) {
   const projectName = analysisData?.projectName || 'Target Web Architecture';
   const targetUrl = analysisData?.crawlerTelemetry?.targetUrl || analysisData?.projectPath || projectName;
@@ -19,6 +21,7 @@ export function generateApiReportHtml(analysisData) {
 
   const endpoints = analysisData?.code?.endpoints || [];
   const totalApis = endpoints.length;
+  const apisCount = getApiServicesCount(analysisData);
 
   // Dual-Depth Crawl Metrics
   const isCrawlScan = Boolean(analysisData?.crawlerTelemetry);
@@ -200,7 +203,7 @@ export function generateApiReportHtml(analysisData) {
     /* KPI Grid */
     .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
       gap: 16px;
       margin: 32px 0;
     }
@@ -381,23 +384,28 @@ export function generateApiReportHtml(analysisData) {
 
     <div class="kpi-grid">
       <div class="kpi-card">
+        <div class="kpi-value" style="color: #7c3aed;">${apisCount}</div>
+        <div class="kpi-label">Backend APIs / Services</div>
+        <div class="kpi-sub">Discovered Gateways & Modules</div>
+      </div>
+      <div class="kpi-card">
         <div class="kpi-value" style="color: var(--brand);">${genuineApisCount}</div>
-        <div class="kpi-label">Verified Backend APIs</div>
+        <div class="kpi-label">Verified Endpoints</div>
         <div class="kpi-sub">${uiPagesCount > 0 ? `${totalApis} Total (${uiPagesCount} UI Pages Segregated)` : 'Authentic route endpoints'}</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-value" style="color: var(--purple);">${highLevel.length}</div>
-        <div class="kpi-label">High-Level APIs</div>
+        <div class="kpi-label">High-Level Endpoints</div>
         <div class="kpi-sub">Gateway, Auth & Mutations</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-value" style="color: #0284c7;">${mediumLevel.length}</div>
-        <div class="kpi-label">Medium-Level APIs</div>
+        <div class="kpi-label">Medium-Level Endpoints</div>
         <div class="kpi-sub">Domain CRUD & Queries</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-value" style="color: var(--emerald);">${lowLevel.length}</div>
-        <div class="kpi-label">Low-Level APIs</div>
+        <div class="kpi-label">Low-Level Endpoints</div>
         <div class="kpi-sub">Diagnostics & Metrics</div>
       </div>
     </div>
@@ -443,7 +451,7 @@ export function generateApiReportHtml(analysisData) {
             <span style="font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; background: var(--emerald-bg); color: var(--emerald);">EXHAUSTIVE</span>
           </div>
           <div style="font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--emerald); margin-top: 6px;">${deepCrawlCount}</div>
-          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">${uiPagesCount > 0 ? `${genuineApisCount} verified backend APIs & ${uiPagesCount} client-side UI pages` : 'Complete API perimeter for security testing, audits & API contract generation'}</div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">${uiPagesCount > 0 ? `${genuineApisCount} verified backend endpoints & ${uiPagesCount} client-side UI pages` : 'Complete endpoint perimeter for security testing, audits & API contract generation'}</div>
         </div>
       </div>
     </div>

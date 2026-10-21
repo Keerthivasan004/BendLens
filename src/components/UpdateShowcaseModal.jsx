@@ -316,7 +316,7 @@ export default function UpdateShowcaseModal({
                       </div>
                       <ArrowRight className="h-3 w-3 text-amber-400 shrink-0 animate-pulse" />
                       <div className="p-2 rounded-lg bg-blue-950/60 border border-blue-500/50 flex-1">
-                        <span className="text-sky-400 block font-bold mb-0.5">APIs (4 Broken)</span>
+                        <span className="text-sky-400 block font-bold mb-0.5">Endpoints (4 Broken)</span>
                         <span className="text-slate-300 text-[9px]">POST /checkout</span>
                       </div>
                     </div>

@@ -574,9 +574,15 @@ class UniversalApiCrawler {
           if (wpRes.ok && (wpRes.contentType?.includes('application/json') || wpRes.text.trim().startsWith('{'))) {
             const wpData = JSON.parse(wpRes.text);
             if (wpData && wpData.routes && typeof wpData.routes === 'object') {
+              const wpPathPrefix = new URL(wpJsonUrl).pathname.replace(/\/+$/, '') || '/wp-json';
               for (const [rawRoute, routeInfo] of Object.entries(wpData.routes)) {
-                const normalized = this.normalizeApiPath(rawRoute);
+                let fullRoute = rawRoute;
+                if (!fullRoute.startsWith(wpPathPrefix)) {
+                  fullRoute = rawRoute === '/' ? wpPathPrefix : `${wpPathPrefix}${rawRoute.startsWith('/') ? '' : '/'}${rawRoute}`;
+                }
+                const normalized = this.normalizeApiPath(fullRoute);
                 if (normalized) {
+                  verifiedApiRoutes.add(normalized);
                   if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
                   const methods = Array.isArray(routeInfo?.methods) ? routeInfo.methods : ['GET'];
                   for (const m of methods) {
@@ -2504,8 +2510,18 @@ class UniversalApiCrawler {
       'tag', 'seq', 'yaml', 'spec'
     ]);
 
-    if (segments.some(seg => forbiddenTokens.has(seg.toLowerCase()))) {
-      return null;
+    for (let i = 0; i < segments.length; i++) {
+      const segLower = segments[i].toLowerCase();
+      if (forbiddenTokens.has(segLower)) {
+        // If it's a verified API route pattern (e.g. /wp-json/..., /api/v1/orders/cancel),
+        // allow action words like 'cancel', 'stop', 'close' as valid terminal action sub-resources:
+        const isActionWord = ['cancel', 'stop', 'close', 'finish', 'end'].includes(segLower);
+        const isQualifiedApi = clean.startsWith('/api/') || clean.startsWith('/v1/') || clean.startsWith('/v2/') || clean.startsWith('/wp-json/') || clean.startsWith('/rest/');
+        const isTerminal = i === segments.length - 1;
+        if (!(isActionWord && isQualifiedApi && isTerminal)) {
+          return null;
+        }
+      }
     }
 
     // Normalize and validate each segment:
@@ -2587,7 +2603,7 @@ class UniversalApiCrawler {
     if (!path || typeof path !== 'string') return;
     const lower = path.toLowerCase();
     const isCandidatePath = lower.startsWith('/api/') || lower.startsWith('/v1/') || lower.startsWith('/v2/') || lower.startsWith('/rest/') ||
-      lower.startsWith('/wp/v2/') || lower.startsWith('/wp/') || lower.startsWith('/wporg/') || lower.startsWith('/jetpack/') || lower.startsWith('/wp-');
+      lower.startsWith('/wp-json/') || lower.startsWith('/wp/v2/') || lower.startsWith('/wp/') || lower.startsWith('/wporg/') || lower.startsWith('/jetpack/') || lower.startsWith('/wp-');
 
     if (!isCandidatePath) return;
 
@@ -2595,10 +2611,10 @@ class UniversalApiCrawler {
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
       const next = segments[i + 1];
-      // Must be a collection segment followed by an ID/parameter (e.g., /wp/v2/posts/{id} -> posts)
+      // Must be a collection segment followed by an ID/parameter (e.g., /wp-json/wp/v2/posts/{id} -> posts)
       if (next && (next.startsWith('{') || next.startsWith(':') || /^\d+$/.test(next))) {
         const cleanSeg = seg.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-        if (!['api', 'v1', 'v2', 'v3', 'v4', 'wp', 'wporg', 'jetpack', 'auth', 'oauth', 'admin', 'system', 'batch', 'oembed', 'sites', '_id_'].includes(cleanSeg)) {
+        if (!['api', 'v1', 'v2', 'v3', 'v4', 'wp', 'wp_json', 'wp-json', 'wporg', 'jetpack', 'auth', 'oauth', 'admin', 'system', 'batch', 'oembed', 'sites', '_id_'].includes(cleanSeg)) {
           entitySet.add(cleanSeg);
         }
       }

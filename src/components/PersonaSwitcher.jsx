@@ -2,11 +2,13 @@
 
 import React from 'react';
 import { Terminal, Users, Briefcase, Zap } from 'lucide-react';
+import { getApiServicesCount } from '@/lib/apiCountHelper';
 
 export default function PersonaSwitcher({ currentRole, setRole, data, isUrlScan = false }) {
   const isUrl = isUrlScan || data?.isUrlCrawl || !!data?.crawlerTelemetry || (data?.schema?.tables?.length === 0 && (data?.code?.endpoints?.length || 0) > 0);
   const tablesCount = data?.schema?.tables?.length || 0;
-  const apisCount = data?.code?.endpoints?.length || 0;
+  const endpointsCount = data?.code?.endpoints?.length || 0;
+  const apisCount = getApiServicesCount(data);
   const debtCount = data?.personas?.manager?.techDebtHotspots?.length || 0;
   const riskScore = data?.sampleImpact?.blastRadius?.riskScore || 65;
   const domainsCount = data?.personas?.business?.capabilities?.length || 0;
@@ -16,7 +18,7 @@ export default function PersonaSwitcher({ currentRole, setRole, data, isUrlScan 
       id: 'DEVELOPER',
       label: 'Developer',
       icon: Terminal,
-      badge: isUrl ? `${apisCount} APIs · Web Surface` : `${tablesCount} tables · ${apisCount} APIs`,
+      badge: isUrl ? `${apisCount} APIs · ${endpointsCount} endpoints` : `${tablesCount} tables · ${apisCount} APIs · ${endpointsCount} endpoints`,
       tag: isUrl ? 'API Architecture · Sequence' : 'AST · ERD · LLD',
       accent: 'text-blue-500',
     },
