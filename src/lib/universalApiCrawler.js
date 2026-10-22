@@ -1073,9 +1073,35 @@ class UniversalApiCrawler {
       if (allEndpoints.size === 0) {
         discoveryStrategy = 'web_surface_scan';
         if (discoveredPages.size > 0) {
-          for (const p of discoveredPages) {
-            const clean = p.replace(/\/+$/, '') || '/';
-            allEndpoints.set(clean, new Set(['GET']));
+          const isMarketingOrStatic = (p) => {
+            const lower = p.toLowerCase();
+            if (lower.startsWith('/_next') || lower.startsWith('/_nuxt') || lower.startsWith('/__')) return true;
+            if (lower.startsWith('/legal') || lower.includes('privacy') || lower.includes('terms') || lower.includes('license') || lower.includes('agreement') || lower.includes('policy')) return true;
+            if (lower.startsWith('/invoice-templates') || lower.startsWith('/templates') || lower.startsWith('/downloads')) return true;
+            if (lower.startsWith('/research') || lower.startsWith('/articles') || lower.startsWith('/blog') || lower.startsWith('/news') || lower.startsWith('/press')) return true;
+            if (lower.startsWith('/integrations')) return true;
+            if (lower === '/about' || lower === '/about-us' || lower === '/contact' || lower === '/contact-us' || lower === '/careers' || lower === '/pricing' || lower === '/tools' || lower.startsWith('/tools/') || lower === '/faq' || lower === '/help') return true;
+            if (lower === '/alternative' || lower === '/compare' || lower === '/list') return true;
+            const marketingLandingRoots = ['/', '/finstart', '/finbooks', '/finsights', '/fintax', '/finhire', '/finstock', '/finally', '/firmstackk', '/complyy'];
+            if (marketingLandingRoots.includes(lower)) return true;
+            return false;
+          };
+
+          const functionalPages = Array.from(discoveredPages)
+            .map(p => (p.replace(/\/+$/, '') || '/'))
+            .filter(p => !isMarketingOrStatic(p));
+
+          if (functionalPages.length > 0) {
+            for (const clean of functionalPages) {
+              allEndpoints.set(clean, new Set(['GET']));
+            }
+          } else {
+            for (const p of discoveredPages) {
+              const clean = p.replace(/\/+$/, '') || '/';
+              if (!clean.startsWith('/_next') && !clean.startsWith('/_nuxt') && !clean.startsWith('/__')) {
+                allEndpoints.set(clean, new Set(['GET']));
+              }
+            }
           }
         } else {
           allEndpoints.set('/', new Set(['GET']));
@@ -1094,6 +1120,7 @@ class UniversalApiCrawler {
           ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') ||
           ep.startsWith('/auth/') || ep.startsWith('/oauth/') || ep.startsWith('/rest/') || ep.startsWith('/graphql') ||
           ep.startsWith('/wp-json/') || ep.startsWith('/wp/v2/') ||
+          ep.startsWith('/business-formation/') ||
           Array.from(methods).some(m => ['POST', 'PUT', 'DELETE', 'PATCH'].includes(String(m).toUpperCase()));
 
         const isKnownUiPage = discoveredPages.has(ep) ||
@@ -2471,6 +2498,11 @@ class UniversalApiCrawler {
     clean = clean.replace(/\/+$/, '').trim();
 
     if (!clean.startsWith('/')) clean = '/' + clean;
+
+    // Filter out Next.js / Nuxt / framework internal assets (e.g. /_next/image)
+    if (clean.startsWith('/_next/') || clean.startsWith('/_nuxt/') || clean.startsWith('/__')) {
+      return null;
+    }
 
     // Filter out asset files & non-API file extensions
     if (/\.(?:js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map|wasm|webp|mp4|webm|avi|mp3|pdf|zip|tar|gz|txt|md|html)$/i.test(clean)) {

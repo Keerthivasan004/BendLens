@@ -10,6 +10,7 @@ import ManagerView from '@/components/views/ManagerView';
 import BusinessView from '@/components/views/BusinessView';
 import BlastRadiusSimulator from '@/components/BlastRadiusSimulator';
 import ExportModal from '@/components/ExportModal';
+import ApiFlowModal from '@/components/ApiFlowModal';
 import { ArrowLeft, RefreshCw, AlertCircle, Layers, FolderSearch, Clock, Timer } from 'lucide-react';
 
 export default function LensDashboard() {
@@ -20,6 +21,7 @@ export default function LensDashboard() {
   const [currentRole, setRole] = useState('DEVELOPER');
   const [activeDiagramTab, setActiveDiagramTab] = useState('erd');
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [showApiFlowModal, setShowApiFlowModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [theme, setTheme] = useState('dark');
   const [isLocalApp, setIsLocalApp] = useState(true);
@@ -78,7 +80,7 @@ export default function LensDashboard() {
           setAnalysisData(sessionData);
           setCurrentPath(sessionData.projectPath || sessionData.projectName || '');
           if (sessionData.isUrlCrawl || sessionData.crawlerTelemetry || sessionData.schema?.tables?.length === 0) {
-            setActiveDiagramTab('sequence');
+            setActiveDiagramTab('apiFlow');
           }
           restoredFromSession = true;
         }
@@ -105,7 +107,7 @@ export default function LensDashboard() {
 
   useEffect(() => {
     if (isUrlScan && activeDiagramTab === 'erd') {
-      setActiveDiagramTab('sequence');
+      setActiveDiagramTab('apiFlow');
     }
   }, [isUrlScan, activeDiagramTab]);
 
@@ -237,6 +239,37 @@ export default function LensDashboard() {
     }
   };
 
+  const resolvedEndpoints = React.useMemo(() => {
+    if (!analysisData) return [];
+    if (Array.isArray(analysisData.code?.endpoints) && analysisData.code.endpoints.length > 0) {
+      return analysisData.code.endpoints;
+    }
+    if (Array.isArray(analysisData.endpoints) && analysisData.endpoints.length > 0) {
+      return analysisData.endpoints;
+    }
+    if (analysisData.openApiSpec?.paths) {
+      const eps = [];
+      Object.entries(analysisData.openApiSpec.paths).forEach(([routePath, methodsObj]) => {
+        if (!methodsObj || typeof methodsObj !== 'object') return;
+        Object.entries(methodsObj).forEach(([m, op]) => {
+          if (['get', 'post', 'put', 'delete', 'patch', 'options', 'head'].includes(m.toLowerCase())) {
+            eps.push({
+              path: routePath,
+              method: m.toUpperCase(),
+              summary: op?.summary || op?.description || '',
+              description: op?.description || '',
+              parameters: op?.parameters || [],
+              requestBody: op?.requestBody || null,
+              responses: op?.responses || {}
+            });
+          }
+        });
+      });
+      return eps;
+    }
+    return [];
+  }, [analysisData]);
+
   return (
     <main className="min-h-screen bg-background text-foreground flex flex-col pb-16 transition-colors selection:bg-brand/20 selection:text-foreground">
       {/* Top Header */}
@@ -252,6 +285,7 @@ export default function LensDashboard() {
         onToggleTheme={toggleTheme}
         isLocalApp={isLocalApp}
         onDownloadApp={handleDownloadApp}
+        onOpenApiFlow={() => setShowApiFlowModal(true)}
       />
 
       {/* Breadcrumb & Navigation Strip */}
@@ -369,6 +403,7 @@ export default function LensDashboard() {
             <DiagramCanvas 
               diagrams={analysisData.diagrams} 
               schemaData={analysisData.schema} 
+              endpoints={resolvedEndpoints}
               theme={theme} 
               onSelectForImpact={handleSelectForImpact}
               activeTab={activeDiagramTab}
@@ -428,6 +463,17 @@ export default function LensDashboard() {
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
         data={analysisData}
+      />
+
+      {/* Visual Interactive API Flow Graph Modal */}
+      <ApiFlowModal
+        isOpen={showApiFlowModal}
+        onClose={() => setShowApiFlowModal(false)}
+        endpoints={resolvedEndpoints}
+        tables={analysisData?.schema?.tables || []}
+        diagrams={analysisData?.diagrams}
+        theme={theme}
+        onSelectForImpact={handleSelectForImpact}
       />
     </main>
   );

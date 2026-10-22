@@ -92,7 +92,7 @@ flowchart TD
 
 ### Phase 4: Downstream Generation Engines
 1. **`DiagramGenerator` (`src/lib/generators/diagramGenerator.js`)**:
-   - Compiles graph nodes and schemas into Mermaid diagram definitions (`erDiagram`, `flowchart TB`, `flowchart LR`, `sequenceDiagram`).
+   - Compiles graph nodes and schemas into Mermaid diagram definitions (`erDiagram`, `flowchart TB` for HLD, `flowchart LR` for LLD, `sequenceDiagram` for request sequences, and `flowchart LR` for ApiFlow API endpoints communication & dependency flow).
 2. **`ImpactAnalyzer` (`src/lib/generators/impactAnalyzer.js`)**:
    - Evaluates consequences of renaming/deleting tables, columns, constraints, or endpoints. Calculates ripple nodes, affected code files, downstream FK failures, and risk scores.
 3. **`PersonaMapper` (`src/lib/generators/personaMapper.js`)**:
@@ -115,4 +115,31 @@ flowchart TD
   - For external website URL crawls, backend server-side database schemas are private and unexposed over HTTP.
   - BendLens automatically switches the initial diagram tab away from ERD to `sequence` (API Execution Sequence), completely hides the Database Schema & Developer Architecture section and database table filters, and renders the API Routes & Multi-Tier Topology view directly as the primary hero experience.
 - **Real-Time Telemetry, Timers & Cancellation Support**: Both `/` (Landing/Ingestion) and `/lens` (Studio Workspace) integrate millisecond-accurate stopwatch telemetry (`scanElapsedTime` / `rescanElapsedTime`), streaming live elapsed time in progress HUDs and displaying final duration upon completion without artificial delays. Ingestion uses `AbortController` (`handleCancelScan`), allowing users to cancel in-flight requests at any stage without hanging UI state.
+- **API Services & Endpoints Breakdown Engine (`src/lib/apiBreakdownHelper.js` & `src/components/ApiBreakdownModal.jsx`)**:
+  - Solves the critical architectural requirement: answering which API has how many endpoints and what are the endpoints' names.
+  - Dynamically computes endpoint counts, HTTP method distributions, risk tiers, and complete route inventories grouped by:
+    1. Semantic Resource / Service (e.g. Authentication API, User Management API, Order Processing API, Product Catalog API, Payments & Billing API, Health & Diagnostics API).
+    2. Source Controller / Module File (e.g. `auth_service.py`, `order_service.py`, `app.py`, `controllers/userController.js`).
+    3. Architectural Protocol / Kind (e.g. `REST`, `AUTH`, `STORAGE`, `ADMIN`, `WEBHOOK`, `SYSTEM`, `GRAPHQL`).
+  - Seamlessly surfaced across user surfaces:
+    - Interactive, clickable "X APIs" badge in `Header.jsx` with direct modal launcher.
+    - Dedicated "API Breakdown" action button in `Header.jsx`, `page.jsx`, and `DeveloperView.jsx`.
+    - Integrated dual-mode route explorer in `DeveloperView.jsx` ("By API" accordion cards vs "Flat List").
+- **Interactive API Flow & Visual Mesh Studio (`src/components/ApiFlowModal.jsx`)**:
+  - **Dual-Orientation Engine (Horizontal & Vertical Switcher)**: Features an interactive 1-click toolbar orientation toggle (`[ ↔ Horizontal ]` and `[ ↕ Vertical ]`) with instantaneous auto-fit viewport re-centering:
+    1. **Horizontal Layout Engine (`layoutOrientation === 'HORIZONTAL'`)**: Expansive left-to-right progression across 4 structural stages: Stage 1 Ingress Gateway ($X = 60$), Stage 2 API Service Roots ($X = 410$), Stage 3 Resource Branches ($X = 790$), and Stage 4 Endpoints ($X = 1150$). Uses **orthogonal horizontal tree connectors** (single horizontal stem $\to$ vertical distributor spine at $X = 1085 \dots 725 \dots 350$ $\to$ horizontal shelf fingers with junction beads) to eliminate line bundling and straight-line visual noise. Fine-grained resource branch resolution partitions endpoints into natural branches (e.g. `/llc`, `/c-corp`, `/advisory`) rather than monolithic lists. Dedicated right-gutter orthogonal conduits ($X = 1420+$) route cross-endpoint communication arcs in parallel, non-overlapping lanes.
+    2. **Vertical Layout Engine (`layoutOrientation === 'VERTICAL'`)**: Top-to-bottom hierarchy across 5 vertical tiers:
+       - **Tier 1 (Edge Ingress Gateway Router)**: Placed at top-center ($Y = 50$), dynamically sized and centered across the canvas width, routing downward to API Service Roots.
+       - **Tier 2 (API Service Root)**: Centered horizontally beneath the Gateway ($Y = 168$) within each service cluster box. Intelligent domain grouping normalizes `/api/` and `/api/v1/` prefixes.
+       - **Tier 3 (Resource Controller Branches)**: Resource branches (`/auth`, `/users`, `/orders`, `/payments`, `/health`) positioned side-by-side in parallel vertical columns ($Y = 296$), with smooth cubic Bézier canopy trunks radiating downward from the API Root with luminous junction dots (`●`).
+       - **Tier 4 (Endpoints Under Branches)**: Endpoints hang vertically directly **under** their respective branch header ($Y \ge 376$) in that column. A vertical spine drops from the branch bottom down the column flank with horizontal spur conduits entering each endpoint card.
+       - **Tier 5 (2D Multi-Column Communication Mesh)**:
+         - **Cross-Column Forward Flows** ($src.x < tgt.x - 30$): Smooth horizontal cubic Bézier S-curves bridging cleanly across inter-column corridors from source right edge to target left edge.
+         - **Cross-Column Backward Flows** ($src.x > tgt.x + 30$): Smooth reverse Bézier curves sweeping across columns from source left edge to target right edge.
+         - **Intra-Column Sibling Flows** ($|src.x - tgt.x| \le 30$): Lateral loops arching into the column's right clearance flank with deterministic lane offsets ($22\text{px} + \text{lane} \times 14\text{px}$).
+         - **Cross-Service Cascades**: Outer bypass highways around the cluster perimeter with $48\text{px} + \text{lane} \times 24\text{px}$ clearance.
+         - Zero overlapping or colliding wires — clean directional neon arrowheads (`markerEnd`), animated traffic pulse particles, and floating protocol relationship pills on hover/focus.
+         - Terminal lugs distributed across endpoint card perimeters prevent bunching at single points.
+         - Real-time traffic pulse animations (`flowMarch` dashed strokes), directional arrow markers (`markerEnd`), floating protocol relationship pills, and bidirectional connection indicators (`↓ N in`, `→ M out`).
+         - Interactive flow spotlighting dims unrelated wires to `0.04` opacity, while communication protocol filter chips (`All`, `Auth Token`, `State Handoff`, `DB Entity Bus`, `Sub-Resource`, `Async Events`, `Cross-Service`) isolate specific protocol channels.
 - **Client App (`src/app/lens/page.jsx`)**: Renders interactive diagram canvases with pan/zoom/export, persona views, data tables, and the blast radius simulator.

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Logo from '@/components/Logo';
 import UpdateIndicator from '@/components/UpdateIndicator';
 import ThemeToggle from '@/components/ThemeToggle';
@@ -8,10 +8,11 @@ import useIsDesktop from '@/lib/useIsDesktop';
 import {
   FolderSearch, Play, Download, Sparkles, Database,
   FileCode, Cpu, CheckCircle2, RefreshCw,
-  Activity, ChevronRight, Globe, Printer, Cloud
+  Activity, ChevronRight, Globe, Printer, Cloud, Layers, Code2, Workflow
 } from 'lucide-react';
 import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 import { getApiServicesCount } from '@/lib/apiCountHelper';
+import ApiBreakdownModal from '@/components/ApiBreakdownModal';
 
 export default function Header({
   onAnalyze,
@@ -24,9 +25,11 @@ export default function Header({
   theme,
   onToggleTheme,
   isLocalApp = true,
-  onDownloadApp
+  onDownloadApp,
+  onOpenApiFlow
 }) {
   const hasAnalysis = !!analysisData;
+  const [showApiBreakdown, setShowApiBreakdown] = useState(false);
   // Downloaded (Electron) users already have the app: never offer it again.
   const isDesktop = useIsDesktop();
   const isLocal = isLocalApp || (typeof window !== 'undefined' && (
@@ -41,12 +44,12 @@ export default function Header({
   const isUrl = (currentPath || '').startsWith('http://') || (currentPath || '').startsWith('https://') || /^(?:api\.|github\.com|gitlab\.com|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/|$))/i.test(currentPath || '');
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border chrome-bar px-4 sm:px-6 py-3 transition-colors">
-      <div className="max-w-7xl mx-auto">
-        {/* Primary row: brand, path, actions */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-2">
+    <header className="relative border-b border-border chrome-bar px-4 sm:px-6 py-3 transition-colors">
+      <div className="w-full max-w-[1720px] mx-auto">
+        {/* Primary row: brand, path input, and system controls */}
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
           {/* Brand cluster */}
-          <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex items-center gap-3 shrink-0">
             <Logo size="sm" />
             {hasAnalysis && (
               <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/[0.08] border border-emerald-500/20 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
@@ -59,9 +62,10 @@ export default function Header({
             )}
           </div>
 
-          {/* Path input + primary actions */}
-          <div className="w-full sm:flex-1 flex items-center gap-2 max-w-2xl">
-            <div className="relative flex-1 min-w-0">
+          {/* Path input + scan actions */}
+          <div className="w-full lg:flex-1 flex items-center gap-2 max-w-2xl min-w-0">
+            {/* Input Box - Guaranteed ample width so it never collapses */}
+            <div className="relative flex-1 min-w-[200px]">
               {isUrl ? (
                 <Globe className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-brand pointer-events-none" />
               ) : (
@@ -82,54 +86,36 @@ export default function Header({
               />
             </div>
 
-            <button
-              onClick={() => onAnalyze(currentPath)}
-              disabled={isLoading}
-              className="btn-primary text-xs py-2 px-3.5 whitespace-nowrap hidden sm:flex"
-              title="Trigger AST Rescan"
-            >
-              {isLoading ? (
-                <RefreshCw className="h-3 w-3 animate-spin" />
-              ) : (
-                <Play className="h-3 w-3 fill-current" />
-              )}
-              <span>Rescan</span>
-            </button>
-
-            <button
-              onClick={onLoadSample}
-              disabled={isLoading}
-              className="btn-secondary text-xs py-2 px-3 whitespace-nowrap"
-              title="Load built-in multi-service e-commerce architecture demo"
-            >
-              <Sparkles className="h-3 w-3 text-brand" />
-              <span className="hidden sm:inline">Sample</span>
-            </button>
-
-            {hasAnalysis && (isUrl || analysisData?.isUrlCrawl || analysisData?.crawlerTelemetry) && (
+            {/* Scan Buttons Cluster */}
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
-                onClick={() => openAndPrintApiReport(analysisData)}
-                className="btn-primary text-xs py-2 px-3 whitespace-nowrap flex items-center gap-1.5 shadow-sm"
-                title="Download / Print Discovered Endpoints Assessment PDF Report"
+                onClick={() => onAnalyze(currentPath)}
+                disabled={isLoading}
+                className="btn-primary text-xs py-2 px-3.5 whitespace-nowrap flex items-center gap-1.5"
+                title="Trigger AST Rescan"
               >
-                <Printer className="h-3 w-3" />
-                <span>API PDF</span>
+                {isLoading ? (
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Play className="h-3 w-3 fill-current" />
+                )}
+                <span>Rescan</span>
               </button>
-            )}
 
-            <button
-              onClick={onExport}
-              disabled={!hasAnalysis}
-              className="btn-secondary text-xs py-2 px-3 whitespace-nowrap disabled:opacity-40"
-              title="Export Architecture & Blast Radius PDF / Markdown Report"
-            >
-              <Download className="h-3 w-3 text-muted" />
-              <span className="hidden sm:inline">Export</span>
-            </button>
+              <button
+                onClick={onLoadSample}
+                disabled={isLoading}
+                className="btn-secondary text-xs py-2 px-3 whitespace-nowrap"
+                title="Load built-in multi-service e-commerce architecture demo"
+              >
+                <Sparkles className="h-3 w-3 text-brand" />
+                <span className="hidden sm:inline">Sample</span>
+              </button>
+            </div>
           </div>
 
           {/* System controls */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 shrink-0 self-end lg:self-center">
             {onDownloadApp && !isDesktop && !isLocal && (
               <button
                 onClick={onDownloadApp}
@@ -151,109 +137,159 @@ export default function Header({
           </div>
         </div>
 
-        {/* Mini stats bar — only when analysis exists */}
+        {/* Secondary Row: Telemetry Stats & Analysis Action Suite */}
         {hasAnalysis && (
-          <div className="pt-2 border-t border-border-subtle">
-            <div className="flex flex-wrap items-center justify-between gap-3 text-[11px]">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="chip !py-1">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                  <span className="font-mono font-semibold">{analysisData.projectName}</span>
-                </span>
-                <span className="flex items-center gap-1.5 px-1 text-muted">
-                  <FileCode className="h-3.5 w-3.5 text-brand shrink-0" />
-                  <span><strong className="text-foreground font-mono">{analysisData.scannedFilesCount}</strong> files</span>
-                </span>
-                <span className="h-3 w-px bg-border hidden md:block" />
-                <span className="flex items-center gap-1.5 px-1 text-muted">
-                  <Database className="h-3.5 w-3.5 text-violet-500 shrink-0" />
-                  <span><strong className="text-foreground font-mono">{analysisData.schema?.tables?.length || 0}</strong> tables</span>
-                </span>
-                <span className="h-3 w-px bg-border hidden md:block" />
-                {(() => {
-                  const apisCount = getApiServicesCount(analysisData);
-                  return (
-                    <>
-                      <span className="flex items-center gap-1.5 px-1 text-muted" title={`${apisCount} Discovered Backend API Services / Gateways`}>
-                        <Cpu className="h-3.5 w-3.5 text-violet-400 shrink-0" />
-                        <span><strong className="text-violet-400 font-mono">{apisCount}</strong> {apisCount === 1 ? 'API' : 'APIs'}</span>
-                      </span>
-                      <span className="h-3 w-px bg-border hidden md:block" />
-                    </>
-                  );
-                })()}
-                {analysisData.crawlerTelemetry ? (
+          <div className="mt-2.5 pt-2.5 border-t border-border-subtle flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-[11px]">
+            {/* Left: Discovered Telemetry Stats */}
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              <span className="chip !py-1">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                <span className="font-mono font-semibold">{analysisData.projectName}</span>
+              </span>
+              <span className="flex items-center gap-1.5 px-1 text-muted">
+                <FileCode className="h-3.5 w-3.5 text-brand shrink-0" />
+                <span><strong className="text-foreground font-mono">{analysisData.scannedFilesCount}</strong> files</span>
+              </span>
+              <span className="h-3 w-px bg-border hidden md:block" />
+              <span className="flex items-center gap-1.5 px-1 text-muted">
+                <Database className="h-3.5 w-3.5 text-violet-500 shrink-0" />
+                <span><strong className="text-foreground font-mono">{analysisData.schema?.tables?.length || 0}</strong> tables</span>
+              </span>
+              <span className="h-3 w-px bg-border hidden md:block" />
+              {(() => {
+                const apisCount = getApiServicesCount(analysisData);
+                return (
                   <>
-                    <span className="flex items-center gap-1.5 px-1 text-muted" title="Normal Crawl: Baseline API endpoints discovered in entry bundles">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-cyan-500 shrink-0" />
-                      <span>Normal: <strong className="text-cyan-400 font-mono">{analysisData.crawlerTelemetry.normalCrawlCount ?? analysisData.code?.endpoints?.filter(e => !e.isLazyLoaded).length ?? 0}</strong></span>
-                    </span>
+                    <button
+                      onClick={() => setShowApiBreakdown(true)}
+                      className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-violet-500/[0.08] hover:bg-violet-500/[0.16] border border-violet-500/20 hover:border-violet-500/40 text-violet-700 dark:text-violet-300 transition-all cursor-pointer group"
+                      title={`${apisCount} Discovered Backend APIs — Click to inspect which API has how many endpoints and all endpoint names`}
+                    >
+                      <Cpu className="h-3.5 w-3.5 text-violet-500 dark:text-violet-400 shrink-0 group-hover:scale-110 transition-transform" />
+                      <span><strong className="text-violet-700 dark:text-violet-400 font-mono">{apisCount}</strong> {apisCount === 1 ? 'API' : 'APIs'}</span>
+                      <ChevronRight className="h-2.5 w-2.5 text-violet-400/60 group-hover:text-violet-400 group-hover:translate-x-0.5 transition-all" />
+                    </button>
                     <span className="h-3 w-px bg-border hidden md:block" />
-                    <span className="flex items-center gap-1.5 px-1 text-muted" title="Deep Crawl: Total API endpoints discovered across all code-split chunks">
-                      <Sparkles className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                      <span>Deep: <strong className="text-emerald-400 font-mono">{analysisData.crawlerTelemetry.deepCrawlCount ?? analysisData.code?.endpoints?.length ?? 0}</strong> endpoints</span>
-                    </span>
-                    {(analysisData.techStack?.frontend?.framework || analysisData.crawlerTelemetry?.techStack?.frontend?.framework) && (
+                  </>
+                );
+              })()}
+              {analysisData.crawlerTelemetry ? (
+                <>
+                  <span className="flex items-center gap-1.5 px-1 text-muted" title="Normal Crawl: Baseline API endpoints discovered in entry bundles">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-cyan-500 shrink-0" />
+                    <span>Normal: <strong className="text-cyan-700 dark:text-cyan-400 font-mono">{analysisData.crawlerTelemetry.normalCrawlCount ?? analysisData.code?.endpoints?.filter(e => !e.isLazyLoaded).length ?? 0}</strong></span>
+                  </span>
+                  <span className="h-3 w-px bg-border hidden md:block" />
+                  <span className="flex items-center gap-1.5 px-1 text-muted" title="Deep Crawl: Total API endpoints discovered across all code-split chunks">
+                    <Sparkles className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                    <span>Deep: <strong className="text-emerald-700 dark:text-emerald-400 font-mono">{analysisData.crawlerTelemetry.deepCrawlCount ?? analysisData.code?.endpoints?.length ?? 0}</strong> endpoints</span>
+                  </span>
+                  {(analysisData.techStack?.frontend?.framework || analysisData.crawlerTelemetry?.techStack?.frontend?.framework) && (
+                    <>
+                      <span className="h-3 w-px bg-border hidden md:block" />
+                      <span className="flex items-center gap-1.5 px-1 text-muted" title={(analysisData.techStack || analysisData.crawlerTelemetry?.techStack)?.summary}>
+                        <Cpu className="h-3.5 w-3.5 text-brand shrink-0" />
+                        <span className="text-foreground font-semibold font-mono text-[11px]">
+                          {(analysisData.techStack || analysisData.crawlerTelemetry?.techStack)?.frontend?.framework}
+                        </span>
+                      </span>
+                    </>
+                  )}
+                  {(() => {
+                    const cp = analysisData.cloudProvider ||
+                      analysisData.techStack?.cloudProvider ||
+                      analysisData.crawlerTelemetry?.cloudProvider ||
+                      analysisData.crawlerTelemetry?.techStack?.cloudProvider;
+                    if (!cp || cp.code === 'unknown') return null;
+                    return (
                       <>
                         <span className="h-3 w-px bg-border hidden md:block" />
-                        <span className="flex items-center gap-1.5 px-1 text-muted" title={(analysisData.techStack || analysisData.crawlerTelemetry?.techStack)?.summary}>
-                          <Cpu className="h-3.5 w-3.5 text-brand shrink-0" />
+                        <span
+                          className="flex items-center gap-1.5 px-1 text-muted cursor-help"
+                          title={`Cloud Service Provider: ${cp.name} (${cp.category}) • Services: ${cp.services?.join(', ') || 'Global Delivery'} • Evidence: ${cp.evidence?.[0] || 'Verified'}`}
+                        >
+                          <Cloud className="h-3.5 w-3.5 text-sky-400 shrink-0" />
                           <span className="text-foreground font-semibold font-mono text-[11px]">
-                            {(analysisData.techStack || analysisData.crawlerTelemetry?.techStack)?.frontend?.framework}
+                            {cp.name.split('(')[0].trim()}
                           </span>
                         </span>
                       </>
-                    )}
-                    {(() => {
-                      const cp = analysisData.cloudProvider ||
-                        analysisData.techStack?.cloudProvider ||
-                        analysisData.crawlerTelemetry?.cloudProvider ||
-                        analysisData.crawlerTelemetry?.techStack?.cloudProvider;
-                      if (!cp || cp.code === 'unknown') return null;
-                      return (
-                        <>
-                          <span className="h-3 w-px bg-border hidden md:block" />
-                          <span
-                            className="flex items-center gap-1.5 px-1 text-muted cursor-help"
-                            title={`Cloud Service Provider: ${cp.name} (${cp.category}) • Services: ${cp.services?.join(', ') || 'Global Delivery'} • Evidence: ${cp.evidence?.[0] || 'Verified'}`}
-                          >
-                            <Cloud className="h-3.5 w-3.5 text-sky-400 shrink-0" />
-                            <span className="text-foreground font-semibold font-mono text-[11px]">
-                              {cp.name.split('(')[0].trim()}
-                            </span>
-                          </span>
-                        </>
-                      );
-                    })()}
-                  </>
-                ) : (
-                  <span className="flex items-center gap-1.5 px-1 text-muted">
-                    <Code2 className="h-3.5 w-3.5 text-rose-500 shrink-0" />
-                    <span><strong className="text-foreground font-mono">{analysisData.code?.endpoints?.length || 0}</strong> endpoints</span>
-                  </span>
-                )}
-                <span className="h-3 w-px bg-border hidden md:block" />
+                    );
+                  })()}
+                </>
+              ) : (
                 <span className="flex items-center gap-1.5 px-1 text-muted">
-                  <Activity className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                  <span><strong className="text-foreground font-mono">{analysisData.graph?.stats?.totalNodes || 0}</strong> nodes</span>
+                  <Code2 className="h-3.5 w-3.5 text-rose-500 shrink-0" />
+                  <span><strong className="text-foreground font-mono">{analysisData.code?.endpoints?.length || 0}</strong> endpoints</span>
                 </span>
-              </div>
-              <div className="flex items-center gap-2 text-[10px] font-mono text-muted tabular-nums">
-                <span className="flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                </span>
-                <span>Synced · {new Date(analysisData.timestamp).toLocaleTimeString()}</span>
-                {analysisData.projectPath && (
-                  <span className="hidden lg:inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-raised border border-border">
-                    <ChevronRight className="h-3 w-3 text-muted" />
-                    <span className="truncate max-w-[200px] font-mono text-[10px]">{analysisData.projectPath}</span>
-                  </span>
-                )}
+              )}
+              <span className="h-3 w-px bg-border hidden md:block" />
+              <span className="flex items-center gap-1.5 px-1 text-muted">
+                <Activity className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                <span><strong className="text-foreground font-mono">{analysisData.graph?.stats?.totalNodes || 0}</strong> nodes</span>
+              </span>
+            </div>
+
+            {/* Right: Analysis Action Suite (PDF, Breakdown, Interactive Graph, Export) */}
+            <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap w-full md:w-auto justify-end">
+              {(isUrl || analysisData?.isUrlCrawl || analysisData?.crawlerTelemetry) && (
+                <button
+                  onClick={() => openAndPrintApiReport(analysisData)}
+                  className="btn-primary text-xs py-1.5 px-3 whitespace-nowrap flex items-center gap-1.5 shadow-sm"
+                  title="Download / Print Discovered Endpoints Assessment PDF Report"
+                >
+                  <Printer className="h-3 w-3" />
+                  <span>API PDF</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => setShowApiBreakdown(true)}
+                className="btn-secondary text-xs py-1.5 px-3 whitespace-nowrap flex items-center gap-1.5 border-violet-500/30 hover:border-violet-500/50 hover:bg-violet-500/10 text-violet-700 dark:text-violet-300 font-medium"
+                title="View which API has how many endpoints and all endpoint names"
+              >
+                <Layers className="h-3.5 w-3.5 text-violet-500 dark:text-violet-400" />
+                <span>API Breakdown</span>
+              </button>
+
+              {onOpenApiFlow && (
+                <button
+                  onClick={onOpenApiFlow}
+                  className="btn-secondary text-xs py-1.5 px-3.5 whitespace-nowrap flex items-center gap-1.5 border-cyan-500/40 hover:border-cyan-500/70 hover:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 font-semibold shadow-sm"
+                  title="View Interactive Visual API Communication Graph in Fullscreen"
+                >
+                  <Workflow className="h-3.5 w-3.5 text-cyan-500 dark:text-cyan-400 animate-pulse" />
+                  <span>View Interactive Graph</span>
+                </button>
+              )}
+
+              <button
+                onClick={onExport}
+                disabled={!hasAnalysis}
+                className="btn-secondary text-xs py-1.5 px-3 whitespace-nowrap flex items-center gap-1.5 disabled:opacity-40"
+                title="Export Architecture & Blast Radius PDF / Markdown Report"
+              >
+                <Download className="h-3.5 w-3.5 text-muted" />
+                <span>Export</span>
+              </button>
+
+              <div className="hidden xl:flex items-center gap-1.5 text-[10px] font-mono text-muted pl-2 border-l border-border-subtle">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                <span>Synced {new Date(analysisData.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
             </div>
           </div>
         )}
       </div>
+
+      {hasAnalysis && (
+        <ApiBreakdownModal
+          isOpen={showApiBreakdown}
+          onClose={() => setShowApiBreakdown(false)}
+          analysisData={analysisData}
+          onOpenApiFlow={onOpenApiFlow}
+        />
+      )}
     </header>
   );
 }

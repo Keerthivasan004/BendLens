@@ -5,6 +5,7 @@
  */
 
 import { getApiServicesCount } from '@/lib/apiCountHelper';
+import { getApiEndpointsBreakdown } from '@/lib/apiBreakdownHelper';
 
 export function generateApiReportHtml(analysisData) {
   const projectName = analysisData?.projectName || 'Target Web Architecture';
@@ -73,19 +74,8 @@ export function generateApiReportHtml(analysisData) {
     else methodCounts.OTHER++;
   });
 
-  // Group endpoints by primary module/tag
-  const moduleGroups = {};
-  endpoints.forEach(ep => {
-    const parts = (ep.path || '').split('/').filter(Boolean);
-    let grp = 'General';
-    if (parts.length > 1 && parts[0] === 'api') {
-      grp = parts[1].toUpperCase();
-    } else if (parts.length > 0) {
-      grp = parts[0].toUpperCase();
-    }
-    if (!moduleGroups[grp]) moduleGroups[grp] = [];
-    moduleGroups[grp].push(ep);
-  });
+  // Compute unified API breakdown
+  const apiBreakdown = getApiEndpointsBreakdown(analysisData, 'resource');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -540,7 +530,7 @@ export function generateApiReportHtml(analysisData) {
       <p style="margin: 0 0 10px;">
         BendLens completed an AST reverse-engineering and network inventory scan of <strong>${targetUrl}</strong>. 
         A total of <strong>${totalApis} unique, authentic backend API endpoints</strong> were uncovered across 
-        <strong>${Object.keys(moduleGroups).length} functional architectural modules</strong>.
+        <strong>${apiBreakdown.totalApisCount} functional API services</strong>.
       </p>
       <p style="margin: 0 0 10px; font-size: 13px; color: #64748b;">
         <strong>Database Isolation Note:</strong> External server-side database schemas are private to the backend server and unexposed over public HTTP requests. 
@@ -592,11 +582,11 @@ export function generateApiReportHtml(analysisData) {
           </tr>
         </thead>
         <tbody>
-          ${Object.entries(moduleGroups).map(([moduleName, eps]) => `
+          ${apiBreakdown.apis.map(api => `
             <tr>
-              <td colspan="${isCrawlScan ? 5 : 4}" class="module-heading">Module: /api/${moduleName.toLowerCase()} (${eps.length} routes)</td>
+              <td colspan="${isCrawlScan ? 5 : 4}" class="module-heading">${api.name} (${api.badge}) — ${api.totalEndpoints} ${api.totalEndpoints === 1 ? 'route' : 'routes'}</td>
             </tr>
-            ${eps.map(ep => {
+            ${api.endpoints.map(ep => {
               const m = (ep.method || 'GET').toUpperCase();
               const isHigh = highLevel.includes(ep);
               const isLow = lowLevel.includes(ep);

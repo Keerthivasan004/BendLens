@@ -13,6 +13,9 @@ import {
   UploadCloud, GitBranch, Globe, Laptop, Lock, AlertTriangle, AlertCircle, Download, Zap, RefreshCw,
   Clock, Timer, X, Cloud, Search, Copy, Check, ChevronDown, ChevronUp, ExternalLink, Code2, Server, Network, Workflow
 } from 'lucide-react';
+import ApiBreakdownModal from '@/components/ApiBreakdownModal';
+import ApiFlowModal from '@/components/ApiFlowModal';
+import { getApiEndpointsBreakdown } from '@/lib/apiBreakdownHelper';
 
 export default function LandingPage() {
   const router = useRouter();
@@ -58,6 +61,13 @@ CREATE TABLE orders (
   const [landingMethodFilter, setLandingMethodFilter] = useState('ALL');
   const [landingEndpointsLimit, setLandingEndpointsLimit] = useState(8);
   const [landingCopiedPath, setLandingCopiedPath] = useState(null);
+  const [showApiBreakdownModal, setShowApiBreakdownModal] = useState(false);
+  const [showApiFlowModal, setShowApiFlowModal] = useState(false);
+  const [apiFlowFocusedEndpoint, setApiFlowFocusedEndpoint] = useState(null);
+
+  const landingBreakdown = useMemo(() => {
+    return getApiEndpointsBreakdown(analysisResult, 'resource');
+  }, [analysisResult]);
 
   const landingEndpointsList = useMemo(() => {
     if (Array.isArray(analysisResult?.code?.endpoints) && analysisResult.code.endpoints.length > 0) {
@@ -1377,6 +1387,28 @@ CREATE TABLE audit_logs (
                               <span className="font-bold text-foreground text-xs font-mono">
                                 {landingFilteredEndpoints.length} of {landingEndpointsList.length} Routes
                               </span>
+                              <button
+                                type="button"
+                                onClick={() => setShowApiBreakdownModal(true)}
+                                className="px-2 py-0.5 rounded-md text-[10px] font-mono font-medium text-violet-400 hover:text-violet-300 bg-violet-500/10 hover:bg-violet-500/15 border border-violet-500/25 flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Inspect which API has how many endpoints and all endpoint names"
+                              >
+                                <Layers className="h-3 w-3" />
+                                <span>API Breakdown ({landingBreakdown.totalApisCount} APIs)</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setApiFlowFocusedEndpoint(null);
+                                  setShowApiFlowModal(true);
+                                }}
+                                className="px-2 py-0.5 rounded-md text-[10px] font-mono font-medium text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/15 border border-cyan-500/25 flex items-center gap-1 transition-colors cursor-pointer"
+                                title="View Interactive Visual API Communication Graph"
+                              >
+                                <Workflow className="h-3 w-3 text-cyan-400 animate-pulse" />
+                                <span>View Interactive Graph</span>
+                              </button>
                             </div>
 
                             {/* Search Bar */}
@@ -2195,6 +2227,36 @@ CREATE TABLE audit_logs (
         onClose={() => setIsDownloadModalOpen(false)}
         reason={downloadModalReason}
       />
+
+      {/* Discovered APIs & Endpoints Breakdown Modal */}
+      {analysisResult && (
+        <ApiBreakdownModal
+          isOpen={showApiBreakdownModal}
+          onClose={() => setShowApiBreakdownModal(false)}
+          analysisData={analysisResult}
+          onOpenApiFlow={(ep) => {
+            setShowApiBreakdownModal(false);
+            setApiFlowFocusedEndpoint(ep || null);
+            setShowApiFlowModal(true);
+          }}
+        />
+      )}
+
+      {/* Visual Interactive API Flow Graph Modal */}
+      {analysisResult && (
+        <ApiFlowModal
+          isOpen={showApiFlowModal}
+          onClose={() => {
+            setShowApiFlowModal(false);
+            setApiFlowFocusedEndpoint(null);
+          }}
+          endpoints={landingEndpointsList}
+          tables={analysisResult?.schema?.tables || []}
+          diagrams={analysisResult?.diagrams || {}}
+          theme="dark"
+          initialFocusedEndpoint={apiFlowFocusedEndpoint}
+        />
+      )}
     </main>
   );
 }

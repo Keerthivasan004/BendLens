@@ -612,6 +612,302 @@ class DiagramGenerator {
       mermaid: mermaid.trim()
     };
   }
+
+  /**
+   * Generates a professional graphical flow of API endpoints showing how
+   * they communicate with upstream ingress, inter-service routes, downstream
+   * endpoints, async webhooks, and shared state buses.
+   */
+  static generateApiFlow(codeData = {}, schemaData = {}, infraData = {}) {
+    let rawEndpoints = codeData?.endpoints || [];
+    if (rawEndpoints.length === 0 && codeData?.apis && Array.isArray(codeData.apis)) {
+      rawEndpoints = codeData.apis.map((a) => ({
+        method: a.method || 'GET',
+        path: a.endpoint || a.path || '/api/resource',
+        kind: a.kind,
+        level: a.level,
+        module: a.module
+      }));
+    }
+
+    const tables = schemaData?.tables || [];
+
+    if (rawEndpoints.length === 0) {
+      return {
+        type: 'API_FLOW',
+        title: 'API Endpoints Communication and Dependency Flow',
+        mermaid: 'flowchart LR\n    NO_ENDPOINTS["No API Endpoints Detected to Map Communication Flow"]',
+        endpointsCount: 0,
+        interConnectionsCount: 0,
+        domainsCount: 0
+      };
+    }
+
+    // Cap endpoints for visual Mermaid graph to prevent browser thread freeze (max 28 endpoints)
+    const MAX_VISUAL_ENDPOINTS = 28;
+    const prioritizedEndpoints = [...rawEndpoints].sort((a, b) => {
+      // Prioritize mutating, high-level, and webhook endpoints first
+      const getWeight = (ep) => {
+        let w = 0;
+        const m = (ep.method || 'GET').toUpperCase();
+        if (m === 'POST' || m === 'PUT' || m === 'DELETE') w += 10;
+        if (ep.level === 'HIGH') w += 15;
+        if (ep.kind === 'AUTH' || ep.kind === 'WEBHOOK') w += 8;
+        if (ep.connectedTables && ep.connectedTables.length > 0) w += 5;
+        return w;
+      };
+      return getWeight(b) - getWeight(a);
+    }).slice(0, MAX_VISUAL_ENDPOINTS);
+
+    // Classify endpoints into architectural communication tiers
+    const authEndpoints = [];
+    const coreEndpoints = [];
+    const downstreamEndpoints = [];
+    const asyncEndpoints = [];
+
+    const safeEndpointMap = new Map();
+    const domainSet = new Set();
+
+    prioritizedEndpoints.forEach((ep, idx) => {
+      const method = (ep.method || 'GET').toUpperCase();
+      const rawPath = (ep.path || '/').replace(/["'\[\]`]/g, '');
+      const cleanPath = rawPath.replace(/\{([^}]+)\}/g, ':$1').replace(/[<>#&:]/g, '_');
+      const safeId = `EP_${idx}_${method}_${cleanPath.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 24)}`;
+      const pLower = (ep.path || '').toLowerCase();
+
+      // Extract domain token (e.g. auth, users, orders, checkout, payments, etc.)
+      const segments = (ep.path || '').split('/').filter((s) => s && !['api', 'v1', 'v2', 'v3'].includes(s.toLowerCase()));
+      const rawDomain = (segments[0] || 'core').toLowerCase().replace(/[^a-z0-9]/g, '');
+      domainSet.add(rawDomain);
+
+      const epMeta = {
+        idx,
+        id: safeId,
+        method,
+        rawPath,
+        displayPath: rawPath.replace(/["'\[\]`]/g, '').replace(/&/g, 'and').replace(/\{([^}]+)\}/g, ':$1'),
+        domain: rawDomain,
+        kind: ep.kind || 'REST',
+        level: ep.level || 'MEDIUM',
+        connectedTables: ep.connectedTables || [],
+        module: ep.module || 'api'
+      };
+
+      safeEndpointMap.set(idx, epMeta);
+
+      if (epMeta.kind === 'AUTH' || /auth|login|token|oauth|session|verify/i.test(pLower)) {
+        authEndpoints.push(epMeta);
+      } else if (epMeta.kind === 'WEBHOOK' || epMeta.kind === 'WEBSOCKET' || /webhook|event|socket|stream|listener/i.test(pLower)) {
+        asyncEndpoints.push(epMeta);
+      } else if (epMeta.level === 'HIGH' || /checkout|payment|order|transact|billing|invoice|sync|fulfill/i.test(pLower)) {
+        downstreamEndpoints.push(epMeta);
+      } else {
+        coreEndpoints.push(epMeta);
+      }
+    });
+
+    let mermaid = 'flowchart LR\n';
+
+    // 1. Client Ingress & Gateway Layer
+    mermaid += '    subgraph INGRESS ["Client Ingress and Edge Gateway"]\n';
+    mermaid += '        CLI_INGRESS["External Clients (Web, Mobile, Webhooks)"]\n';
+    mermaid += '        GW_DISPATCH["API Gateway and Route Ingress Router"]\n';
+    mermaid += '    end\n\n';
+
+    // 2. Authentication & Gatekeeper Tier
+    if (authEndpoints.length > 0) {
+      mermaid += `    subgraph AUTH_TIER ["Authentication and Security Gatekeepers (${authEndpoints.length})"]\n`;
+      authEndpoints.forEach((ep) => {
+        mermaid += `        ${ep.id}["${ep.method} ${ep.displayPath}"]\n`;
+      });
+      mermaid += '    end\n\n';
+    }
+
+    // 3. Core Domain APIs
+    if (coreEndpoints.length > 0) {
+      mermaid += `    subgraph CORE_TIER ["Core Domain and Resource Endpoints (${coreEndpoints.length})"]\n`;
+      coreEndpoints.forEach((ep) => {
+        mermaid += `        ${ep.id}["${ep.method} ${ep.displayPath}"]\n`;
+      });
+      mermaid += '    end\n\n';
+    }
+
+    // 4. Downstream Transaction & Orchestration Services
+    if (downstreamEndpoints.length > 0) {
+      mermaid += `    subgraph DOWNSTREAM_TIER ["Downstream and Transaction Services (${downstreamEndpoints.length})"]\n`;
+      downstreamEndpoints.forEach((ep) => {
+        mermaid += `        ${ep.id}["${ep.method} ${ep.displayPath}"]\n`;
+      });
+      mermaid += '    end\n\n';
+    }
+
+    // 5. Async Webhooks & Realtime Streams
+    if (asyncEndpoints.length > 0) {
+      mermaid += `    subgraph ASYNC_TIER ["Async Handlers and Event Webhooks (${asyncEndpoints.length})"]\n`;
+      asyncEndpoints.forEach((ep) => {
+        mermaid += `        ${ep.id}["${ep.method} ${ep.displayPath}"]\n`;
+      });
+      mermaid += '    end\n\n';
+    }
+
+    // 6. Shared State Persistence Nodes (cap at 6 most relevant tables)
+    const referencedTableNames = new Set();
+    prioritizedEndpoints.forEach((ep) => {
+      (ep.connectedTables || []).forEach((ct) => {
+        const name = typeof ct === 'object' && ct !== null ? ct.name : ct;
+        if (name && typeof name === 'string') referencedTableNames.add(name);
+      });
+    });
+
+    const relevantTables = tables
+      .filter((t) => referencedTableNames.has(t.name))
+      .slice(0, 6);
+
+    const tableNodeMap = new Map();
+    if (relevantTables.length > 0) {
+      mermaid += `    subgraph SHARED_DATA ["Shared Persistence and Entity Bus (${relevantTables.length})"]\n`;
+      relevantTables.forEach((t) => {
+        const safeTbId = `TB_STATE_${t.name.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+        tableNodeMap.set(t.name, safeTbId);
+        mermaid += `        ${safeTbId}[("${t.name}")]\n`;
+      });
+      mermaid += '    end\n\n';
+    }
+
+    // 7. Establish Communication Directed Flows
+    let connectionCount = 0;
+    mermaid += '    CLI_INGRESS -->|Inbound Requests| GW_DISPATCH\n';
+    connectionCount++;
+
+    // Gateway to Auth Tier
+    if (authEndpoints.length > 0) {
+      authEndpoints.forEach((ep) => {
+        mermaid += `    GW_DISPATCH -->|Auth Handshake| ${ep.id}\n`;
+        connectionCount++;
+      });
+    }
+
+    // Gateway to Core Tier (Ingress)
+    if (coreEndpoints.length > 0) {
+      coreEndpoints.slice(0, 4).forEach((ep) => {
+        mermaid += `    GW_DISPATCH -->|Route Request| ${ep.id}\n`;
+        connectionCount++;
+      });
+    }
+
+    // Auth gatekeeper validates token & communicates permissions to downstream endpoints
+    if (authEndpoints.length > 0) {
+      const primaryAuth = authEndpoints[0];
+      if (coreEndpoints.length > 0) {
+        mermaid += `    ${primaryAuth.id} -->|Validates Bearer Token| ${coreEndpoints[0].id}\n`;
+        connectionCount++;
+      }
+      if (downstreamEndpoints.length > 0) {
+        mermaid += `    ${primaryAuth.id} -->|Authorizes Session| ${downstreamEndpoints[0].id}\n`;
+        connectionCount++;
+      }
+    }
+
+    // Core endpoints communicate to downstream transaction endpoints
+    if (coreEndpoints.length > 0 && downstreamEndpoints.length > 0) {
+      const highImpactDownstream = downstreamEndpoints.filter(d => d.level === 'HIGH' || /checkout|payment|order/i.test(d.rawPath));
+      const targetDown = highImpactDownstream[0] || downstreamEndpoints[0];
+      const sourceCore = coreEndpoints.find(c => /cart|catalog|user|item/i.test(c.rawPath)) || coreEndpoints[0];
+      if (sourceCore && targetDown) {
+        mermaid += `    ${sourceCore.id} -->|Dispatches Action Payload| ${targetDown.id}\n`;
+        connectionCount++;
+      }
+    }
+
+    // Inter-endpoint chain among downstream endpoints (e.g. checkout -> payment -> order)
+    if (downstreamEndpoints.length >= 2) {
+      for (let i = 0; i < downstreamEndpoints.length - 1 && i < 3; i++) {
+        const fromEp = downstreamEndpoints[i];
+        const toEp = downstreamEndpoints[i + 1];
+        mermaid += `    ${fromEp.id} -->|Cascades Downstream| ${toEp.id}\n`;
+        connectionCount++;
+      }
+    }
+
+    // Async webhooks & event consumers communication
+    if (asyncEndpoints.length > 0) {
+      const webhookEp = asyncEndpoints.find(a => a.kind === 'WEBHOOK' || /webhook/i.test(a.rawPath)) || asyncEndpoints[0];
+      if (downstreamEndpoints.length > 0) {
+        mermaid += `    ${webhookEp.id} -.->|Async Event Callback| ${downstreamEndpoints[0].id}\n`;
+        connectionCount++;
+      }
+    }
+
+    // Shared State Persistence Handoff (Write vs Read)
+    if (tableNodeMap.size > 0) {
+      prioritizedEndpoints.forEach((ep) => {
+        (ep.connectedTables || []).forEach((ct) => {
+          const tName = typeof ct === 'object' && ct !== null ? ct.name : ct;
+          const isWrite = typeof ct === 'object' && ct !== null ? (ct.action === 'WRITE') : (ep.method !== 'GET');
+          const tbNode = tableNodeMap.get(tName);
+          if (tbNode) {
+            if (isWrite) {
+              mermaid += `    ${ep.id} ==>|Mutates Entity| ${tbNode}\n`;
+            } else {
+              mermaid += `    ${tbNode} -.->|Reads Entity| ${ep.id}\n`;
+            }
+            connectionCount++;
+          }
+        });
+      });
+    }
+
+    // 8. Custom Mermaid Styling Classes for Premium High-Tech Aesthetics
+    mermaid += '\n';
+    mermaid += '    classDef getStyle fill:#064e3b,stroke:#10b981,stroke-width:1.5px,color:#ecfdf5;\n';
+    mermaid += '    classDef postStyle fill:#78350f,stroke:#f59e0b,stroke-width:1.5px,color:#fffbeb;\n';
+    mermaid += '    classDef putStyle fill:#1e3a8a,stroke:#3b82f6,stroke-width:1.5px,color:#eff6ff;\n';
+    mermaid += '    classDef deleteStyle fill:#881337,stroke:#f43f5e,stroke-width:1.5px,color:#fff1f2;\n';
+    mermaid += '    classDef wsStyle fill:#581c87,stroke:#a855f7,stroke-width:1.5px,color:#faf5ff;\n';
+    mermaid += '    classDef gatewayStyle fill:#0f172a,stroke:#64748b,stroke-width:1.5px,color:#f8fafc;\n';
+    mermaid += '    classDef dataStyle fill:#134e4a,stroke:#14b8a6,stroke-width:1.5px,color:#f0fdfa;\n';
+
+    mermaid += '    class CLI_INGRESS,GW_DISPATCH gatewayStyle;\n';
+    if (tableNodeMap.size > 0) {
+      mermaid += `    class ${Array.from(tableNodeMap.values()).join(',')} dataStyle;\n`;
+    }
+
+    // Apply method classes to endpoints
+    const gets = [];
+    const posts = [];
+    const puts = [];
+    const deletes = [];
+    const wss = [];
+
+    safeEndpointMap.forEach((ep) => {
+      if (ep.method === 'GET') gets.push(ep.id);
+      else if (ep.method === 'POST') posts.push(ep.id);
+      else if (ep.method === 'PUT' || ep.method === 'PATCH') puts.push(ep.id);
+      else if (ep.method === 'DELETE') deletes.push(ep.id);
+      else if (ep.method === 'WS') wss.push(ep.id);
+    });
+
+    if (gets.length > 0) mermaid += `    class ${gets.join(',')} getStyle;\n`;
+    if (posts.length > 0) mermaid += `    class ${posts.join(',')} postStyle;\n`;
+    if (puts.length > 0) mermaid += `    class ${puts.join(',')} putStyle;\n`;
+    if (deletes.length > 0) mermaid += `    class ${deletes.join(',')} deleteStyle;\n`;
+    if (wss.length > 0) mermaid += `    class ${wss.join(',')} wsStyle;\n`;
+
+    return {
+      type: 'API_FLOW',
+      title: 'API Endpoints Communication and Dependency Flow',
+      mermaid: mermaid.trim(),
+      endpointsCount: rawEndpoints.length,
+      endpointsShown: prioritizedEndpoints.length,
+      interConnectionsCount: connectionCount,
+      domainsCount: domainSet.size,
+      authCount: authEndpoints.length,
+      coreCount: coreEndpoints.length,
+      downstreamCount: downstreamEndpoints.length,
+      asyncCount: asyncEndpoints.length
+    };
+  }
 }
 
 module.exports = DiagramGenerator;
+

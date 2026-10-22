@@ -502,6 +502,8 @@ class ProjectAnalyzer {
     const seqTarget = codeData.endpoints[0] || (schemaData.tables[0] ? `/api/${schemaData.tables[0].name}` : null);
     const seq = DiagramGenerator.generateSequence(seqTarget, codeData, schemaData);
     await yieldEventLoop();
+    const apiFlow = DiagramGenerator.generateApiFlow(codeData, schemaData, infraData);
+    await yieldEventLoop();
 
     // 4. Default Sample What-If Blast Radius
     let sampleTarget = null;
@@ -564,7 +566,8 @@ class ProjectAnalyzer {
         erd,
         hld,
         lld,
-        sequence: seq
+        sequence: seq,
+        apiFlow
       },
       personas: {
         developer: developerView,
@@ -647,6 +650,7 @@ class ProjectAnalyzer {
     const lld = DiagramGenerator.generateLLD(codeData, schemaData);
     const seqTarget = codeData.endpoints[0] || (schemaData.tables[0] ? `/api/${schemaData.tables[0].name}` : null);
     const seq = DiagramGenerator.generateSequence(seqTarget, codeData, schemaData);
+    const apiFlow = DiagramGenerator.generateApiFlow(codeData, schemaData, infraData);
 
     // 4. Default Sample What-If Blast Radius
     let sampleTarget = null;
@@ -703,7 +707,8 @@ class ProjectAnalyzer {
         erd,
         hld,
         lld,
-        sequence: seq
+        sequence: seq,
+        apiFlow
       },
       personas: {
         developer: developerView,

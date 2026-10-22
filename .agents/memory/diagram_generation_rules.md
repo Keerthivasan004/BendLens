@@ -67,3 +67,61 @@ BendLens compiles architecture into 4 visual diagrams using Mermaid.js (`src/lib
   - Correctly flows through `Client -> Gateway -> Controller -> Service -> Database -> Client` using verbs matched to the HTTP method (`SELECT` for GET, `INSERT` for POST, `UPDATE` for PUT/PATCH, `DELETE` for DELETE, and WebSocket upgrades for WS).
   - Automatically identifies matching domain controllers, services, and real SQL tables.
   - **Connected Tables Object Guard**: `targetEp.connectedTables` contains object records (`{ name: string, matchType: string }`). Extract `.name` and verify `typeof matchedTable === 'string'` before calling `.replace(/[^a-zA-Z0-9_]/g, '_')` to prevent unhandled TypeError crashes during sequence flow generation.
+
+---
+
+## 5. API Endpoints Communication & Dependency Flow (ApiFlow)
+- **Header**: Starts with `flowchart LR\n`.
+- **Generator Function**: `DiagramGenerator.generateApiFlow(codeData, schemaData, infraData)`.
+- **Tier Subgraphs**:
+  - `subgraph INGRESS ["Client Ingress and Edge Gateway"]` (Edge proxy, Web/Mobile clients, Webhook callers)
+  - `subgraph AUTH_TIER ["Authentication and Security Gatekeepers (N)"]` (Login, Token, OAuth, Session routes)
+  - `subgraph CORE_TIER ["Core Domain and Resource Endpoints (N)"]` (Resource endpoints, CRUD operations)
+  - `subgraph DOWNSTREAM_TIER ["Downstream and Transaction Services (N)"]` (Checkout, Order, Payment, Billing orchestration)
+  - `subgraph ASYNC_TIER ["Async Handlers and Event Webhooks (N)"]` (Webhooks, WebSockets, background consumers)
+  - `subgraph SHARED_DATA ["Shared Persistence and Entity Bus (N)"]` (Shared database models)
+- **Directed Inter-Endpoint Edges**:
+  - Ingress -> Auth/Core: `-->|Inbound Requests|`, `-->|Auth Handshake|`
+  - Auth -> Downstream: `-->|Validates Bearer Token|`, `-->|Authorizes Session|`
+  - Core -> Downstream: `-->|Dispatches Action Payload|`
+  - Downstream -> Downstream: `-->|Cascades Downstream|`
+  - Async Webhooks -> Downstream: `-.->|Async Event Callback|`
+  - Endpoint -> Shared State: `==>|Mutates Entity|` (Write), `-.->|Reads Entity|` (Read)
+- **Visual Styling & Safeguards**:
+  - Node capping: Cap at 28 visual nodes sorted by priority weight to maintain sub-100ms render speeds.
+  - Strict Mermaid escaping: All node IDs use alphanumeric tokens with underscores; colons and brackets stripped from path strings; no raw ampersands `&`.
+  - Color-coded method styling classes: GET (emerald), POST (amber), PUT/PATCH (blue), DELETE (rose), WS (purple), Ingress (slate), Data (teal).
+
+---
+
+## 6. High-Performance Interactive API Flow Studio (`ApiFlowModal.jsx`)
+- **Topological Architecture**: Edge Ingress Gateway ➔ API Services (Controllers/Role Domains) ➔ Connected API Endpoints (All in 1 Unified Architectural Image).
+- **Unified 1-Image Multi-Service Mesh Engine**:
+  - **Single Comprehensive Architecture Diagram**: All services and 100% of their endpoints are rendered simultaneously on 1 continuous, cohesive canvas. Eliminates artificial section fragmentation, pagination, or endpoint truncation so customers can understand the full architecture at a single glance.
+  - **Visual Service Swimlanes (`serviceClusters`)**: Each service is organized into its own vertical swimlane container box (`X = 750`) with a distinctive theme color, service badge, and endpoint count header.
+  - **Parallel Topological Columns**: Endpoints within each service cluster are organized into 3-4 parallel columns (Ingress/Auth, State Mutations, Queries, Webhooks/Events) with clean vertical spacing.
+  - **Dynamic Scaled Ingress Gateway**: Edge Gateway at `X = 60` dynamically scales its height based on the number of services (`gatewayHeight = Math.max(74, Math.min(420, 60 + targetServices.length * 32))`) and centers across the total canvas height.
+  - **Auto-Fit 1-Image Viewport**: Viewport auto-fits with a responsive zoom range (`fitScale = Math.min(Math.max(0.24, Math.min(scaleX, scaleY)), 1.05)`) so that even 10+ services fit into view upon opening.
+  - **Interactive Spotlight Scope**: Scope bar buttons ("All Services (1 Image Diagram)" and individual service tabs) spotlight the selected service's swimlane with glowing accent borders and center the viewport on it, without removing or hiding the other services.
+  - **1-Click Full Architecture SVG Export**: Exporting SVG serializes the entire unified multi-service mesh into a single high-resolution SVG file for documentation and executive presentations.
+- **Hardware-Accelerated CSS Flow**: Uses `@keyframes flowMarch` with GPU-composited `stroke-dashoffset` keyframes, bypassing heavy software rasterization and expensive SVG drop-shadow filters.
+- **Zero-Lag Particle Throttling**: Limits SVG `<circle><animateMotion>` particles strictly to trunk links and active/hovered flows (~6-15 particles max instead of hundreds), ensuring constant 60 FPS even on 670+ endpoint codebases.
+- **Distributed Multi-Point Bus Anchors**: Uses distributed slot routing along service card boundaries (`slots = Math.min(18, eps.length)`), preventing solid wire clumping.
+- **Color-Coded Service Themes**: Signature color themes (Cyan, Purple, Emerald, Amber, Blue, Rose, Indigo, Teal) with matching SVG arrowhead markers (`markerEnd`).
+- **Interactive Route Spotlighting**: Hovering or focusing any service/endpoint illuminates the complete end-to-end path in luminous neon cyan (`strokeWidth="3.5"`), while non-active wires fade to `0.04` opacity.
+- **Live Flow Breadcrumb HUD**: Floating top-left indicator displaying real-time active route context (`Edge Ingress Gateway ➔ [Service] ➔ [METHOD /path]`).
+- **Studio Controls**: Zoom/pan with non-passive wheel events and zero drag latency, Auto-Fit centering, Native Monitor Fullscreen (F11), High-Res SVG export, and 4 View Modes (Visual Mesh, Tiered Lanes, Mermaid Architecture, Communication Matrix).
+- **Authentic Inter-Endpoint Communication Mesh**:
+  - **Auth & Gatekeeper Handshake (`AUTH_VALIDATION`)**: Auth/Token endpoints validate credentials and authorize downstream protected endpoints (`Validates Bearer Token ➔ Authorizes Execution`).
+  - **Resource Lifecycle & State Handoff (`RESOURCE_LIFECYCLE`)**: Mutating endpoints (`POST`, `PUT`, `PATCH`) initiate or mutate state, handing off context to read/query endpoints (`Initializes State ➔ Lifecycle Handoff`).
+  - **Sub-Resource Hierarchical Delegation (`SUB_RESOURCE_DELEGATION`)**: Parent endpoints delegate contextual routing to child routes (`Delegates Sub-Resource Context`).
+  - **Shared Database Entity Data Bus (`SHARED_ENTITY_BUS`)**: When an endpoint writes to an entity that another endpoint reads, a data dependency wire is mapped (`Mutates Entity (table) ➔ Syncs Read State`).
+  - **Asynchronous Webhooks & Events (`ASYNC_EVENT_CALLBACK`)**: Webhook and WebSocket handlers dispatch event payloads to downstream order and fulfillment consumers (`Async Event Callback ➔ Dispatches Ingestion`).
+  - **Workflow Step Progression (`WORKFLOW_STEP`)**: Sibling endpoints within multi-step pipelines advance sequential stages (`Advances Workflow Step`).
+  - **Cross-Service Cascades (`CROSS_SERVICE_CASCADE`)**: Endpoints dispatch action payloads across service domains.
+  - **Adaptive Bezier Routing**: Handles forward flow, same-column lateral bypass loops, and backward feedback cleanly with zero line clumping.
+  - **Interactive Floating Relationship Badges**: Midpoint labels (`strokeWidth="1.2"`) float over highlighted wires on hover/click, and Live Breadcrumb HUD renders active caller ➔ target traces.
+  - **Active In/Out Metrics**: Every endpoint node card visually renders real-time `↓ N in` callers and `→ M out` downstream handoff indicators.
+
+
+

@@ -123,8 +123,8 @@ BendLens automatically extracts and verifies the complete Frontend and Backend t
 5. **User-Facing Presentation Surfaces**:
    - **Landing Page HUD (`src/app/page.jsx`)**:
      - **Detailed Stack Profile Card**: 4-pillar grid presenting Frontend (Framework, Bundler, UI System, Rendering Mode), Backend (Runtime, API Pattern, Server Software), Cloud & Hosting (Provider, Category, Active Services, POP/Region), and Integrations/BaaS.
-     - **Discovered API Endpoints Inventory**: Interactive route explorer with method filter tabs (`ALL`, `GET`, `POST`, `PUT`, `DELETE`), real-time route path search, copy path buttons, and expandable pagination toggle.
-   - **Header Bar (`src/components/Header.jsx`)**: Framework pill and interactive Cloud Provider chip with hover tooltip in top metrics bar.
+     - **Discovered API Endpoints Inventory**: Interactive route explorer with method filter tabs (`ALL`, `GET`, `POST`, `PUT`, `DELETE`), real-time route path search, copy path buttons, expandable pagination toggle, and dedicated **API Breakdown** catalog trigger.
+   - **Header Bar (`src/components/Header.jsx`)**: Framework pill, interactive Cloud Provider chip with hover tooltip in top metrics bar, clickable "X APIs" pill triggering ApiBreakdownModal, and "API Breakdown" action button.
    - **Developer Studio (`src/components/views/DeveloperView.jsx`)**:
      - **Executive Stack Profile Header**: Headline summary, zero-hallucination indicators, and 4-column quick specification grid.
      - **Full Architectural Pillars**: Frontend, Backend execution runtime, Cloud Service Provider (with active services pills, region, and HTTP evidence), and Integrations.

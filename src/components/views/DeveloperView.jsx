@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Database, Key, Link2, Code2, AlertTriangle, CheckCircle, 
   Terminal, Layers, ArrowRight, Table, Eye, X, FileSpreadsheet,
@@ -8,10 +8,30 @@ import {
   Sparkles, BookOpen, ShieldAlert, Network, GitFork, ChevronDown, ChevronUp,
   Info, Cpu, Box, CheckCircle2, ChevronRight,
   Radio, ShieldCheck, Webhook, HardDrive, Settings, Activity, Workflow, Zap,
-  Server, SlidersHorizontal, Share2, ArrowDownRight, Layers2, Printer, Cloud
+  Server, SlidersHorizontal, Share2, ArrowDownRight, Layers2, Printer, Cloud,
+  ShoppingBag, Package, CreditCard, Shield, RefreshCw, Users, Globe
 } from 'lucide-react';
 import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 import { getApiServicesCount } from '@/lib/apiCountHelper';
+import { getApiEndpointsBreakdown, formatResourceName } from '@/lib/apiBreakdownHelper';
+import ApiBreakdownModal from '@/components/ApiBreakdownModal';
+import ApiFlowModal from '@/components/ApiFlowModal';
+
+function getResourceIcon(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('auth') || n.includes('login')) return Key;
+  if (n.includes('user') || n.includes('profile')) return Users;
+  if (n.includes('order') || n.includes('cart')) return ShoppingBag;
+  if (n.includes('product') || n.includes('catalog')) return Package;
+  if (n.includes('payment') || n.includes('billing')) return CreditCard;
+  if (n.includes('admin') || n.includes('governance')) return Shield;
+  if (n.includes('health') || n.includes('status')) return Activity;
+  if (n.includes('wordpress') || n.includes('wp')) return Globe;
+  if (n.includes('storage') || n.includes('file')) return HardDrive;
+  if (n.includes('webhook')) return Webhook;
+  if (n.includes('graphql')) return Zap;
+  return Code2;
+}
 
 /**
  * Analyzes database tables and foreign keys to synthesize architectural breakdown.
@@ -240,6 +260,11 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
   const [stackScopeFilter, setStackScopeFilter] = useState('ALL'); // 'ALL' | 'NORMAL' | 'LAZY'
   const [stackEndpointsLimit, setStackEndpointsLimit] = useState(12);
   const [copiedPath, setCopiedPath] = useState(null);
+  const [showApiBreakdownModal, setShowApiBreakdownModal] = useState(false);
+  const [showApiFlowModal, setShowApiFlowModal] = useState(false);
+  const [apiFlowFocusedEndpoint, setApiFlowFocusedEndpoint] = useState(null);
+  const [endpointsViewMode, setEndpointsViewMode] = useState('grouped'); // 'grouped' | 'flat'
+  const [expandedGroupIds, setExpandedGroupIds] = useState(new Set());
 
   const tables = data?.tables || data?.schema?.tables || rawAnalysisData?.schema?.tables || [];
   const apisCount = useMemo(() => {
@@ -382,6 +407,107 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       return true;
     });
   }, [allEnrichedEndpoints, stackMethodFilter, stackScopeFilter, stackEndpointSearch]);
+
+  const apiBreakdown = useMemo(() => {
+    return getApiEndpointsBreakdown(rawAnalysisData || data, 'auto');
+  }, [rawAnalysisData, data]);
+
+  const stackGroupedApis = useMemo(() => {
+    const hasRoleDomains = stackFilteredEndpoints.some(e => e.path?.includes('/admin')) &&
+      (stackFilteredEndpoints.some(e => e.path?.includes('/student') || e.path?.includes('/learning')) ||
+       stackFilteredEndpoints.some(e => e.path?.includes('/mentor')) ||
+       stackFilteredEndpoints.some(e => e.path?.includes('/tpo')));
+
+    const map = new Map();
+    stackFilteredEndpoints.forEach((ep) => {
+      let key = 'general';
+      let name = 'General API';
+      let badge = '/api';
+
+      if (hasRoleDomains) {
+        const lower = (ep.path || '').toLowerCase();
+        if (lower.includes('/admin')) {
+          key = 'admin';
+          name = 'Admin Governance API';
+          badge = '/api/admin';
+        } else if (lower.includes('/student') || lower.includes('/learning') || lower.includes('/labs') || lower.includes('/assessments') || lower.includes('/quiz') || lower.includes('/certificate')) {
+          key = 'student';
+          name = 'Student & Cadet Learning API';
+          badge = '/api/student';
+        } else if (lower.includes('/mentor') || lower.includes('/lab-builder') || lower.includes('/batch')) {
+          key = 'mentor';
+          name = 'Mentor & Faculty API';
+          badge = '/api/mentor';
+        } else if (lower.includes('/tpo') || lower.includes('/placement')) {
+          key = 'tpo';
+          name = 'TPO Campus Placement API';
+          badge = '/api/tpo';
+        } else if (lower.includes('/employer') || lower.includes('/jobs') || lower.includes('/applications') || lower.includes('/candidates')) {
+          key = 'employer';
+          name = 'Employer & ATS API';
+          badge = '/api/employer';
+        } else {
+          key = 'core';
+          name = 'Public & Core Platform API';
+          badge = '/api/core';
+        }
+      } else {
+        let rawKey = 'general';
+        if (Array.isArray(ep.tags) && ep.tags[0] && ep.tags[0] !== 'General') {
+          rawKey = ep.tags[0].toLowerCase();
+        } else if (ep.path?.startsWith('/wp-json/')) {
+          const parts = ep.path.replace('/wp-json/', '').split('/').filter(Boolean);
+          rawKey = parts.slice(0, 2).join('/') || 'wp';
+        } else {
+          const segs = (ep.path || '').replace(/^\/+/, '').split('/').filter(Boolean);
+          let idx = 0;
+          if (segs[0]?.toLowerCase() === 'api') {
+            idx = (segs[1] && /^v[0-9]+$/i.test(segs[1])) ? 2 : 1;
+          } else if (/^v[0-9]+$/i.test(segs[0])) {
+            idx = 1;
+          }
+          const candidate = segs[idx] || segs[0] || 'general';
+          rawKey = (candidate.startsWith('{') || candidate.startsWith(':')) ? (segs[0] || 'general') : candidate;
+        }
+        key = rawKey.toLowerCase();
+        name = formatResourceName(key);
+        badge = ep.path?.startsWith('/wp-json/') ? `/wp-json/${key}` : `/api/${key}`;
+      }
+
+      if (!map.has(key)) {
+        map.set(key, {
+          id: `stack_api_${key.replace(/[^a-zA-Z0-9]/g, '_')}`,
+          rawKey: key,
+          name,
+          badge,
+          endpoints: [],
+          methodCounts: { GET: 0, POST: 0, PUT: 0, DELETE: 0, OTHER: 0 }
+        });
+      }
+      const grp = map.get(key);
+      grp.endpoints.push(ep);
+      const m = ep.method;
+      if (grp.methodCounts[m] !== undefined) grp.methodCounts[m]++;
+      else grp.methodCounts.OTHER++;
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.endpoints.length - a.endpoints.length);
+  }, [stackFilteredEndpoints]);
+
+  useEffect(() => {
+    if (stackGroupedApis.length > 0 && expandedGroupIds.size === 0) {
+      setExpandedGroupIds(new Set(stackGroupedApis.slice(0, 3).map(g => g.id)));
+    }
+  }, [stackGroupedApis]);
+
+  const toggleGroupExpand = (groupId) => {
+    setExpandedGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
 
   const segregatedByLevel = useMemo(() => {
     return [
@@ -554,51 +680,57 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-extrabold text-brand font-mono">{apisCount}</span>
                 <span className="text-[10px] font-bold text-brand font-mono bg-brand/10 px-1.5 py-0.5 rounded border border-brand/20">
-                  SERVICES
+                  DOMAINS
                 </span>
               </div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
                 <Cpu className="h-3 w-3 text-brand" />
-                <span>Backend APIs</span>
+                <span>Core API Portals</span>
               </div>
             </div>
 
             <div className="py-2 sm:py-0 px-4">
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-extrabold text-foreground font-mono">{apiStats.deepCount || endpoints.length}</span>
+                <span className="text-2xl font-extrabold text-emerald-400 font-mono">
+                  {apiStats.genuineCount || apiStats.normalCount || endpoints.length}
+                </span>
                 <span className="text-[10px] font-bold text-emerald-500 font-mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-                  DEEP
+                  REST APIS
                 </span>
               </div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
-                <Sparkles className="h-3 w-3 text-emerald-500" />
-                <span>Total Endpoints</span>
+                <Code2 className="h-3 w-3 text-emerald-400" />
+                <span>Backend Endpoints</span>
               </div>
             </div>
 
             <div className="py-2 sm:py-0 px-4">
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-extrabold text-foreground font-mono">{apiStats.normalCount}</span>
+                <span className="text-2xl font-extrabold text-cyan-400 font-mono">
+                  {apiStats.uiPageCount || (endpoints.length - (apiStats.genuineCount || apiStats.normalCount))}
+                </span>
                 <span className="text-[10px] font-bold text-cyan-500 font-mono bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20">
-                  STANDARD
+                  CLIENT
                 </span>
               </div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
-                <Code2 className="h-3 w-3 text-cyan-500" />
-                <span>Normal Endpoints</span>
+                <Globe className="h-3 w-3 text-cyan-400" />
+                <span>Frontend UI Routes</span>
               </div>
             </div>
 
             <div className="py-2 sm:py-0 px-4">
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-extrabold text-foreground font-mono">+{apiStats.lazyLoadedCount}</span>
+                <span className="text-2xl font-extrabold text-foreground font-mono">
+                  {apiStats.deepCount || endpoints.length}
+                </span>
                 <span className="text-[10px] font-bold text-purple-500 font-mono bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20">
-                  ROLE/LAZY
+                  TOTAL
                 </span>
               </div>
               <div className="text-[11px] font-medium text-muted flex items-center gap-1 mt-0.5">
-                <Layers className="h-3 w-3 text-purple-500" />
-                <span>Lazy Modules</span>
+                <Sparkles className="h-3 w-3 text-purple-500" />
+                <span>All Surfaces</span>
               </div>
             </div>
 
@@ -999,6 +1131,15 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
 
                 <div className="flex items-center gap-2 shrink-0">
                   <button
+                    onClick={() => setShowApiBreakdownModal(true)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-mono font-medium text-violet-400 hover:text-violet-300 bg-violet-500/10 hover:bg-violet-500/15 border border-violet-500/25 flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="View which API has how many endpoints and all endpoint names"
+                  >
+                    <Layers className="h-3.5 w-3.5" />
+                    <span>API Breakdown ({apiBreakdown.totalApisCount} APIs)</span>
+                  </button>
+
+                  <button
                     onClick={() => {
                       const el = document.getElementById('api-topology-section');
                       if (el) el.scrollIntoView({ behavior: 'smooth' });
@@ -1014,8 +1155,73 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
 
               {/* Filter & Search Toolbar */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                {/* Method Pills */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+                {/* View Mode Toggle + Method Pills */}
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+                  {/* View Mode Switcher */}
+                  <div className="flex items-center gap-1 bg-surface-subtle p-0.5 rounded-lg border border-border shrink-0">
+                    <button
+                      onClick={() => setEndpointsViewMode('grouped')}
+                      className={`px-2 py-0.8 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer ${
+                        endpointsViewMode === 'grouped'
+                          ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30 shadow-xs'
+                          : 'text-muted hover:text-foreground'
+                      }`}
+                      title="Group endpoints by API service / resource"
+                    >
+                      <Layers className="h-3 w-3" />
+                      <span>By API ({stackGroupedApis.length})</span>
+                    </button>
+                    <button
+                      onClick={() => setEndpointsViewMode('flat')}
+                      className={`px-2 py-0.8 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer ${
+                        endpointsViewMode === 'flat'
+                          ? 'bg-brand/15 text-brand border border-brand/30 shadow-xs'
+                          : 'text-muted hover:text-foreground'
+                      }`}
+                      title="View flat list of all endpoints"
+                    >
+                      <span>Flat List</span>
+                    </button>
+                  </div>
+
+                  {/* Surface Scope Switcher for URL Crawls (REST APIs vs UI Routes) */}
+                  {isUrl && (
+                    <div className="flex items-center gap-1 bg-surface-subtle p-0.5 rounded-lg border border-border shrink-0">
+                      <button
+                        onClick={() => setStackScopeFilter('ALL')}
+                        className={`px-2 py-0.8 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                          stackScopeFilter === 'ALL'
+                            ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30 shadow-xs'
+                            : 'text-muted hover:text-foreground'
+                        }`}
+                        title="View all discovered endpoints and routes"
+                      >
+                        All ({allEnrichedEndpoints.length})
+                      </button>
+                      <button
+                        onClick={() => setStackScopeFilter('API')}
+                        className={`px-2 py-0.8 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                          stackScopeFilter === 'API'
+                            ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-xs'
+                            : 'text-muted hover:text-foreground'
+                        }`}
+                        title="View only backend REST API endpoints"
+                      >
+                        REST APIs ({apiStats.genuineCount || apiStats.normalCount})
+                      </button>
+                      <button
+                        onClick={() => setStackScopeFilter('PAGE')}
+                        className={`px-2 py-0.8 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                          stackScopeFilter === 'PAGE'
+                            ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-xs'
+                            : 'text-muted hover:text-foreground'
+                        }`}
+                        title="View only frontend client page routes"
+                      >
+                        UI Routes ({apiStats.uiPageCount})
+                      </button>
+                    </div>
+                  )}
                   {['ALL', 'GET', 'POST', 'PUT', 'DELETE'].map((m) => {
                     const count = stackMethodCounts[m] || 0;
                     const isActive = stackMethodFilter === m;
@@ -1065,134 +1271,326 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                 </div>
               </div>
 
-              {/* Endpoints Grid List */}
-              <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
-                {stackFilteredEndpoints.slice(0, stackEndpointsLimit).map((ep, idx) => {
-                  const key = `${ep.method}-${ep.path}`;
-                  const isFetched = !!endpointFetchResult[key];
-                  const fetchRes = endpointFetchResult[key];
-                  const isPending = fetchingEndpoint === key;
+              {/* Endpoints Grid List (Grouped by API vs Flat List) */}
+              {endpointsViewMode === 'grouped' ? (
+                <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                  {stackGroupedApis.map((grp) => {
+                    const isGrpExpanded = expandedGroupIds.has(grp.id);
+                    const ResourceIcon = getResourceIcon(grp.name);
 
-                  const methodColor = 
-                    ep.method === 'GET' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25' :
-                    ep.method === 'POST' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
-                    ep.method === 'PUT' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' :
-                    ep.method === 'DELETE' ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' :
-                    'bg-cyan-500/10 text-cyan-400 border-cyan-500/25';
+                    return (
+                      <div
+                        key={grp.id}
+                        className="rounded-xl border border-border/80 bg-surface-raised/50 overflow-hidden shadow-xs hover:border-border transition-all"
+                      >
+                        {/* Group Header */}
+                        <div
+                          onClick={() => toggleGroupExpand(grp.id)}
+                          className="p-3 sm:p-3.5 flex items-center justify-between gap-3 cursor-pointer select-none hover:bg-surface-raised transition-colors"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            <div className="h-8 w-8 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400 shrink-0">
+                              <ResourceIcon className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-xs text-foreground hover:text-brand transition-colors truncate">
+                                  {grp.name}
+                                </span>
+                                <span className="px-1.5 py-0.2 rounded font-mono text-[10px] bg-surface border border-border text-muted">
+                                  {grp.badge}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
 
-                  return (
-                    <div
-                      key={`${ep.method}-${ep.path}-${idx}`}
-                      className="p-3 rounded-xl bg-surface-raised/70 hover:bg-surface-raised border border-border/70 hover:border-border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs"
-                    >
-                      {/* Left: Method + Path + Badges */}
-                      <div className="flex items-start md:items-center gap-2.5 min-w-0 flex-1">
-                        <span className={`px-2 py-0.5 rounded font-mono font-bold text-[10px] border uppercase shrink-0 ${methodColor}`}>
-                          {ep.method}
-                        </span>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono text-xs font-bold text-foreground hover:text-brand transition-colors break-all select-all">
-                              {ep.path}
+                          <div className="flex items-center gap-2.5 shrink-0">
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-violet-500/10 text-violet-300 border border-violet-500/25">
+                              {grp.endpoints.length} {grp.endpoints.length === 1 ? 'Endpoint' : 'Endpoints'}
                             </span>
-                            {ep.level && (
-                              <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${
-                                ep.level === 'HIGH' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
-                                ep.level === 'MEDIUM' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/25' :
-                                'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
-                              }`}>
-                                {ep.level}
+                            <div className="hidden sm:flex items-center gap-1 text-[10px] font-mono">
+                              {grp.methodCounts.GET > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                  {grp.methodCounts.GET} GET
+                                </span>
+                              )}
+                              {grp.methodCounts.POST > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                                  {grp.methodCounts.POST} POST
+                                </span>
+                              )}
+                              {grp.methodCounts.PUT > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                  {grp.methodCounts.PUT} PUT
+                                </span>
+                              )}
+                              {grp.methodCounts.DELETE > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                  {grp.methodCounts.DELETE} DEL
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-muted">
+                              {isGrpExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Group Endpoints List */}
+                        {isGrpExpanded && (
+                          <div className="border-t border-border/60 bg-surface/50 p-2.5 sm:p-3 space-y-1.5">
+                            {grp.endpoints.map((ep, idx) => {
+                              const key = `${ep.method}-${ep.path}`;
+                              const isFetched = !!endpointFetchResult[key];
+                              const fetchRes = endpointFetchResult[key];
+                              const isPending = fetchingEndpoint === key;
+
+                              const methodColor = 
+                                ep.method === 'GET' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25' :
+                                ep.method === 'POST' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
+                                ep.method === 'PUT' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' :
+                                ep.method === 'DELETE' ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' :
+                                'bg-cyan-500/10 text-cyan-400 border-cyan-500/25';
+
+                              return (
+                                <div
+                                  key={`${grp.id}-${ep.method}-${ep.path}-${idx}`}
+                                  className="p-2.5 rounded-lg bg-surface hover:bg-surface-raised border border-border/70 hover:border-border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-2.5 text-xs"
+                                >
+                                  <div className="flex items-start md:items-center gap-2.5 min-w-0 flex-1">
+                                    <span className={`px-2 py-0.5 rounded font-mono font-bold text-[10px] border uppercase shrink-0 ${methodColor}`}>
+                                      {ep.method}
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-mono text-xs font-bold text-foreground hover:text-brand transition-colors break-all select-all">
+                                          {ep.path}
+                                        </span>
+                                        {ep.level && (
+                                          <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${
+                                            ep.level === 'HIGH' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
+                                            ep.level === 'MEDIUM' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/25' :
+                                            'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                                          }`}>
+                                            {ep.level}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {(ep.handler || ep.module || ep.source || ep.summary) && (
+                                        <div className="text-[10px] text-muted font-mono truncate mt-0.5">
+                                          {ep.handler ? `handler: ${ep.handler}` : (ep.module ? `source: ${ep.module}` : ep.summary || ep.source)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
+                                    <button
+                                      onClick={() => handleCopyPath(ep.path)}
+                                      className="px-2 py-1 rounded-md bg-surface-subtle border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
+                                      title="Copy relative route path"
+                                    >
+                                      {copiedPath === ep.path ? (
+                                        <>
+                                          <Check className="h-3 w-3 text-emerald-400" />
+                                          <span className="text-emerald-400">Copied</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Copy className="h-3 w-3" />
+                                          <span>Path</span>
+                                        </>
+                                      )}
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleCopyCurl(ep)}
+                                      className="px-2 py-1 rounded-md bg-surface-subtle border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
+                                      title="Copy executable cURL command"
+                                    >
+                                      {copiedCurl === key ? (
+                                        <>
+                                          <Check className="h-3 w-3 text-emerald-400" />
+                                          <span className="text-emerald-400">Copied</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Terminal className="h-3 w-3" />
+                                          <span>cURL</span>
+                                        </>
+                                      )}
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleFetchEndpoint(ep)}
+                                      disabled={isPending}
+                                      className={`px-2.5 py-1 rounded-md border text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                                        isPending
+                                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse'
+                                          : isFetched
+                                          ? fetchRes?.success
+                                            ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                                            : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                                          : 'bg-brand/10 hover:bg-brand/20 border-brand/25 text-brand'
+                                      }`}
+                                      title="Send live local HTTP probe via BendLens air-gapped fetch proxy"
+                                    >
+                                      {isPending ? (
+                                        <span>Testing...</span>
+                                      ) : isFetched ? (
+                                        <span>{fetchRes?.status || (fetchRes?.success ? '200 OK' : 'ERR')}</span>
+                                      ) : (
+                                        <>
+                                          <Radio className="h-3 w-3" />
+                                          <span>Test Live</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {stackGroupedApis.length === 0 && (
+                    <div className="py-8 text-center text-xs text-muted font-mono bg-surface-raised/40 rounded-xl border border-dashed border-border">
+                      No APIs match "{stackEndpointSearch}"
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
+                  {stackFilteredEndpoints.slice(0, stackEndpointsLimit).map((ep, idx) => {
+                    const key = `${ep.method}-${ep.path}`;
+                    const isFetched = !!endpointFetchResult[key];
+                    const fetchRes = endpointFetchResult[key];
+                    const isPending = fetchingEndpoint === key;
+
+                    const methodColor = 
+                      ep.method === 'GET' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25' :
+                      ep.method === 'POST' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
+                      ep.method === 'PUT' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' :
+                      ep.method === 'DELETE' ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' :
+                      'bg-cyan-500/10 text-cyan-400 border-cyan-500/25';
+
+                    return (
+                      <div
+                        key={`${ep.method}-${ep.path}-${idx}`}
+                        className="p-3 rounded-xl bg-surface-raised/70 hover:bg-surface-raised border border-border/70 hover:border-border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs"
+                      >
+                        {/* Left: Method + Path + Badges */}
+                        <div className="flex items-start md:items-center gap-2.5 min-w-0 flex-1">
+                          <span className={`px-2 py-0.5 rounded font-mono font-bold text-[10px] border uppercase shrink-0 ${methodColor}`}>
+                            {ep.method}
+                          </span>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono text-xs font-bold text-foreground hover:text-brand transition-colors break-all select-all">
+                                {ep.path}
                               </span>
-                            )}
-                            {ep.isLazyLoaded && (
-                              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
-                                LAZY
-                              </span>
+                              {ep.level && (
+                                <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${
+                                  ep.level === 'HIGH' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
+                                  ep.level === 'MEDIUM' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/25' :
+                                  'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                                }`}>
+                                  {ep.level}
+                                </span>
+                              )}
+                              {ep.isLazyLoaded && (
+                                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                                  LAZY
+                                </span>
+                              )}
+                            </div>
+                            {(ep.module || ep.source || ep.summary) && (
+                              <div className="text-[10px] text-muted font-mono truncate mt-0.5">
+                                {ep.module ? `source: ${ep.module}` : ep.summary || ep.source}
+                              </div>
                             )}
                           </div>
-                          {(ep.module || ep.source || ep.summary) && (
-                            <div className="text-[10px] text-muted font-mono truncate mt-0.5">
-                              {ep.module ? `source: ${ep.module}` : ep.summary || ep.source}
-                            </div>
-                          )}
+                        </div>
+
+                        {/* Right: Quick Actions (Copy Path, Copy cURL, Test Live) */}
+                        <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
+                          <button
+                            onClick={() => handleCopyPath(ep.path)}
+                            className="px-2 py-1 rounded-md bg-surface border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Copy relative route path"
+                          >
+                            {copiedPath === ep.path ? (
+                              <>
+                                <Check className="h-3 w-3 text-emerald-400" />
+                                <span className="text-emerald-400">Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3 w-3" />
+                                <span>Path</span>
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            onClick={() => handleCopyCurl(ep)}
+                            className="px-2 py-1 rounded-md bg-surface border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Copy executable cURL command"
+                          >
+                            {copiedCurl === key ? (
+                              <>
+                                <Check className="h-3 w-3 text-emerald-400" />
+                                <span className="text-emerald-400">Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Terminal className="h-3 w-3" />
+                                <span>cURL</span>
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            onClick={() => handleFetchEndpoint(ep)}
+                            disabled={isPending}
+                            className={`px-2.5 py-1 rounded-md border text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                              isPending
+                                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse'
+                                : isFetched
+                                ? fetchRes?.success
+                                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                                  : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                                : 'bg-brand/10 hover:bg-brand/20 border-brand/25 text-brand'
+                            }`}
+                            title="Send live local HTTP probe via BendLens air-gapped fetch proxy"
+                          >
+                            {isPending ? (
+                              <span>Testing...</span>
+                            ) : isFetched ? (
+                              <span>{fetchRes?.status || (fetchRes?.success ? '200 OK' : 'ERR')}</span>
+                            ) : (
+                              <>
+                                <Radio className="h-3 w-3" />
+                                <span>Test Live</span>
+                              </>
+                            )}
+                          </button>
                         </div>
                       </div>
+                    );
+                  })}
 
-                      {/* Right: Quick Actions (Copy Path, Copy cURL, Test Live) */}
-                      <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
-                        <button
-                          onClick={() => handleCopyPath(ep.path)}
-                          className="px-2 py-1 rounded-md bg-surface border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
-                          title="Copy relative route path"
-                        >
-                          {copiedPath === ep.path ? (
-                            <>
-                              <Check className="h-3 w-3 text-emerald-400" />
-                              <span className="text-emerald-400">Copied</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-3 w-3" />
-                              <span>Path</span>
-                            </>
-                          )}
-                        </button>
-
-                        <button
-                          onClick={() => handleCopyCurl(ep)}
-                          className="px-2 py-1 rounded-md bg-surface border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
-                          title="Copy executable cURL command"
-                        >
-                          {copiedCurl === key ? (
-                            <>
-                              <Check className="h-3 w-3 text-emerald-400" />
-                              <span className="text-emerald-400">Copied</span>
-                            </>
-                          ) : (
-                            <>
-                              <Terminal className="h-3 w-3" />
-                              <span>cURL</span>
-                            </>
-                          )}
-                        </button>
-
-                        <button
-                          onClick={() => handleFetchEndpoint(ep)}
-                          disabled={isPending}
-                          className={`px-2.5 py-1 rounded-md border text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                            isPending
-                              ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse'
-                              : isFetched
-                              ? fetchRes?.success
-                                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                                : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
-                              : 'bg-brand/10 hover:bg-brand/20 border-brand/25 text-brand'
-                          }`}
-                          title="Send live local HTTP probe via BendLens air-gapped fetch proxy"
-                        >
-                          {isPending ? (
-                            <span>Testing...</span>
-                          ) : isFetched ? (
-                            <span>{fetchRes?.status || (fetchRes?.success ? '200 OK' : 'ERR')}</span>
-                          ) : (
-                            <>
-                              <Radio className="h-3 w-3" />
-                              <span>Test Live</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
+                  {stackFilteredEndpoints.length === 0 && (
+                    <div className="py-8 text-center text-xs text-muted font-mono bg-surface-raised/40 rounded-xl border border-dashed border-border">
+                      No endpoints match "{stackEndpointSearch}"
                     </div>
-                  );
-                })}
-
-                {stackFilteredEndpoints.length === 0 && (
-                  <div className="py-8 text-center text-xs text-muted font-mono bg-surface-raised/40 rounded-xl border border-dashed border-border">
-                    No endpoints match "{stackEndpointSearch}"
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
 
               {/* Footer controls: pagination limit & full topology hint */}
               {stackFilteredEndpoints.length > 12 && (
@@ -1825,6 +2223,19 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
 
           {/* Quick Search & Download PDF Report Button */}
           <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full lg:w-auto">
+            <button
+              onClick={() => {
+                setApiFlowFocusedEndpoint(null);
+                setShowApiFlowModal(true);
+              }}
+              className="px-3.5 py-2 text-xs rounded-xl font-bold bg-gradient-to-r from-cyan-500/20 via-blue-500/20 to-purple-500/20 hover:from-cyan-500/30 hover:to-purple-500/30 text-cyan-600 dark:text-cyan-300 border border-cyan-500/35 flex items-center gap-2 shadow-xs transition-all cursor-pointer whitespace-nowrap"
+              title="View Professional Graphical Communication Flow of API Endpoints"
+            >
+              <Workflow className="h-3.5 w-3.5 text-cyan-500 animate-pulse" />
+              <span>View Interactive Graph</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-400 font-mono font-bold">Interactive</span>
+            </button>
+
             <button
               onClick={() => {
                 const reportPayload = rawAnalysisData || {
@@ -2641,6 +3052,19 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                                   <span>Copy URL</span>
                                 </button>
 
+                                {/* View Graphical Endpoint Flow */}
+                                <button
+                                  onClick={() => {
+                                    setApiFlowFocusedEndpoint(ep);
+                                    setShowApiFlowModal(true);
+                                  }}
+                                  className="text-xs px-2.5 py-1 rounded-md bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 flex items-center gap-1 cursor-pointer font-semibold transition-colors"
+                                  title="Inspect incoming callers and downstream communication flow for this endpoint"
+                                >
+                                  <Workflow className="h-3 w-3 text-cyan-500" />
+                                  <span>View Interactive Graph</span>
+                                </button>
+
                                 {/* Simulate Blast Radius */}
                                 <button
                                   onClick={() => onSelectForImpact && onSelectForImpact(ep.path, 'endpoint')}
@@ -2873,6 +3297,33 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
           </div>
         </div>
       )}
+
+      {/* API Services & Endpoints Breakdown Modal */}
+      <ApiBreakdownModal
+        isOpen={showApiBreakdownModal}
+        onClose={() => setShowApiBreakdownModal(false)}
+        analysisData={rawAnalysisData || data}
+        onOpenApiFlow={(ep) => {
+          setShowApiBreakdownModal(false);
+          setApiFlowFocusedEndpoint(ep || null);
+          setShowApiFlowModal(true);
+        }}
+      />
+
+      {/* Professional Graphical API Flow & Communication Modal */}
+      <ApiFlowModal
+        isOpen={showApiFlowModal}
+        onClose={() => {
+          setShowApiFlowModal(false);
+          setApiFlowFocusedEndpoint(null);
+        }}
+        endpoints={allEnrichedEndpoints}
+        tables={tables}
+        diagrams={rawAnalysisData?.diagrams || data?.diagrams}
+        theme="dark"
+        initialFocusedEndpoint={apiFlowFocusedEndpoint}
+        onSelectForImpact={onSelectForImpact}
+      />
     </div>
   );
 }

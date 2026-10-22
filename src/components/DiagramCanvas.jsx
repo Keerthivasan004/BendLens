@@ -4,13 +4,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   ZoomIn, ZoomOut, RotateCcw, Maximize2, Minimize2, 
   Download, Search, Code, Eye, Layers, Database, 
-  Box, Cpu, GitCommit, ArrowRight, Check, Move, Sparkles
+  Box, Cpu, GitCommit, ArrowRight, Check, Move, Sparkles, Workflow
 } from 'lucide-react';
 import DatabaseSchemaDiagram from './DatabaseSchemaDiagram';
+import ApiFlowModal from './ApiFlowModal';
 
 export default function DiagramCanvas({ 
   diagrams, 
   schemaData, 
+  endpoints = [],
   theme = 'dark', 
   onSelectForImpact,
   activeTab: controlledActiveTab,
@@ -20,15 +22,15 @@ export default function DiagramCanvas({
 }) {
   const hasTables = (schemaData?.tables?.length || 0) > 0;
   const hideErd = isUrlScan || !hasTables;
-  const resolvedInitialTab = hideErd && initialTab === 'erd' ? 'sequence' : initialTab;
+  const resolvedInitialTab = hideErd && initialTab === 'erd' ? 'apiFlow' : initialTab;
 
   const [internalActiveTab, setInternalActiveTab] = useState(resolvedInitialTab);
   const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab;
 
   useEffect(() => {
     if (hideErd && activeTab === 'erd') {
-      setInternalActiveTab('sequence');
-      if (onTabChange) onTabChange('sequence');
+      setInternalActiveTab('apiFlow');
+      if (onTabChange) onTabChange('apiFlow');
     }
   }, [hideErd, activeTab, onTabChange]);
   const [erdMode, setErdMode] = useState('MERMAID'); // 'MERMAID' | 'INTERACTIVE'
@@ -38,6 +40,7 @@ export default function DiagramCanvas({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showCode, setShowCode] = useState(false);
+  const [showInteractiveApiFlow, setShowInteractiveApiFlow] = useState(false);
   const [filterQuery, setFilterQuery] = useState('');
   const [copied, setCopied] = useState(false);
   const [isMermaidReady, setIsMermaidReady] = useState(typeof window !== 'undefined' && !!window.mermaid);
@@ -457,6 +460,7 @@ export default function DiagramCanvas({
 
   const allTabs = [
     { id: 'erd', label: 'Database ERD', icon: Database, color: 'text-blue-900 dark:text-cyan-400' },
+    { id: 'apiFlow', label: 'API Communication Flow', icon: Workflow, color: 'text-cyan-700 dark:text-cyan-400' },
     { id: 'sequence', label: 'API Execution Sequence', icon: GitCommit, color: 'text-amber-700 dark:text-amber-400' },
     { id: 'hld', label: 'High-Level Design (HLD)', icon: Box, color: 'text-violet-700 dark:text-violet-400' },
     { id: 'lld', label: 'Low-Level Design (LLD)', icon: Cpu, color: 'text-emerald-700 dark:text-emerald-400' }
@@ -531,6 +535,18 @@ export default function DiagramCanvas({
                 Interactive Topology
               </button>
             </div>
+          )}
+
+          {/* API Flow View Mode (on apiFlow tab) */}
+          {activeTab === 'apiFlow' && (
+            <button
+              onClick={() => setShowInteractiveApiFlow(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-600 dark:text-cyan-400 border border-cyan-500/35 text-xs font-bold transition-all cursor-pointer shadow-xs"
+              title="Open Interactive Visual API Graph Explorer"
+            >
+              <Workflow className="h-3.5 w-3.5 text-cyan-500 animate-pulse" />
+              <span>View Interactive Graph</span>
+            </button>
           )}
 
           {/* Quick Search in Diagram */}
@@ -690,6 +706,17 @@ export default function DiagramCanvas({
           <span>Zoom: <strong className="font-mono text-foreground">{Math.round(zoom * 100)}%</strong></span>
         </div>
       </div>
+
+      {/* Visual Interactive API Flow Graph Modal */}
+      <ApiFlowModal
+        isOpen={showInteractiveApiFlow}
+        onClose={() => setShowInteractiveApiFlow(false)}
+        endpoints={endpoints}
+        tables={schemaData?.tables || []}
+        diagrams={diagrams}
+        theme={theme}
+        onSelectForImpact={onSelectForImpact}
+      />
     </div>
   );
 }
