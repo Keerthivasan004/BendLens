@@ -11,10 +11,12 @@ import {
   FolderSearch, Play, Sparkles, Database, FileCode, Cpu, Layers,
   CheckCircle2, ArrowRight, ShieldCheck, HardDrive, Terminal,
   UploadCloud, GitBranch, Globe, Laptop, Lock, AlertTriangle, AlertCircle, Download, Zap, RefreshCw,
-  Clock, Timer, X, Cloud, Search, Copy, Check, ChevronDown, ChevronUp, ExternalLink, Code2, Server, Network, Workflow
+  Clock, Timer, X, Cloud, Search, Copy, Check, ChevronDown, ChevronUp, ExternalLink, Code2, Server, Network, Workflow,
+  Scale, FileText
 } from 'lucide-react';
 import ApiBreakdownModal from '@/components/ApiBreakdownModal';
 import ApiFlowModal from '@/components/ApiFlowModal';
+import LegalDocumentsModal from '@/components/LegalDocumentsModal';
 import { getApiEndpointsBreakdown } from '@/lib/apiBreakdownHelper';
 
 export default function LandingPage() {
@@ -64,6 +66,8 @@ CREATE TABLE orders (
   const [showApiBreakdownModal, setShowApiBreakdownModal] = useState(false);
   const [showApiFlowModal, setShowApiFlowModal] = useState(false);
   const [apiFlowFocusedEndpoint, setApiFlowFocusedEndpoint] = useState(null);
+  const [showLegalModal, setShowLegalModal] = useState(false);
+  const [legalModalTab, setLegalModalTab] = useState('privacy');
 
   const landingBreakdown = useMemo(() => {
     return getApiEndpointsBreakdown(analysisResult, 'resource');
@@ -1262,6 +1266,21 @@ CREATE TABLE audit_logs (
                           analysisResult.crawlerTelemetry?.techStack?.cloudProvider;
                         if (!ts && !cp) return null;
 
+                        const frontendCp = ts?.frontend?.cloudProvider || cp?.frontend || cp;
+                        const backendCp = ts?.backend?.cloudProvider || cp?.backend || (
+                          frontendCp?.code === 'vercel'
+                            ? { name: 'Vercel Serverless Functions', code: 'vercel', category: 'Serverless Cloud (AWS Lambda Under-the-hood)' }
+                            : frontendCp?.code === 'cloudflare'
+                            ? { name: 'Cloudflare Workers (V8 Serverless)', code: 'cloudflare', category: 'Global Edge Compute' }
+                            : frontendCp?.code === 'aws'
+                            ? { name: 'Amazon Web Services (AWS Compute)', code: 'aws', category: 'Hyperscale Cloud (IaaS/PaaS)' }
+                            : frontendCp?.code === 'hostinger'
+                            ? { name: 'Hostinger Cloud Server', code: 'hostinger', category: 'Managed Cloud Infrastructure' }
+                            : frontendCp?.code === 'self_hosted'
+                            ? { name: 'Self-Hosted Linux VPS', code: 'self_hosted', category: 'Dedicated / Linux VPS' }
+                            : { name: ts?.backend?.serverRuntime?.split('(')[0]?.trim() || 'Co-Hosted Cloud Compute', category: 'Backend Server' }
+                        );
+
                         return (
                           <div className="p-3.5 rounded-xl bg-surface border border-brand/30 space-y-3 text-xs text-left">
                             {/* Executive Header */}
@@ -1309,26 +1328,47 @@ CREATE TABLE audit_logs (
                                 </div>
                                 <div className="text-[10px] text-muted font-mono space-y-0.5 pt-0.5">
                                   <div className="truncate">Pattern: <strong className="text-foreground">{ts?.backend?.apiArchitecture?.split('·')[0]?.trim() || 'REST APIs'}</strong></div>
+                                  <div className="truncate">Host: <strong className="text-purple-400">{backendCp?.name?.split('(')[0]?.trim() || 'Cloud Compute'}</strong></div>
                                   <div className="truncate">Server: <strong className="text-foreground">{ts?.backend?.serverSoftware || 'HTTP Gateway'}</strong></div>
                                   <div className="truncate">Routes: <strong className="text-emerald-400">{landingEndpointsList.length} Endpoints</strong></div>
                                 </div>
                               </div>
 
                               {/* 3. Cloud Provider & Hosting */}
-                              <div className="p-2.5 rounded-lg bg-surface-raised border border-border/80 space-y-1">
-                                <span className="text-[9px] font-bold text-sky-400 font-mono uppercase flex items-center gap-1">
-                                  <Cloud className="h-3 w-3" />
-                                  <span>Cloud & Hosting</span>
+                              <div className="p-2.5 rounded-lg bg-surface-raised border border-border/80 space-y-1.5">
+                                <span className="text-[9px] font-bold text-sky-400 font-mono uppercase flex items-center justify-between">
+                                  <span className="flex items-center gap-1">
+                                    <Cloud className="h-3 w-3" />
+                                    <span>Cloud & Hosting</span>
+                                  </span>
+                                  <span className="text-[8px] font-mono px-1 py-0.2 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-bold">
+                                    {frontendCp?.code !== backendCp?.code && backendCp?.code && backendCp.code !== 'unknown' && backendCp.code !== 'co_hosted'
+                                      ? 'MULTI-CLOUD'
+                                      : (frontendCp?.code ? frontendCp.code.toUpperCase() : 'CLOUD')}
+                                  </span>
                                 </span>
-                                <div className="font-bold text-foreground truncate text-xs">
-                                  {cp?.name || ts?.backend?.hostingCdn?.split('·')[0]?.trim() || 'Cloud Edge'}
+                                
+                                <div className="space-y-1 text-xs">
+                                  <div className="truncate flex items-center gap-1">
+                                    <span className="text-[9px] font-mono text-cyan-400 font-bold">FE:</span>
+                                    <strong className="text-foreground truncate" title={frontendCp?.name || 'Cloud Edge'}>
+                                      {frontendCp?.name || 'Cloud Edge'}
+                                    </strong>
+                                  </div>
+                                  <div className="truncate flex items-center gap-1">
+                                    <span className="text-[9px] font-mono text-purple-400 font-bold">BE:</span>
+                                    <strong className="text-purple-300 truncate" title={backendCp?.name || 'Cloud Compute'}>
+                                      {backendCp?.name || 'Co-Hosted Cloud'}
+                                    </strong>
+                                  </div>
                                 </div>
-                                <div className="text-[10px] text-muted font-mono space-y-0.5 pt-0.5">
-                                  <div className="truncate">Category: <strong className="text-foreground">{cp?.category?.split('/')[0]?.trim() || 'Edge CDN'}</strong></div>
-                                  {cp?.region && (
-                                    <div className="truncate">Region: <strong className="text-emerald-400">{cp.region}</strong></div>
+
+                                <div className="text-[10px] text-muted font-mono space-y-0.5 pt-0.5 border-t border-border/40">
+                                  <div className="truncate">Backend: <strong className="text-foreground">{backendCp?.category?.split('/')[0]?.trim() || 'API Server'}</strong></div>
+                                  {(backendCp?.region || frontendCp?.region) && (
+                                    <div className="truncate">Region: <strong className="text-emerald-400">{backendCp?.region || frontendCp?.region}</strong></div>
                                   )}
-                                  <div className="truncate">Services: <strong className="text-foreground">{cp?.services?.[0] || 'DDoS Shield'}</strong></div>
+                                  <div className="truncate">Evidence: <strong className="text-foreground">{(backendCp?.evidence?.[0] || frontendCp?.evidence?.[0])?.split('(')[0]?.trim() || 'Verified'}</strong></div>
                                 </div>
                               </div>
 
@@ -1374,6 +1414,189 @@ CREATE TABLE audit_logs (
                         );
                       })()}
 
+                      {/* Legal & Compliance Intelligence Card (Privacy Policy & Terms of Service) */}
+                      {(() => {
+                        const docs = analysisResult?.legalDocuments || analysisResult?.crawlerTelemetry?.legalDocuments;
+                        const isUrlScan = analysisResult?.isUrlCrawl || !!analysisResult?.crawlerTelemetry || (analysisResult?.projectPath && (analysisResult.projectPath.startsWith('http://') || analysisResult.projectPath.startsWith('https://')));
+                        if (!docs && !isUrlScan) return null;
+                        const privacy = docs?.privacyPolicy;
+                        const terms = docs?.termsOfService;
+
+                        return (
+                          <div className="p-3.5 rounded-xl bg-surface border border-emerald-500/30 space-y-3 text-xs text-left">
+                            {/* Executive Header */}
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-border/80 pb-2.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 flex items-center gap-1 font-mono">
+                                  <Scale className="h-3 w-3" />
+                                  <span>Legal & Compliance Intelligence</span>
+                                </span>
+                                <span className="font-bold text-foreground text-xs font-sans">
+                                  Privacy Policy & Terms of Service Discovery
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20 flex items-center gap-1">
+                                  <ShieldCheck className="h-3 w-3" />
+                                  <span>Local-First & Verified</span>
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* 2-Column Document Cards */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {/* Privacy Policy Card */}
+                              <div className="p-3 rounded-lg bg-surface-raised border border-border/80 flex flex-col justify-between space-y-2.5">
+                                <div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-bold text-emerald-400 font-mono uppercase flex items-center gap-1.5">
+                                      <ShieldCheck className="h-3.5 w-3.5" />
+                                      <span>Privacy Policy</span>
+                                    </span>
+                                    {privacy ? (
+                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                        {privacy.wordCount?.toLocaleString() || '0'} words
+                                      </span>
+                                    ) : (
+                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                        Available to Extract
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="text-[11px] text-muted font-mono mt-2 space-y-1">
+                                    <div>
+                                      Status: <strong className={privacy ? (privacy.isFirewallResilient ? "text-emerald-400" : "text-foreground") : "text-amber-400"}>
+                                        {privacy ? (privacy.isFirewallResilient ? 'Firewall-Resilient Active' : 'Discovered & Ready') : 'On-Demand Extraction'}
+                                      </strong>
+                                    </div>
+                                    {privacy?.lastUpdated && (
+                                      <div>Last Updated: <strong className="text-foreground">{privacy.lastUpdated}</strong></div>
+                                    )}
+                                    {privacy?.url && (
+                                      <div className="truncate text-[10px] text-muted/80">
+                                        Path: <span className="text-brand font-mono">{privacy.url}</span>
+                                      </div>
+                                    )}
+                                    {(privacy?.keyClauses?.length > 0 || privacy?.clausesDetected?.length > 0) && (
+                                      <div className="flex items-center gap-1 flex-wrap pt-1">
+                                        {(privacy.keyClauses || privacy.clausesDetected).slice(0, 3).map((c, idx) => (
+                                          <span key={idx} className="text-[9px] px-1.5 py-0.2 rounded bg-surface border border-border text-foreground">
+                                            {typeof c === 'string' ? c : c.name}
+                                          </span>
+                                        ))}
+                                        {(privacy.keyClauses || privacy.clausesDetected).length > 3 && (
+                                          <span className="text-[9px] text-muted font-mono">+{(privacy.keyClauses || privacy.clausesDetected).length - 3} clauses</span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="pt-2 border-t border-border/60 flex items-center justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setLegalModalTab('privacy');
+                                      setShowLegalModal(true);
+                                    }}
+                                    className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
+                                  >
+                                    <FileText className="h-3 w-3" />
+                                    <span>Read Full Privacy Policy</span>
+                                  </button>
+                                  {privacy?.url && (
+                                    <a
+                                      href={privacy.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[10px] text-muted hover:text-foreground flex items-center gap-1"
+                                    >
+                                      <span>Live Page</span>
+                                      <ExternalLink className="h-2.5 w-2.5" />
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Terms of Service Card */}
+                              <div className="p-3 rounded-lg bg-surface-raised border border-border/80 flex flex-col justify-between space-y-2.5">
+                                <div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-bold text-sky-400 font-mono uppercase flex items-center gap-1.5">
+                                      <Scale className="h-3.5 w-3.5" />
+                                      <span>Terms of Service</span>
+                                    </span>
+                                    {terms ? (
+                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                                        {terms.wordCount?.toLocaleString() || '0'} words
+                                      </span>
+                                    ) : (
+                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                        Available to Extract
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="text-[11px] text-muted font-mono mt-2 space-y-1">
+                                    <div>
+                                      Status: <strong className={terms ? (terms.isFirewallResilient ? "text-sky-400" : "text-foreground") : "text-amber-400"}>
+                                        {terms ? (terms.isFirewallResilient ? 'Firewall-Resilient Active' : 'Discovered & Ready') : 'On-Demand Extraction'}
+                                      </strong>
+                                    </div>
+                                    {terms?.lastUpdated && (
+                                      <div>Last Updated: <strong className="text-foreground">{terms.lastUpdated}</strong></div>
+                                    )}
+                                    {terms?.url && (
+                                      <div className="truncate text-[10px] text-muted/80">
+                                        Path: <span className="text-brand font-mono">{terms.url}</span>
+                                      </div>
+                                    )}
+                                    {(terms?.keyClauses?.length > 0 || terms?.clausesDetected?.length > 0) && (
+                                      <div className="flex items-center gap-1 flex-wrap pt-1">
+                                        {(terms.keyClauses || terms.clausesDetected).slice(0, 3).map((c, idx) => (
+                                          <span key={idx} className="text-[9px] px-1.5 py-0.2 rounded bg-surface border border-border text-foreground">
+                                            {typeof c === 'string' ? c : c.name}
+                                          </span>
+                                        ))}
+                                        {(terms.keyClauses || terms.clausesDetected).length > 3 && (
+                                          <span className="text-[9px] text-muted font-mono">+{(terms.keyClauses || terms.clausesDetected).length - 3} clauses</span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="pt-2 border-t border-border/60 flex items-center justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setLegalModalTab('terms');
+                                      setShowLegalModal(true);
+                                    }}
+                                    className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
+                                  >
+                                    <FileText className="h-3 w-3" />
+                                    <span>Read Full Terms & Conditions</span>
+                                  </button>
+                                  {terms?.url && (
+                                    <a
+                                      href={terms.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[10px] text-muted hover:text-foreground flex items-center gap-1"
+                                    >
+                                      <span>Live Page</span>
+                                      <ExternalLink className="h-2.5 w-2.5" />
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {/* Interactive Discovered API Endpoints Inventory Card */}
                       {landingEndpointsList.length > 0 && (
                         <div className="p-3.5 rounded-xl bg-surface border border-border space-y-3 text-left">
@@ -1408,6 +1631,19 @@ CREATE TABLE audit_logs (
                               >
                                 <Workflow className="h-3 w-3 text-cyan-400 animate-pulse" />
                                 <span>View Interactive Graph</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setLegalModalTab('privacy');
+                                  setShowLegalModal(true);
+                                }}
+                                className="px-2 py-0.5 rounded-md text-[10px] font-mono font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-500/25 flex items-center gap-1 transition-colors cursor-pointer"
+                                title="View Privacy Policy and Terms of Service documents"
+                              >
+                                <Scale className="h-3 w-3" />
+                                <span>Privacy & Terms</span>
                               </button>
                             </div>
 
@@ -2257,6 +2493,15 @@ CREATE TABLE audit_logs (
           initialFocusedEndpoint={apiFlowFocusedEndpoint}
         />
       )}
+
+      {/* Local-First Authentic Legal Documents (Privacy Policy & Terms of Service) Modal */}
+      <LegalDocumentsModal
+        isOpen={showLegalModal}
+        onClose={() => setShowLegalModal(false)}
+        legalDocuments={analysisResult?.legalDocuments || analysisResult?.crawlerTelemetry?.legalDocuments}
+        targetUrl={analysisResult?.projectPath || gitUrl || folderPath}
+        initialTab={legalModalTab}
+      />
     </main>
   );
 }

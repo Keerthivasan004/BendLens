@@ -172,6 +172,7 @@ export async function POST(request) {
                     result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
                     result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
                     result.isUrlCrawl = true;
+                    result.legalDocuments = crawlResult.legalDocuments || crawlResult.telemetry?.legalDocuments || null;
                     if (!crawlResult.sqlSchema) {
                       result.schema = { tables: [], relationships: [] };
                     }
@@ -505,6 +506,7 @@ export async function POST(request) {
         result.projectName = crawlResult.projectName;
         result.projectPath = repoUrl;
         result.isUrlCrawl = true;
+        result.legalDocuments = crawlResult.legalDocuments || crawlResult.telemetry?.legalDocuments || null;
         result.crawlerTelemetry = crawlResult.telemetry;
         result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
         result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;

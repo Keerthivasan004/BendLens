@@ -24,7 +24,8 @@ Technology Stack: ${data.techStack?.summary || data.crawlerTelemetry?.techStack?
 - **Total Discovered API Routes**: ${endpoints.length}
 - **Detected Technology Stack**: ${data.techStack?.summary || data.crawlerTelemetry?.techStack?.summary || 'Web Architecture'}
 - **Frontend Framework**: ${data.techStack?.frontend?.framework || 'Modern Web'} (${data.techStack?.frontend?.bundler || 'ESM'})
-- **Cloud Service Provider (CSP)**: ${(data.cloudProvider || data.techStack?.cloudProvider || data.crawlerTelemetry?.cloudProvider)?.name || data.techStack?.backend?.hostingCdn || 'Cloud Edge'} (${(data.cloudProvider || data.techStack?.cloudProvider || data.crawlerTelemetry?.cloudProvider)?.category || 'Cloud Infrastructure'})
+- **Frontend Cloud / Edge Delivery**: ${(data.techStack?.frontend?.cloudProvider || data.cloudProvider?.frontend || data.cloudProvider || data.techStack?.cloudProvider || data.crawlerTelemetry?.cloudProvider)?.name || 'Cloud Edge'} (${(data.techStack?.frontend?.cloudProvider || data.cloudProvider?.frontend || data.cloudProvider || data.techStack?.cloudProvider || data.crawlerTelemetry?.cloudProvider)?.category || 'Edge CDN'})
+- **Backend Cloud / Compute Host**: ${(data.techStack?.backend?.cloudProvider || data.cloudProvider?.backend)?.name || data.techStack?.backend?.serverRuntime || 'Co-Hosted Cloud Compute'} (${(data.techStack?.backend?.cloudProvider || data.cloudProvider?.backend)?.category || 'Compute / API'})
 - **Backend & Cloud Runtime**: ${data.techStack?.backend?.serverRuntime || 'Node.js'} · ${data.techStack?.backend?.hostingCdn || 'Edge Cloud'}
 - **Scan Duration**: ${data.crawlerTelemetry?.crawlDurationMs ? `${(data.crawlerTelemetry.crawlDurationMs / 1000).toFixed(1)}s` : 'Real-Time'}
 - **Chunks Crawled**: ${data.crawlerTelemetry?.chunksCrawledCount || 1}

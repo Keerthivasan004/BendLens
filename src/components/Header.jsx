@@ -8,11 +8,12 @@ import useIsDesktop from '@/lib/useIsDesktop';
 import {
   FolderSearch, Play, Download, Sparkles, Database,
   FileCode, Cpu, CheckCircle2, RefreshCw,
-  Activity, ChevronRight, Globe, Printer, Cloud, Layers, Code2, Workflow
+  Activity, ChevronRight, Globe, Printer, Cloud, Layers, Code2, Workflow, Scale
 } from 'lucide-react';
 import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 import { getApiServicesCount } from '@/lib/apiCountHelper';
 import ApiBreakdownModal from '@/components/ApiBreakdownModal';
+import LegalDocumentsModal from '@/components/LegalDocumentsModal';
 
 export default function Header({
   onAnalyze,
@@ -30,6 +31,7 @@ export default function Header({
 }) {
   const hasAnalysis = !!analysisData;
   const [showApiBreakdown, setShowApiBreakdown] = useState(false);
+  const [showLegalModal, setShowLegalModal] = useState(false);
   // Downloaded (Electron) users already have the app: never offer it again.
   const isDesktop = useIsDesktop();
   const isLocal = isLocalApp || (typeof window !== 'undefined' && (
@@ -196,21 +198,27 @@ export default function Header({
                     </>
                   )}
                   {(() => {
+                    const ts = analysisData.techStack || analysisData.crawlerTelemetry?.techStack;
                     const cp = analysisData.cloudProvider ||
-                      analysisData.techStack?.cloudProvider ||
+                      ts?.cloudProvider ||
                       analysisData.crawlerTelemetry?.cloudProvider ||
                       analysisData.crawlerTelemetry?.techStack?.cloudProvider;
                     if (!cp || cp.code === 'unknown') return null;
+
+                    const feCp = ts?.frontend?.cloudProvider || cp.frontend || cp;
+                    const beCp = ts?.backend?.cloudProvider || cp.backend;
+                    const isMulti = beCp && beCp.name && feCp.name && beCp.name !== feCp.name && beCp.code !== 'co_hosted';
+
                     return (
                       <>
                         <span className="h-3 w-px bg-border hidden md:block" />
                         <span
                           className="flex items-center gap-1.5 px-1 text-muted cursor-help"
-                          title={`Cloud Service Provider: ${cp.name} (${cp.category}) • Services: ${cp.services?.join(', ') || 'Global Delivery'} • Evidence: ${cp.evidence?.[0] || 'Verified'}`}
+                          title={`Frontend: ${feCp?.name || 'Cloud Edge'} (${feCp?.category || 'Edge CDN'}) • Backend: ${beCp?.name || 'Compute'} (${beCp?.category || 'API Server'}) • Evidence: ${beCp?.evidence?.[0] || feCp?.evidence?.[0] || 'Verified'}`}
                         >
                           <Cloud className="h-3.5 w-3.5 text-sky-400 shrink-0" />
                           <span className="text-foreground font-semibold font-mono text-[11px]">
-                            {cp.name.split('(')[0].trim()}
+                            {isMulti ? `${feCp.name.split('(')[0].trim()} / ${beCp.name.split('(')[0].trim()}` : feCp.name.split('(')[0].trim()}
                           </span>
                         </span>
                       </>
@@ -252,6 +260,15 @@ export default function Header({
                 <span>API Breakdown</span>
               </button>
 
+              <button
+                onClick={() => setShowLegalModal(true)}
+                className="btn-secondary text-xs py-1.5 px-3 whitespace-nowrap flex items-center gap-1.5 border-emerald-500/30 hover:border-emerald-500/50 hover:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium cursor-pointer"
+                title="View Privacy Policy and Terms of Service documents"
+              >
+                <Scale className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
+                <span>Privacy & Terms</span>
+              </button>
+
               {onOpenApiFlow && (
                 <button
                   onClick={onOpenApiFlow}
@@ -290,6 +307,14 @@ export default function Header({
           onOpenApiFlow={onOpenApiFlow}
         />
       )}
+
+      {/* Local-First Authentic Legal Documents (Privacy Policy & Terms of Service) Modal */}
+      <LegalDocumentsModal
+        isOpen={showLegalModal}
+        onClose={() => setShowLegalModal(false)}
+        legalDocuments={analysisData?.legalDocuments || analysisData?.crawlerTelemetry?.legalDocuments}
+        targetUrl={currentPath || analysisData?.projectPath}
+      />
     </header>
   );
 }

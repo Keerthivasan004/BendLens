@@ -9,13 +9,14 @@ import {
   Info, Cpu, Box, CheckCircle2, ChevronRight,
   Radio, ShieldCheck, Webhook, HardDrive, Settings, Activity, Workflow, Zap,
   Server, SlidersHorizontal, Share2, ArrowDownRight, Layers2, Printer, Cloud,
-  ShoppingBag, Package, CreditCard, Shield, RefreshCw, Users, Globe
+  ShoppingBag, Package, CreditCard, Shield, RefreshCw, Users, Globe, Scale
 } from 'lucide-react';
 import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 import { getApiServicesCount } from '@/lib/apiCountHelper';
 import { getApiEndpointsBreakdown, formatResourceName } from '@/lib/apiBreakdownHelper';
 import ApiBreakdownModal from '@/components/ApiBreakdownModal';
 import ApiFlowModal from '@/components/ApiFlowModal';
+import LegalDocumentsModal from '@/components/LegalDocumentsModal';
 
 function getResourceIcon(name) {
   const n = (name || '').toLowerCase();
@@ -262,6 +263,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
   const [copiedPath, setCopiedPath] = useState(null);
   const [showApiBreakdownModal, setShowApiBreakdownModal] = useState(false);
   const [showApiFlowModal, setShowApiFlowModal] = useState(false);
+  const [showLegalModal, setShowLegalModal] = useState(false);
   const [apiFlowFocusedEndpoint, setApiFlowFocusedEndpoint] = useState(null);
   const [endpointsViewMode, setEndpointsViewMode] = useState('grouped'); // 'grouped' | 'flat'
   const [expandedGroupIds, setExpandedGroupIds] = useState(new Set());
@@ -304,6 +306,85 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
 
   const isUrl = isUrlScan || rawAnalysisData?.isUrlCrawl || !!rawAnalysisData?.crawlerTelemetry || (tables.length === 0 && endpoints.length > 0);
   const techStack = data?.techStack || rawAnalysisData?.techStack || data?.crawlerTelemetry?.techStack || rawAnalysisData?.crawlerTelemetry?.techStack;
+
+  const frontendCp = useMemo(() => {
+    return techStack?.frontend?.cloudProvider ||
+      techStack?.cloudProvider?.frontend ||
+      techStack?.cloudProvider ||
+      data?.cloudProvider ||
+      rawAnalysisData?.cloudProvider;
+  }, [techStack, data, rawAnalysisData]);
+
+  const backendCp = useMemo(() => {
+    if (techStack?.backend?.cloudProvider && techStack.backend.cloudProvider.role === 'backend_compute') {
+      return techStack.backend.cloudProvider;
+    }
+    if (techStack?.cloudProvider?.backend) {
+      return techStack.cloudProvider.backend;
+    }
+    if (techStack?.backend?.cloudProvider && techStack?.frontend?.cloudProvider && techStack.backend.cloudProvider !== techStack.frontend.cloudProvider) {
+      return techStack.backend.cloudProvider;
+    }
+    const feCode = frontendCp?.code || '';
+    if (feCode === 'vercel') {
+      return {
+        name: 'Vercel Serverless Functions',
+        code: 'vercel',
+        category: 'Serverless Cloud Compute (AWS Lambda Under-the-hood)',
+        role: 'backend_compute',
+        services: ['Vercel Serverless Functions (Node.js/Edge)', 'API Route Handlers'],
+        evidence: ['Vercel Fullstack Serverless Architecture']
+      };
+    }
+    if (feCode === 'cloudflare') {
+      return {
+        name: 'Cloudflare Workers (V8 Serverless)',
+        code: 'cloudflare',
+        category: 'Global Edge Compute & Microservices',
+        role: 'backend_compute',
+        services: ['Cloudflare Workers Engine', 'Edge API Route Handlers'],
+        evidence: ['Cloudflare Edge Compute Infrastructure']
+      };
+    }
+    if (feCode === 'aws') {
+      return {
+        name: 'Amazon Web Services (AWS Compute)',
+        code: 'aws',
+        category: 'Hyperscale Cloud (IaaS/PaaS)',
+        role: 'backend_compute',
+        services: ['AWS Lambda / ECS Containers', 'Application Load Balancer (ALB)'],
+        evidence: ['AWS Cloud Architecture']
+      };
+    }
+    if (feCode === 'hostinger') {
+      return {
+        name: 'Hostinger Cloud Server',
+        code: 'hostinger',
+        category: 'Managed Cloud & VPS Infrastructure',
+        role: 'backend_compute',
+        services: ['Hostinger Cloud Compute (Node.js/PHP-FPM)', 'Hostinger Managed Server'],
+        evidence: ['Hostinger Cloud Platform']
+      };
+    }
+    if (feCode === 'self_hosted') {
+      return {
+        name: 'Self-Hosted Linux VPS',
+        code: 'self_hosted',
+        category: 'Dedicated / Virtual Private Server (VPS)',
+        role: 'backend_compute',
+        services: [`Linux Host (${techStack?.backend?.serverRuntime || 'Node.js Engine'})`],
+        evidence: [techStack?.backend?.serverSoftware ? `Server Software: ${techStack.backend.serverSoftware}` : 'Self-Hosted Origin Server']
+      };
+    }
+    return {
+      name: techStack?.backend?.hostingCdn?.split('·')[0]?.trim() || techStack?.backend?.serverRuntime?.split('(')[0]?.trim() || 'Co-Hosted Cloud Engine',
+      code: 'co_hosted',
+      category: 'Unified Cloud Compute',
+      role: 'backend_compute',
+      services: [techStack?.backend?.serverRuntime || 'Node.js / Cloud Serverless'],
+      evidence: ['Unified Origin Architecture']
+    };
+  }, [techStack, frontendCp]);
 
   const architecture = useMemo(() => analyzeSchemaArchitecture(tables), [tables]);
 
@@ -867,8 +948,10 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                 </div>
                 <div className="bg-surface/80 p-2 rounded-lg border border-border/60">
                   <span className="text-muted text-[10px] block">Hosting & Cloud:</span>
-                  <span className="font-bold text-sky-400 truncate block">
-                    {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.name || techStack?.backend?.hostingCdn?.split('·')[0]?.trim() || 'Cloud Edge'}
+                  <span className="font-bold text-sky-400 truncate block" title={`Frontend: ${frontendCp?.name || 'Cloud Edge'} • Backend: ${backendCp?.name || 'Cloud Compute'}`}>
+                    {frontendCp?.name && backendCp?.name && frontendCp.name !== backendCp.name
+                      ? `${frontendCp.name.split('(')[0].trim()} (FE) + ${backendCp.name.split('(')[0].trim()} (BE)`
+                      : (backendCp?.name || frontendCp?.name || techStack?.backend?.hostingCdn?.split('·')[0]?.trim() || 'Cloud Edge')}
                   </span>
                 </div>
                 <div className="bg-surface/80 p-2 rounded-lg border border-border/60">
@@ -949,6 +1032,12 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-muted">
+                  <span>Backend Host:</span>
+                  <span className="font-semibold text-purple-400 truncate max-w-[130px]" title={backendCp?.name}>
+                    {backendCp?.name?.split('(')[0]?.trim() || 'Cloud Compute'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-muted">
                   <span>Server Soft:</span>
                   <span className="font-semibold text-foreground truncate max-w-[130px]">{techStack?.backend?.serverSoftware || 'HTTP Gateway'}</span>
                 </div>
@@ -968,45 +1057,76 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                     <span>Cloud & Hosting</span>
                   </span>
                   <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-400 font-bold border border-sky-500/20">
-                    {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.code ? (techStack?.cloudProvider || techStack?.backend?.cloudProvider).code.toUpperCase() : 'CLOUD'}
+                    {frontendCp?.code !== backendCp?.code && backendCp?.code && backendCp.code !== 'unknown' && backendCp.code !== 'co_hosted'
+                      ? 'MULTI-CLOUD'
+                      : (frontendCp?.code ? frontendCp.code.toUpperCase() : 'CLOUD')}
                   </span>
                 </div>
-                <div className="text-base font-extrabold text-foreground truncate" title={(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.name || techStack?.backend?.hostingCdn}>
-                  {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.name || techStack?.backend?.hostingCdn?.split('·')[0]?.trim() || 'Cloud Edge'}
-                </div>
-                <div className="text-xs text-muted font-medium mt-0.5 truncate" title={(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.category}>
-                  {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.category || 'Global Edge Distribution'}
+
+                {/* Dual Hosting Tiers: Frontend Edge & Backend Compute */}
+                <div className="space-y-2 mt-1">
+                  {/* Tier 1: Frontend Edge Delivery */}
+                  <div className="p-2 rounded-lg bg-surface-raised/70 border border-border/60">
+                    <div className="flex items-center justify-between text-[10px] font-mono mb-0.5">
+                      <span className="text-cyan-400 font-bold flex items-center gap-1">
+                        <Globe className="h-3 w-3" />
+                        <span>Frontend Edge:</span>
+                      </span>
+                      <span className="text-[9px] text-muted truncate max-w-[100px]">
+                        {frontendCp?.category?.split('/')[0]?.trim() || 'Edge CDN'}
+                      </span>
+                    </div>
+                    <div className="text-sm font-extrabold text-foreground truncate" title={frontendCp?.name || 'Cloud Edge'}>
+                      {frontendCp?.name || 'Cloud Edge'}
+                    </div>
+                  </div>
+
+                  {/* Tier 2: Backend Cloud Compute */}
+                  <div className="p-2 rounded-lg bg-surface-raised/70 border border-border/60">
+                    <div className="flex items-center justify-between text-[10px] font-mono mb-0.5">
+                      <span className="text-purple-400 font-bold flex items-center gap-1">
+                        <Server className="h-3 w-3" />
+                        <span>Backend Hosting:</span>
+                      </span>
+                      <span className="text-[9px] text-muted truncate max-w-[100px]">
+                        {backendCp?.category?.split('/')[0]?.trim() || 'API Server'}
+                      </span>
+                    </div>
+                    <div className="text-sm font-extrabold text-purple-300 truncate" title={backendCp?.name || 'Cloud Compute'}>
+                      {backendCp?.name || 'Co-Hosted Cloud Compute'}
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div className="pt-2 border-t border-border/60 space-y-1.5 text-[11px] font-mono">
                 <div className="flex justify-between items-center text-muted">
-                  <span>Services:</span>
-                  <span className="font-semibold text-foreground truncate max-w-[130px]" title={(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.services?.join(', ')}>
-                    {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.services?.[0] || 'DDoS Shield / TLS'}
+                  <span>Backend Env:</span>
+                  <span className="font-semibold text-foreground truncate max-w-[130px]" title={backendCp?.services?.[0] || techStack?.backend?.serverRuntime}>
+                    {backendCp?.services?.[0] || techStack?.backend?.serverRuntime?.split('(')[0]?.trim() || 'Serverless APIs'}
                   </span>
                 </div>
-                {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.region && (
+                {(backendCp?.region || frontendCp?.region) && (
                   <div className="flex justify-between items-center text-muted">
                     <span>Region / POP:</span>
                     <span className="font-semibold text-emerald-400 truncate max-w-[130px]">
-                      {(techStack?.cloudProvider || techStack?.backend?.cloudProvider).region}
+                      {backendCp?.region || frontendCp?.region}
                     </span>
                   </div>
                 )}
                 <div className="flex justify-between items-center text-muted">
                   <span>Evidence:</span>
-                  <span className="font-semibold text-cyan-400 truncate max-w-[130px]" title={(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.evidence?.[0]}>
-                    {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.evidence?.[0]?.split('(')[0]?.trim() || 'HTTP Headers'}
+                  <span className="font-semibold text-cyan-400 truncate max-w-[130px]" title={backendCp?.evidence?.[0] || frontendCp?.evidence?.[0]}>
+                    {(backendCp?.evidence?.[0] || frontendCp?.evidence?.[0])?.split('(')[0]?.trim() || 'HTTP Headers'}
                   </span>
                 </div>
               </div>
 
               {/* Extended Cloud Services Tags */}
-              {(techStack?.cloudProvider || techStack?.backend?.cloudProvider)?.services?.length > 1 && (
-                <div className="pt-1.5 flex flex-wrap gap-1">
-                  {(techStack?.cloudProvider || techStack?.backend?.cloudProvider).services.slice(1, 4).map((srv, sIdx) => (
-                    <span key={sIdx} className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-sky-950/40 text-sky-300 border border-sky-500/20 font-medium">
+              {((backendCp?.services?.length > 1 ? backendCp.services : []) || frontendCp?.services?.slice(1, 4))?.length > 0 && (
+                <div className="pt-1 flex flex-wrap gap-1">
+                  {(backendCp?.services?.length > 1 ? backendCp.services.slice(1, 4) : frontendCp?.services?.slice(1, 4) || []).map((srv, sIdx) => (
+                    <span key={sIdx} className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-950/40 text-purple-300 border border-purple-500/20 font-medium">
                       {srv}
                     </span>
                   ))}
@@ -1051,12 +1171,14 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
           {/* Discovered Backend Microservice Domains / Gateways */}
           {techStack?.backend?.discoveredGateways?.length > 0 && (
             <div className="p-3.5 rounded-xl bg-surface border border-border space-y-2">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
                   <Network className="h-4 w-4 text-cyan-500" />
                   <span>Discovered Microservice Gateways & External Backend Domains ({techStack.backend.discoveredGateways.length})</span>
                 </span>
-                <span className="text-[10px] text-muted font-mono">Discovered via code AST & network callers</span>
+                <span className="text-[10px] text-muted font-mono">
+                  Backend Host: <strong className="text-purple-400 font-bold">{backendCp?.name?.split('(')[0]?.trim() || 'Remote Gateway'}</strong>
+                </span>
               </div>
               <div className="flex flex-wrap gap-2 pt-1">
                 {techStack.backend.discoveredGateways.map((domain, idx) => (
@@ -1137,6 +1259,15 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                   >
                     <Layers className="h-3.5 w-3.5" />
                     <span>API Breakdown ({apiBreakdown.totalApisCount} APIs)</span>
+                  </button>
+
+                  <button
+                    onClick={() => setShowLegalModal(true)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-mono font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-500/25 flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="View Privacy Policy and Terms of Service documents"
+                  >
+                    <Scale className="h-3.5 w-3.5" />
+                    <span>Privacy & Terms</span>
                   </button>
 
                   <button
@@ -3323,6 +3454,14 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
         theme="dark"
         initialFocusedEndpoint={apiFlowFocusedEndpoint}
         onSelectForImpact={onSelectForImpact}
+      />
+
+      {/* Local-First Authentic Legal Documents (Privacy Policy & Terms of Service) Modal */}
+      <LegalDocumentsModal
+        isOpen={showLegalModal}
+        onClose={() => setShowLegalModal(false)}
+        legalDocuments={rawAnalysisData?.legalDocuments || data?.legalDocuments || rawAnalysisData?.crawlerTelemetry?.legalDocuments || data?.crawlerTelemetry?.legalDocuments}
+        targetUrl={rawAnalysisData?.projectPath || data?.projectPath || ''}
       />
     </div>
   );

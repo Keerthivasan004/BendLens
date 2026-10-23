@@ -114,3 +114,15 @@ Each synthesized endpoint carries:
 - **KPI Grid**: Highlights Verified Backend APIs as headline metric with segregated UI pages note.
 - **Inventory Table**: Features dedicated `Crawl Scope` and `Route Type` indicators.
 
+---
+
+## 8. Dual-Tier Cloud & Backend Hosting Architecture
+BendLens features a dedicated, authentic cloud reverse-engineering engine that separates and exposes:
+- **Frontend Edge Hosting (`frontendCloudProvider`)**: Where client static assets, HTML, and bundles are delivered (Vercel Global Edge Network, Cloudflare Anycast CDN & DDoS Shield, AWS CloudFront / S3, Hostinger CDN, Netlify Edge).
+- **Backend Cloud Hosting (`backendCloudProvider`)**: Where APIs, microservices, and serverless runtimes are hosted (AWS Lambda / ECS / ALB, Vercel Serverless Functions on Firecracker, Supabase Cloud on AWS, Render Web Services, Google Cloud Run, Railway, Fly.io MicroVMs, Hostinger Cloud Server, Self-Hosted Linux VPS).
+- **Multi-Signal Triangulation**:
+  - `detectBackendCloudProvider` analyzes discovered external gateways (`backendDomains`), probed backend API response headers (`backendHeaders`), server software, and serverless platform architectures.
+  - **Multi-Signal DNS & Subnet Engine**: Parallel non-blocking DNS queries with fallback public resolvers (8.8.8.8, 1.1.1.1), apex CNAME redirection fallback (finstackk.com -> www.finstackk.com -> *.elb.amazonaws.com), authoritative NS inspection (Route 53 awsdns), and expanded enterprise CIDR subnets (e.g. AWS 44.192.0.0/10, 3.0.0.0/9, 99.80.0.0/12). Automatically classifies containerized AWS ECS workloads behind Application Load Balancers.
+  - UI surfaces (`DeveloperView.jsx`, `page.jsx`, `Header.jsx`, `apiPdfReportGenerator.js`, `ExportModal.jsx`) clearly display both Frontend Edge and Backend Hosting with status badges (`MULTI-CLOUD` vs single cloud), categories, services, regions, and verified evidence.
+
+

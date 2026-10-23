@@ -85,6 +85,7 @@ export async function POST(request) {
     result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
     result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
     result.isUrlCrawl = true;
+    result.legalDocuments = crawlResult.legalDocuments || crawlResult.telemetry?.legalDocuments || null;
     result.schema = { tables: [], relationships: [] };
 
     saveToHistory(result);
@@ -94,7 +95,8 @@ export async function POST(request) {
       data: result,
       telemetry: crawlResult.telemetry,
       techStack: result.techStack,
-      cloudProvider: result.cloudProvider
+      cloudProvider: result.cloudProvider,
+      legalDocuments: result.legalDocuments
     });
   } catch (error) {
     console.error('Universal Crawler Route Error:', error);

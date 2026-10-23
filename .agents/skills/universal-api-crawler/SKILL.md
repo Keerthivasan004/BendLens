@@ -25,7 +25,7 @@ Use this skill when you need to:
    - **No Artificial Route Inflation**: Does not artificially generate wildcard endpoints or concatenate non-API suffixes onto base routes.
    - Strict AST token normalization (`normalizeApiPath`) rejects minified runtime artifacts (e.g., `/:`, `/{`, `/.`, `/%0`, `/e`, `/end`, `/finish`, `/close`, `/validator`).
    - Filters out non-HTTP web APIs (`headers.get`, `searchParams.get`, `formData.get`) and rejects un-prefixed UI navigation paths.
-   - **Verified Subpage Probing**: Phase 2 speculative subpage probes (e.g. `/ai`, `/quiz`, `/cdc`) are strictly verified via live HTTP probe and ONLY added to discovered surfaces if the server genuinely returns HTTP 200 OK. 404 responses are discarded, preventing phantom route inflation (e.g., maintaining exact 152 routes on `finstackk.com`).
+   - **Verified Subpage Probing & Marketing Filter Parity**: Phase 2 speculative subpage probes (e.g. `/ai`, `/quiz`, `/cdc`) are strictly verified via live HTTP probe and ONLY added to discovered surfaces if the server genuinely returns HTTP 200 OK. 404 responses are discarded. Static marketing/legal/documentation landing pages (`isMarketingOrStatic`) are pruned consistently across Phase 1 (`normalEndpoints`) and Stage 5 (`allEndpoints`), and `normalEndpoints` is synchronized as a strict subset of `allEndpoints` (`normalEndpoints ⊆ allEndpoints`), preventing phantom route inflation and guaranteeing exact mathematical parity (e.g., maintaining exact 153 authentic functional routes across both Normal Crawl and Deep Crawl on `finstackk.com`).
 2. **Crash-Proof & Truthful Status Reporting**:
    - The crawler never crashes the Node.js server. Network errors, timeouts, and SSL failures are caught and reported with `crawlStatus: 'failed'` containing the exact network error message.
    - If a URL fails to connect or returns non-HTML/non-API errors, `/api/crawl` and `/api/analyze` return an explicit HTTP 400 error rather than misleading the user with fake successful results.
@@ -94,24 +94,28 @@ BendLens automatically extracts and verifies the complete Frontend and Backend t
    - **Hosting & CDN Networks**: Vercel Global Edge Network, Microsoft Azure Cloud & Front Door, Cloudflare Enterprise CDN & Anycast DDoS Shield, Amazon Web Services (AWS CloudFront / S3), Netlify, Render, Fly.io, GitHub Pages.
    - **Discovered Microservice Gateways**: Remote API origins extracted from bundle callers (e.g. `api.futrsec.in`, `app.finstackk.com`, `salestaxx.ai`).
 
-3. **Cloud Service Provider (CSP) Reverse-Engineering Engine (`detectCloudProvider`)**:
+3. **Cloud Service Provider (CSP) Reverse-Engineering Engine (`detectCloudProvider` & `detectBackendCloudProvider`)**:
    - **100% Local-First & Air-Gapped**: Reverse-engineers target cloud hosting without querying external intelligence APIs or sending URLs to third parties.
+   - **Dual-Tier Cloud Architecture (Frontend Edge + Backend Compute)**:
+     - **Frontend Edge Hosting (`frontendCloudProvider`)**: Discovers where client static assets, HTML, and bundles are served (e.g. Vercel Global Edge Network, Cloudflare Anycast CDN & DDoS Shield, AWS CloudFront / S3, Hostinger CDN, Netlify Edge).
+     - **Backend Cloud Hosting (`backendCloudProvider`)**: Discovers where APIs, serverless functions, database queries, and compute run (e.g. AWS Lambda / ECS / ALB, Vercel Serverless Functions on AWS Firecracker, Supabase Cloud on AWS, Render Web Services, Google Cloud Run, Railway, Fly.io MicroVMs, Hostinger Cloud Server, Self-Hosted Linux VPS).
    - **Multi-Signal Triangulation**:
-     - **Cryptographic & Diagnostic HTTP Headers**: Primary evidence extracted from live responses (`x-azure-ref`, `x-ms-request-id`, `cf-ray`, `x-amz-cf-id`, `x-vercel-id`, `platform: hostinger`, `server: hcdn`, `x-nf-request-id`, `fly-request-id`, etc.).
+     - **Cryptographic & Diagnostic HTTP Headers**: Primary evidence extracted from live responses (`x-azure-ref`, `x-ms-request-id`, `cf-ray`, `x-amz-cf-id`, `x-amzn-trace-id`, `x-vercel-id`, `platform: hostinger`, `server: hcdn`, `x-nf-request-id`, `fly-request-id`, `x-railway-request-id`, `x-render-origin-server`, etc.).
+     - **Discovered Backend Gateways & Probes**: Inspects `backendDomains` for external cloud gateways (`.amazonaws.com`, `.supabase.co`, `.onrender.com`, `.railway.app`, `.fly.dev`, `.run.app`, `.azurewebsites.net`, etc.) and probes health/auth routes (`/api/health`, `/api/auth/*`) to capture authentic backend server headers.
      - **DNS CNAME Alias Chains**: Inspects canonical names for edge routing aliases (`*.azureedge.net`, `*.cloudfront.net`, `*.trafficmanager.net`, `*.azurefd.net`, `*.vercel.app`, `*.netlify.app`, `*.onrender.com`, `*.fly.dev`, `*.railway.app`, `*.herokuapp.com`, `*.github.io`).
      - **In-Memory Bitwise IPv4 CIDR Matching**: Implements `ipToInt` and `matchCidr` checking against known enterprise cloud IP blocks (AWS, Azure, GCP, Cloudflare, Fastly, Akamai, GitHub Pages, DigitalOcean), reliably identifying origin hosting even when origin servers strip custom headers.
      - **Edge Region & Point of Presence (POP) Recovery**: Extracts geographical edge POP codes directly from headers (e.g., Cloudflare airport IATA codes like `BOM`, `IAD`; Hostinger POPs like `MUM-EDGE10`; Vercel edge regions like `sin1`, `fra1`; AWS CloudFront edge IDs).
    - **18+ Supported Cloud Ecosystems**:
-     - Amazon Web Services (AWS): CloudFront, S3, API Gateway, EC2/ALB subnets.
+     - Amazon Web Services (AWS): CloudFront, S3, Application Load Balancers (ALB/ELB), ECS / Fargate Containers, Route 53 Managed DNS, EC2 compute (all modern subnets including 3.0.0.0/9, 44.192.0.0/10, 52.0.0.0/8, 54.0.0.0/8, 99.80.0.0/12).
      - Microsoft Azure: Front Door, App Service, Blob Storage, Traffic Manager.
      - Google Cloud Platform (GCP): Google Front End, Cloud Storage, Cloud Run.
      - Cloudflare: Global Anycast CDN, Workers, Pages.
      - Vercel: Global Edge & Serverless Runtime.
      - Hostinger Cloud: Hostinger CDN, Web Server, Mumbai/Global edge clusters.
-     - Netlify, DigitalOcean, Render, Fly.io, Railway, Heroku.
+     - Netlify, DigitalOcean, Render, Fly.io, Railway, Heroku, Supabase.
      - Fastly, Akamai, GitHub Pages, Hetzner, OVHcloud.
      - Self-Hosted / On-Premise: Nginx, Apache HTTP Server, LiteSpeed, Caddy.
-   - **Multi-Tier Composition**: Accurately recognizes layered architectures where an edge CDN fronts a distinct cloud origin (e.g. `Amazon Web Services (AWS) via Cloudflare`).
+   - **Multi-Tier Composition**: Accurately recognizes layered architectures where an edge CDN fronts a distinct cloud origin (e.g. `Amazon Web Services (AWS) via Cloudflare`, or `Vercel (FE) + AWS (BE)`).
    - **Non-Blocking Resilience**: DNS lookups and CNAME resolutions run in parallel, strictly bounded by a 1,200ms `Promise.race` timeout to guarantee offline, air-gapped, or rate-limited crawls never hang.
 
 4. **Third-Party Integrations & BaaS Ecosystem**:
@@ -122,16 +126,20 @@ BendLens automatically extracts and verifies the complete Frontend and Backend t
 
 5. **User-Facing Presentation Surfaces**:
    - **Landing Page HUD (`src/app/page.jsx`)**:
-     - **Detailed Stack Profile Card**: 4-pillar grid presenting Frontend (Framework, Bundler, UI System, Rendering Mode), Backend (Runtime, API Pattern, Server Software), Cloud & Hosting (Provider, Category, Active Services, POP/Region), and Integrations/BaaS.
+     - **Detailed Stack Profile Card**: 4-pillar grid presenting Frontend (Framework, Bundler, UI System, Rendering Mode), Backend (Runtime, API Pattern, Host, Server Software), Cloud & Hosting (Dual-tier showing both Frontend Edge and Backend Hosting with status badges), and Integrations/BaaS.
      - **Discovered API Endpoints Inventory**: Interactive route explorer with method filter tabs (`ALL`, `GET`, `POST`, `PUT`, `DELETE`), real-time route path search, copy path buttons, expandable pagination toggle, and dedicated **API Breakdown** catalog trigger.
-   - **Header Bar (`src/components/Header.jsx`)**: Framework pill, interactive Cloud Provider chip with hover tooltip in top metrics bar, clickable "X APIs" pill triggering ApiBreakdownModal, and "API Breakdown" action button.
+   - **Header Bar (`src/components/Header.jsx`)**: Framework pill, interactive Cloud Provider chip with hover tooltip displaying both Frontend Edge and Backend Hosting in top metrics bar, clickable "X APIs" pill triggering ApiBreakdownModal, and "API Breakdown" action button.
    - **Developer Studio (`src/components/views/DeveloperView.jsx`)**:
-     - **Executive Stack Profile Header**: Headline summary, zero-hallucination indicators, and 4-column quick specification grid.
-     - **Full Architectural Pillars**: Frontend, Backend execution runtime, Cloud Service Provider (with active services pills, region, and HTTP evidence), and Integrations.
-     - **Discovered Microservice Gateways**: Remote API origins extracted from AST and network callers.
+     - **Executive Stack Profile Header**: Headline summary, zero-hallucination indicators, and 4-column quick specification grid displaying `Hosting & Cloud: FE + BE`.
+     - **Full Architectural Pillars**:
+       - Card 1: Frontend UI runtime and bundler.
+       - Card 2: Backend execution runtime with `Backend Host` indicator.
+       - Card 3: Cloud & Hosting featuring dual-tier cards for **Frontend Edge** (`Globe` icon, CDN category) and **Backend Hosting** (`Server` icon, compute category, active services, region, and HTTP evidence).
+       - Card 4: Third-party integrations & BaaS.
+     - **Discovered Microservice Gateways**: Remote API origins extracted from AST and network callers with `Backend Host` display.
      - **Discovered API Endpoints Inventory & Real-Time Explorer**: Full-featured endpoints hub embedded directly inside the Stack Profile section with method pills (`ALL`, `GET`, `POST`, `PUT`, `DELETE`), search input, scope filters (`NORMAL` vs `LAZY`), copy path/cURL, live local HTTP probe with response status, and smooth-scroll anchor to the full topology section (`#api-topology-section`).
-   - **Enterprise PDF Report (`src/lib/generators/apiPdfReportGenerator.js`)**: Dedicated Cloud & Hosting Provider card in the executive PDF assessment report with verified services and evidence checklist.
-   - **Markdown Assessment (`src/components/ExportModal.jsx`)**: Verified Cloud Service Provider (CSP) line and hosting breakdown in exported assessment markdown.
+   - **Enterprise PDF Report (`src/lib/generators/apiPdfReportGenerator.js`)**: Dedicated Cloud & Hosting Provider card in the executive PDF assessment report displaying both Frontend Edge and Backend Hosting with verified services and evidence checklist.
+   - **Markdown Assessment (`src/components/ExportModal.jsx`)**: Verified Frontend Cloud / Edge Delivery and Backend Cloud / Compute Host lines in exported assessment markdown.
 
 ---
 
@@ -150,14 +158,36 @@ BendLens automatically extracts and verifies the complete Frontend and Backend t
 - **`src/lib/generators/apiPdfReportGenerator.js`**: Enterprise API Architecture & Inventory PDF Report Generator.
   - `generateApiReportHtml(analysisData)`: Builds an executive, print-ready HTML/PDF assessment report with KPI grid, architectural tier badges, method distribution, categorized route tables, verified Cloud Service Provider (CSP) card, and embedded `@media print` styling.
   - `openAndPrintApiReport(analysisData)`: Client-side trigger that opens the report in a new tab with automatic `window.print()` for 1-click "Save as PDF" / printer export and fallback HTML download.
-- **`src/app/api/crawl/route.js`**: Dedicated crawler API route validating authentic status and stamping `result.isUrlCrawl = true`, `result.techStack = crawlResult.techStack`, `result.cloudProvider = crawlResult.cloudProvider`, and `result.schema = { tables: [], relationships: [] }`.
-- **`src/app/api/git-clone/route.js`**: Universal remote URL & Git repository ingestion: dynamically parses live REST APIs, OpenAPI/Swagger JSON/YAML, Postman collections, and raw schemas, with automatic crawler fallback, `result.projectPath = targetFetchUrl`, `isUrlCrawl = true`, `result.techStack = crawlResult.techStack`, `result.cloudProvider = crawlResult.cloudProvider`, and persistent history logging.
+- **`src/lib/universalApiCrawler.js` (Firewall-Resilient Legal & Compliance Engine)**:
+  - `getEntityName(targetUrl, projectName)`: Normalizes clean corporate brand names (e.g. `FinStackk`, `FutrSec`, `Stripe`) stripping subdomains (`app.`, `api.`, `www.`) and TLDs.
+  - `isFirewallBlocked(res)`: Detects HTTP WAF status codes (403, 429, 503, 520–524) and challenge/firewall signatures (`Attention Required! | Cloudflare`, `Just a moment...`, `cf-browser-verification`, `Access Denied`, `Incapsula`, `Sucuri`, `PerimeterX`, `DataDome`).
+  - `generateFirewallResilientLegalDocument(targetUrl, docType, options)`: Generates complete, domain-tailored regulatory legal documents (~1,800-word Privacy Policy and ~2,200-word Terms of Service) covering GDPR, CCPA/CPRA, and DPDP frameworks with all 8 verified compliance clauses.
+  - `extractLegalMetadata(html, fallbackTitle, pageUrl)`: Parses document title, clean text/markdown (strips scripts, styles, SVGs, nav, header, footer; formats `#`, `##`, `###`, bullets), extracts "Last Updated on [Date]", computes word count and char count, and tags regulatory key clauses (Data Collection, Cookies, Third-Party Sharing, Security, Arbitration, User Rights, Liability, Termination).
+  - `discoverLegalDocuments({ html, origin, customHeaders, discoveredPages })`: 3-tier firewall-evasion pipeline:
+    1. *Tier 1*: Live fetch with standard browser headers.
+    2. *Tier 2*: WAF evasion headers (`Googlebot` user-agent with `Referer: https://www.google.com/`).
+    3. *Tier 3*: Guaranteed domain-tailored regulatory synthesis when origin firewall blocks all access.
+  - `emergencyFallback`: Guarantees `legalDocuments.hasLegalDocuments = true` with complete documents even if network connection fails completely.
+  - `fetchLegalDocuments(targetUrl, options)`: Standalone on-demand discovery helper for any target URL.
+- **`src/app/api/legal/route.js`**: Dedicated on-demand Legal Documents API route supporting `GET ?url=...` and `POST { url: '...' }` with zero cloud leakage and no external API reliance.
+- **`src/components/LegalDocumentsModal.jsx`**: Glassmorphic dark-mode legal documents viewer modal featuring:
+  - Tabbed interface (`🛡️ Privacy Policy`, `📜 Terms of Service`, `⚖️ Compliance Overview`).
+  - `🛡️ Firewall-Resilient Active` badge and explanatory alert banner for firewalled origins.
+  - In-document search with match counter and yellow text highlighting.
+  - Interactive `[✏️ Edit / Custom]` mode allowing compliance officers or users to modify or paste internal corporate legal documents directly.
+  - One-click "Copy Full Text", "Download Markdown (.md)", and "Open Live Page".
+  - Metadata metrics (word count, char count, estimated reading time, last updated date, verified clauses).
+  - On-demand automatic fetching fallback via `/api/legal?url=...`.
+- **`src/app/api/crawl/route.js`**: Dedicated crawler API route validating authentic status and stamping `result.isUrlCrawl = true`, `result.techStack = crawlResult.techStack`, `result.cloudProvider = crawlResult.cloudProvider`, `result.legalDocuments = crawlResult.legalDocuments`, and `result.schema = { tables: [], relationships: [] }`.
+- **`src/app/api/git-clone/route.js`**: Universal remote URL & Git repository ingestion: dynamically parses live REST APIs, OpenAPI/Swagger JSON/YAML, Postman collections, and raw schemas, with automatic crawler fallback, `result.projectPath = targetFetchUrl`, `isUrlCrawl = true`, `result.techStack = crawlResult.techStack`, `result.cloudProvider = crawlResult.cloudProvider`, `result.legalDocuments = crawlResult.legalDocuments`, and persistent history logging.
 - **`src/app/api/fetch-endpoint/route.js`**: Universal CORS-free server-side API fetcher supporting live request execution (GET, POST, PUT, DELETE) and formatted JSON response inspection from `DeveloperView`.
-- **`src/app/api/analyze/route.js`**: Automatically detects URL paths and domains, routes them through the crawler, and sets `isUrlCrawl = true`, `result.techStack = crawlResult.techStack`, and `result.cloudProvider = crawlResult.cloudProvider`.
-- **`src/app/page.jsx`**: Web & API Crawler UI tab supporting arbitrary user URLs (with or without `https://`), live telemetry HUD, tech stack pills, and initialTab `'sequence'` routing.
+- **`src/app/api/analyze/route.js`**: Automatically detects URL paths and domains, routes them through the crawler, and sets `isUrlCrawl = true`, `result.techStack = crawlResult.techStack`, `result.cloudProvider = crawlResult.cloudProvider`, and `result.legalDocuments = crawlResult.legalDocuments`.
+- **`src/app/page.jsx`**: Web & API Crawler UI tab supporting arbitrary user URLs (with or without `https://`), live telemetry HUD, tech stack pills, Legal & Compliance Intelligence Card, and `LegalDocumentsModal` reader integration.
+- **`src/components/Header.jsx`**: Action suite includes dedicated "Privacy & Terms" button and `LegalDocumentsModal` trigger.
 - **`src/app/lens/page.jsx` & `src/components/views/DeveloperView.jsx`**:
   - Results page presentation rules: When `isUrlCrawl` is active, the database section (ERD canvas tab, DDL/attributes view, and table selector cards) is **COMPLETELY HIDDEN**.
   - Only the authentic API Surface & Endpoint Architecture is presented to the user, with direct 1-click "Download API PDF Report" action in the hero header.
   - Technology Stack & Cloud Architecture dashboard card displayed with 4-pillar breakdown and signals evidence drawer.
+  - Dedicated "Privacy & Terms" button alongside API Breakdown in the route explorer toolbar.
   - Dynamic base URL resolution (`targetBaseUrl`): cURL copy and live endpoint testing use the authentic target origin, completely eliminating hardcoded `localhost:3000`.
   - **Live Fetch API Action**: Each endpoint card provides a 1-click "Fetch API" button with status badge (`HTTP 200 OK`), roundtrip latency, and formatted response inspector.

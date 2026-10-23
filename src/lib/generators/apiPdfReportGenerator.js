@@ -488,12 +488,16 @@ export function generateApiReportHtml(analysisData) {
 
         <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px;">
           <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #0284c7; margin-bottom: 6px;">Cloud & Hosting</div>
-          <div style="font-size: 16px; font-weight: 800; color: #0f172a;">${(techStack.cloudProvider || techStack.backend?.cloudProvider)?.name || techStack.backend?.hostingCdn?.split('·')[0]?.trim() || 'Cloud Edge'}</div>
-          <div style="font-size: 12px; color: #64748b; margin-top: 4px;">${(techStack.cloudProvider || techStack.backend?.cloudProvider)?.category || 'Global Cloud Infrastructure'}</div>
+          <div style="font-size: 10px; font-weight: 700; color: #0284c7; text-transform: uppercase;">Frontend Edge:</div>
+          <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 6px;">${(techStack.frontend?.cloudProvider || techStack.cloudProvider?.frontend || techStack.cloudProvider)?.name || 'Cloud Edge'}</div>
+          
+          <div style="font-size: 10px; font-weight: 700; color: #7c3aed; text-transform: uppercase; border-top: 1px dashed #cbd5e1; padding-top: 6px;">Backend Hosting:</div>
+          <div style="font-size: 14px; font-weight: 800; color: #7c3aed;">${(techStack.backend?.cloudProvider || techStack.cloudProvider?.backend)?.name || 'Co-Hosted Cloud Compute'}</div>
+          
           <div style="margin-top: 8px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #475569;">
-            <div>Services: <strong>${(techStack.cloudProvider || techStack.backend?.cloudProvider)?.services?.[0] || 'DDoS Shield / Anycast CDN'}</strong></div>
-            ${(techStack.cloudProvider || techStack.backend?.cloudProvider)?.region ? `<div>Region/POP: <strong>${(techStack.cloudProvider || techStack.backend?.cloudProvider).region}</strong></div>` : ''}
-            <div>Evidence: <strong>${(techStack.cloudProvider || techStack.backend?.cloudProvider)?.evidence?.[0]?.split('(')[0]?.trim() || 'HTTP Header / DNS'}</strong></div>
+            <div>Backend Role: <strong>${(techStack.backend?.cloudProvider || techStack.cloudProvider?.backend)?.category || 'API Services'}</strong></div>
+            ${(techStack.backend?.cloudProvider?.region || techStack.cloudProvider?.region) ? `<div>Region/POP: <strong>${techStack.backend?.cloudProvider?.region || techStack.cloudProvider?.region}</strong></div>` : ''}
+            <div>Evidence: <strong>${(techStack.backend?.cloudProvider?.evidence?.[0] || techStack.cloudProvider?.evidence?.[0])?.split('(')[0]?.trim() || 'HTTP Header / DNS'}</strong></div>
           </div>
         </div>
 

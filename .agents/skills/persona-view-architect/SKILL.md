@@ -37,6 +37,9 @@ The persona subsystem consists of two tiers:
   - Classify protocol kinds (`REST`, `WEBSOCKET`, `AUTH`, `STORAGE`, `ADMIN`, `WEBHOOK`, `SYSTEM`).
   - Render connected database entities with explicit action tags (`📖 READ`, `✍️ WRITE`, `🔄 STREAM`) and links to schema previews.
   - Present an interactive End-to-End Execution Pipeline (Client Ingress -> Route Binding -> Controller -> Database -> Blast Radius) with fast cURL copying and blast simulation.
+- **Architectural Pillars & Cloud Hosting**:
+  - Present the 4 Architectural Pillars (Frontend Layer, Backend Runtime, Cloud & Hosting, Integrations).
+  - The Cloud & Hosting pillar renders dual-tier hosting: **Frontend Edge** (CDN, Edge network, cache) and **Backend Hosting** (compute engine, serverless functions, microservice gateways, evidence, and region).
 
 ### 2. Engineering Manager Persona
 - Keep metrics aggregate and risk-oriented:
