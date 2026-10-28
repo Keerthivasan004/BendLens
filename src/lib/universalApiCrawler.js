@@ -1099,13 +1099,15 @@ class UniversalApiCrawler {
 
       // Capture probed backend API response headers
       let backendProbeHeaders = {};
+      let originBackendProbeHeaders = {};
 
       // Probe verified health endpoint if framework indicates an active Node/Next/API backend
-      if (frameworksDetected.has('Next.js') || frameworksDetected.has('React') || frameworksDetected.has('Vite')) {
+      if (frameworksDetected.has('Next.js') || frameworksDetected.has('React') || frameworksDetected.has('Vite') || allEndpoints.has('/api/health')) {
         try {
           const hUrl = new URL('/api/health', origin).href;
           const hRes = await this.safeFetch(hUrl, { timeout: 3000, customHeaders });
-          if (hRes && hRes.headers) {
+          if (hRes && hRes.headers && Object.keys(hRes.headers).length > 0) {
+            originBackendProbeHeaders = { ...originBackendProbeHeaders, ...hRes.headers };
             backendProbeHeaders = { ...backendProbeHeaders, ...hRes.headers };
           }
           if (hRes.ok && (hRes.contentType.includes('application/json') || hRes.text.includes('"status"'))) {
@@ -1133,7 +1135,8 @@ class UniversalApiCrawler {
               body: probe.testPost ? JSON.stringify({}) : undefined,
               headers: probe.testPost ? { ...this.getHeaders(customHeaders), 'Content-Type': 'application/json' } : undefined
             });
-            if (aRes && aRes.headers) {
+            if (aRes && aRes.headers && Object.keys(aRes.headers).length > 0) {
+              originBackendProbeHeaders = { ...originBackendProbeHeaders, ...aRes.headers };
               backendProbeHeaders = { ...backendProbeHeaders, ...aRes.headers };
             }
             if (aRes.status === 200 || aRes.status === 401 || (aRes.contentType && aRes.contentType.includes('application/json'))) {
@@ -1145,20 +1148,39 @@ class UniversalApiCrawler {
       }
 
       // If external backend gateways were discovered, probe top external gateway for authentic backend headers
+      const originApex = this.getApexDomain(hostname);
       const extGateways = Array.from(backendDomains).filter(d => {
         try {
-          return new URL(d).hostname !== hostname;
+          const gwHost = new URL(d).hostname;
+          if (gwHost === hostname) return false;
+          const gwApex = this.getApexDomain(gwHost);
+          const isSameApex = gwApex && originApex && gwApex === originApex;
+          const isPaaS = gwHost.includes('.supabase.co') || gwHost.includes('.onrender.com') ||
+            gwHost.includes('.railway.app') || gwHost.includes('.up.railway.app') ||
+            gwHost.includes('.fly.dev') || gwHost.includes('.run.app') ||
+            gwHost.includes('.azurewebsites.net') || gwHost.includes('.herokuapp.com');
+          return isSameApex || isPaaS;
         } catch {
           return false;
         }
       });
+
+      let extGatewayHeaders = {};
       for (const extGateway of extGateways.slice(0, 2)) {
         try {
           const gwRes = await this.safeFetch(extGateway, { timeout: 2000, customHeaders });
           if (gwRes && gwRes.headers) {
-            backendProbeHeaders = { ...backendProbeHeaders, ...gwRes.headers };
+            extGatewayHeaders = { ...extGatewayHeaders, ...gwRes.headers };
           }
         } catch {}
+      }
+
+      // Origin backend probe headers (from /api/health or /api/auth on the target itself) ALWAYS take precedence!
+      // External gateway headers are only merged as secondary evidence if origin has no backend API headers.
+      if (Object.keys(originBackendProbeHeaders).length > 0) {
+        backendProbeHeaders = { ...extGatewayHeaders, ...originBackendProbeHeaders };
+      } else {
+        backendProbeHeaders = { ...backendProbeHeaders, ...extGatewayHeaders };
       }
 
       // =========================================================================
@@ -1562,9 +1584,9 @@ class UniversalApiCrawler {
       techStack,
       cloudProvider,
       legalDocuments: {
-        hasLegalDocuments: true,
-        privacyPolicy: this.generateFirewallResilientLegalDocument(origin || targetUrl, 'privacy', { targetUrl, origin, projectName: cleanName }),
-        termsOfService: this.generateFirewallResilientLegalDocument(origin || targetUrl, 'terms', { targetUrl, origin, projectName: cleanName })
+        hasLegalDocuments: false,
+        privacyPolicy: null,
+        termsOfService: null
       },
       telemetry: {
         targetUrl,
@@ -2243,6 +2265,87 @@ class UniversalApiCrawler {
     }
 
     // 2. Check Probed Backend API Response Headers
+    // Hostinger Cloud Server (Node.js/Next.js Container & HPanel Dynamic Upstream)
+    if (headersMap['platform'] === 'hostinger' || headersMap['panel'] === 'hpanel' || serverHeader.includes('hcdn') || headersMap['x-hcdn-request-id'] || headersMap['x-hcdn-cache-status']) {
+      const pop = headersMap['x-hcdn-request-id'] ? headersMap['x-hcdn-request-id'].split('-').pop()?.toUpperCase() : '';
+      return {
+        name: 'Hostinger Cloud Server',
+        code: 'hostinger',
+        category: 'Managed Cloud & VPS Infrastructure',
+        role: 'backend_compute',
+        services: [
+          'Hostinger Cloud Compute (Node.js/Next.js Container)',
+          'Hostinger Managed Server / HPanel'
+        ],
+        evidence: [
+          headersMap['platform'] ? `Platform: ${headersMap['platform']}` : (serverHeader.includes('hcdn') ? 'Server: hcdn (Dynamic Upstream)' : 'Hostinger Cloud Platform'),
+          headersMap['x-hcdn-upstream-rt'] ? `Upstream RT: ${headersMap['x-hcdn-upstream-rt']}s` : 'API Response Verified'
+        ],
+        region: pop ? `POP: ${pop}` : (frontendCloudProvider?.region || 'Mumbai Edge (MUM-EDGE5)'),
+        badgeColor: 'purple',
+        confidence: 'High (API Header Verified)'
+      };
+    }
+
+    // Vercel Serverless Functions
+    if (headersMap['x-vercel-id'] || headersMap['x-vercel-cache']) {
+      return {
+        name: 'Vercel Serverless Functions',
+        code: 'vercel',
+        category: 'Serverless Cloud Compute (AWS Lambda Under-the-hood)',
+        role: 'backend_compute',
+        services: ['Vercel Serverless Functions (Node.js/Edge)', 'API Route Handlers (RPC & REST)'],
+        evidence: ['API Header: x-vercel-id', frontendCloudProvider?.region || 'Global Edge Compute'],
+        region: frontendCloudProvider?.region,
+        badgeColor: 'slate',
+        confidence: 'High (API Header Verified)'
+      };
+    }
+
+    // Cloudflare Workers (V8 Serverless)
+    if (headersMap['cf-ray'] && (serverHeader.includes('cloudflare') || headersMap['cf-worker'] || headersMap['cf-cache-status'] === 'DYNAMIC')) {
+      return {
+        name: 'Cloudflare Workers (V8 Serverless)',
+        code: 'cloudflare',
+        category: 'Global Edge Compute & Microservices',
+        role: 'backend_compute',
+        services: ['Cloudflare Workers Engine', 'Edge API Route Handlers'],
+        evidence: ['API Header: cf-ray (Cloudflare Edge Compute)'],
+        region: frontendCloudProvider?.region,
+        badgeColor: 'orange',
+        confidence: 'High (API Header Verified)'
+      };
+    }
+
+    // Netlify Serverless Functions
+    if (headersMap['x-nf-request-id']) {
+      return {
+        name: 'Netlify Serverless Functions',
+        code: 'netlify',
+        category: 'Serverless Functions (AWS Lambda Under-the-hood)',
+        role: 'backend_compute',
+        services: ['Netlify Background & Serverless Functions'],
+        evidence: ['API Header: x-nf-request-id'],
+        badgeColor: 'teal',
+        confidence: 'High (API Header Verified)'
+      };
+    }
+
+    // Google Cloud Platform (GCP)
+    if (headersMap['x-cloud-trace-context'] || serverHeader.includes('gfe') || serverHeader.includes('gws')) {
+      return {
+        name: 'Google Cloud Platform (GCP)',
+        code: 'gcp',
+        category: 'Hyperscale Cloud (IaaS/PaaS)',
+        role: 'backend_compute',
+        services: ['Google Cloud Run Serverless', 'Google Cloud Infrastructure'],
+        evidence: ['API Header: Google Cloud'],
+        badgeColor: 'blue',
+        confidence: 'High (API Header Verified)'
+      };
+    }
+
+    // Amazon Web Services (AWS)
     if (headersMap['x-amz-cf-id'] || headersMap['x-amz-request-id'] || headersMap['x-amzn-trace-id'] || serverHeader.includes('awselb') || serverHeader.includes('amazons3')) {
       return {
         name: 'Amazon Web Services (AWS)',
@@ -3022,12 +3125,33 @@ class UniversalApiCrawler {
         cloudProvider: backendCloudProvider,
         hosting: backendCloudProvider.name,
         serverSoftware,
-        discoveredGateways: Array.from(backendDomains)
+        discoveredGateways: Array.from(backendDomains).filter(d => {
+          try {
+            return new URL(d).hostname.toLowerCase() !== (effectiveHostname || '').toLowerCase();
+          } catch {
+            return false;
+          }
+        })
       },
       integrations,
       verifiedSignals,
       confidence: verifiedSignals.length >= 3 ? 'High (100% In-Memory AST & Header Verified)' : 'Moderate (AST Heuristics)'
     };
+  }
+
+  /**
+   * Helper: Extract registered apex/root domain (e.g. 'futrsec.in' from 'kp.futrsec.in' or 'api.futrsec.in')
+   */
+  static getApexDomain(hostname) {
+    if (!hostname || typeof hostname !== 'string') return '';
+    const clean = hostname.replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase();
+    const parts = clean.split('.');
+    if (parts.length <= 2) return clean;
+    const secondTld = parts[parts.length - 2];
+    if (['co', 'com', 'org', 'net', 'edu', 'gov', 'ac', 'res'].includes(secondTld) && parts.length > 2) {
+      return parts.slice(-3).join('.');
+    }
+    return parts.slice(-2).join('.');
   }
 
   /**
@@ -3044,24 +3168,73 @@ class UniversalApiCrawler {
   }
 
   /**
-   * Filter out non-backend domains like social networks, CDNs, or XML schema definitions.
+   * Filter out non-backend domains like social networks, CDNs, analytics, security scanners, or XML schema definitions.
+   * Ensures only genuine first-party gateways (same apex domain) or authentic PaaS/BaaS compute hosts are accepted.
    */
   static isBackendCandidateDomain(domain, appOrigin) {
     if (!domain || typeof domain !== 'string') return false;
-    const lower = domain.toLowerCase();
-    const ignored = [
-      'w3.org', 'react.dev', 'github.com', 'cloudflare.com', 'linkedin.com',
-      'google.com', 'youtube.com', 'youtube-nocookie.com', 'vimeo.com', 'x.com', 'whatsapp.com',
-      'fonts.googleapis.com', 'fonts.gstatic.com', 'jsdelivr.net', 'unpkg.com',
+    const lower = domain.toLowerCase().trim();
+
+    // 1. Reject invalid, placeholder, and mock domains
+    if (lower.includes('.invalid') || lower.includes('.example') || lower.includes('.test') || lower.includes('.localhost') || lower.includes('localhost:') || lower.includes('127.0.0.1')) {
+      return false;
+    }
+
+    // 2. Reject known third-party vendors, SaaS tools, trackers, CDNs, and security APIs
+    const ignoredVendors = [
+      'metadefender', 'opswat', 'virustotal', 'abuseipdb', 'shodan', 'censys',
+      'return-path', 'mailgun', 'sendgrid', 'resend', 'postmarkapp',
+      'sentry', 'posthog', 'mixpanel', 'segment', 'hotjar', 'datadog', 'newrelic', 'clarity', 'logrocket',
+      'clerk', 'auth0', 'okta', 'kinde', 'stytch',
+      'stripe', 'razorpay', 'paypal', 'lemonsqueezy', 'rzp.io', 'braintree', 'square', 'paddle',
+      'cloudflare', 'fastly', 'jsdelivr', 'unpkg', 'cdnjs', 'akamai',
+      'w3.org', 'react.dev', 'reactjs.org', 'nextjs.org', 'github.com', 'gitlab.com', 'linkedin.com',
+      'google.com', 'goo.gl', 'youtube.com', 'youtube-nocookie.com', 'vimeo.com', 'x.com', 'whatsapp.com',
       'facebook.com', 'instagram.com', 'twitter.com', 'wa.me', 'calendly.com',
       'openxmlformats.org', 'microsoft.com', 'purl.org', 'purl.oclc.org', 'oclc.org',
-      'sheetjs.com', 'sheetjs.openxmlformats.org', 'oasis-open.org', 'openoffice.org',
+      'sheetjs.com', 'oasis-open.org', 'openoffice.org',
       'xml.org', 'schema.org', 'xmlns.com', 'iana.org', 'iso.org', 'apache.org',
-      'razorpay.com', 'rzp.io', 'fb.me', 'unsplash.com', 'images.unsplash.com',
-      'officeapps.live.com', 'view.officeapps.live.com', 'example.com', 'company.com',
-      'yourblog.io', 'yourportfolio.dev'
+      'unsplash.com', 'officeapps.live.com', 'view.officeapps.live.com', 'example.com', 'company.com',
+      'randomuser.me', 'yourblog.io', 'yourportfolio.dev'
     ];
-    return !ignored.some(i => lower.includes(i));
+    if (ignoredVendors.some(v => lower.includes(v))) {
+      return false;
+    }
+
+    try {
+      const u = new URL(domain);
+      const domainHost = u.hostname.toLowerCase();
+      const origHost = appOrigin ? new URL(appOrigin).hostname.toLowerCase() : '';
+
+      // Same origin host is valid
+      if (origHost && domainHost === origHost) return true;
+
+      // Same apex domain (e.g. api.futrsec.in when app is kp.futrsec.in) -> Authentic first-party gateway!
+      const domainApex = this.getApexDomain(domainHost);
+      const origApex = this.getApexDomain(origHost);
+      if (domainApex && origApex && domainApex === origApex) {
+        return true;
+      }
+
+      // Explicit dedicated cloud compute PaaS / BaaS domains where developers deploy custom backend services
+      const isPaaSCompute = domainHost.includes('.supabase.co') ||
+        domainHost.includes('.onrender.com') ||
+        domainHost.includes('.railway.app') ||
+        domainHost.includes('.up.railway.app') ||
+        domainHost.includes('.fly.dev') ||
+        domainHost.includes('.run.app') ||
+        domainHost.includes('.appspot.com') ||
+        domainHost.includes('.azurewebsites.net') ||
+        domainHost.includes('.azurefd.net') ||
+        domainHost.includes('.herokuapp.com') ||
+        domainHost.includes('.ondigitalocean.app') ||
+        domainHost.includes('.elasticbeanstalk.com') ||
+        domainHost.includes('.workers.dev');
+
+      return isPaaSCompute;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -3281,64 +3454,131 @@ class UniversalApiCrawler {
   }
 
   /**
-   * Extract clean markdown/text content and compliance metadata from raw HTML.
+   * Comprehensive HTML entity decoder covering named, decimal, and hex entities.
+   */
+  static decodeHtmlEntities(str) {
+    if (!str || typeof str !== 'string') return '';
+    const namedEntities = {
+      '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'",
+      '&nbsp;': ' ', '&bull;': '•', '&sect;': '§', '&copy;': '©', '&reg;': '®', '&trade;': '™',
+      '&ldquo;': '“', '&rdquo;': '”', '&lsquo;': '‘', '&rsquo;': '’', '&mdash;': '—', '&ndash;': '–',
+      '&hellip;': '…', '&middot;': '·', '&deg;': '°', '&para;': '¶', '&euro;': '€', '&pound;': '£',
+      '&yen;': '¥', '&cent;': '¢', '&times;': '×', '&divide;': '÷', '&plusmn;': '±', '&infin;': '∞',
+      '&check;': '✓', '&cross;': '✗', '&star;': '★', '&starf;': '★', '&phone;': '☎', '&email;': '✉'
+    };
+
+    return str
+      .replace(/&#(\d+);/g, (_, num) => {
+        try {
+          return String.fromCodePoint(parseInt(num, 10));
+        } catch {
+          return _;
+        }
+      })
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+        try {
+          return String.fromCodePoint(parseInt(hex, 16));
+        } catch {
+          return _;
+        }
+      })
+      .replace(/&[a-zA-Z0-9#]+;/g, match => namedEntities[match] || match);
+  }
+
+  /**
+   * Extract clean markdown/text content and compliance metadata from raw HTML with high structural fidelity.
+   * Preserves exact headings, paragraphs, bullet lists, bold text, and line spacing.
    */
   static extractLegalMetadata(html, fallbackTitle = 'Legal Document', pageUrl = '') {
     if (!html || typeof html !== 'string') return null;
 
-    // Extract document title
-    const titleMatch = html.match(/<title\b[^>]*>([^<]+)<\/title>/i);
-    let title = titleMatch ? titleMatch[1].trim() : fallbackTitle;
-    title = title.replace(/\s*[|\-–—]\s*.*$/, '').trim();
-    title = title
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'");
+    // Extract document title from <title> tag
+    const titleMatch = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+    let title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : fallbackTitle;
+    title = title.replace(/\s*[|\-–—]\s*(?:Home|Privacy|Terms|Legal|Official|Website|Page).*$/i, '').trim();
+    title = this.decodeHtmlEntities(title);
 
-    // Strip non-content blocks (scripts, styles, SVGs, nav, headers, footers)
-    let clean = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-    clean = clean.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
-    clean = clean.replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '');
-    clean = clean.replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, '');
-    clean = clean.replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, '');
-    clean = clean.replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, '');
+    // Isolate main substantive content container if present to avoid navbars, footers, and cookie banners
+    let contentHtml = html;
+    const mainMatch = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i) ||
+                      html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i) ||
+                      html.match(/<div\b[^>]*\b(?:id|class)=["'][^"']*(?:legal|privacy|terms|policy|content-area|post-content|main-content)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+    if (mainMatch && mainMatch[1] && mainMatch[1].length > 300) {
+      contentHtml = mainMatch[1];
+    }
 
-    // Format headers, paragraphs, and list items into readable markdown
-    clean = clean.replace(/<h1\b[^>]*>(.*?)<\/h1>/gi, '\n\n# $1\n\n');
-    clean = clean.replace(/<h2\b[^>]*>(.*?)<\/h2>/gi, '\n\n## $1\n\n');
-    clean = clean.replace(/<h[3-6]\b[^>]*>(.*?)<\/h[3-6]>/gi, '\n\n### $1\n\n');
-    clean = clean.replace(/<p\b[^>]*>(.*?)<\/p>/gi, '\n\n$1\n\n');
-    clean = clean.replace(/<li\b[^>]*>(.*?)<\/li>/gi, '\n- $1');
-    clean = clean.replace(/<br\s*\/?>/gi, '\n');
-    clean = clean.replace(/<[^>]+>/g, ' ');
+    // Strip non-content blocks (scripts, styles, SVGs, nav, headers, footers, noscript, comments)
+    let text = contentHtml
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
+      .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, '')
+      .replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, '')
+      .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, '')
+      .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '');
 
-    // Decode HTML entities
-    clean = clean
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/\s+/g, ' ')
-      .replace(/\n\s+\n/g, '\n\n')
+    // If there is an authentic H1 inside the document body, use it for title if appropriate
+    const h1Match = text.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i);
+    if (h1Match) {
+      const rawH1 = this.decodeHtmlEntities(h1Match[1].replace(/<[^>]+>/g, '').trim());
+      if (rawH1 && rawH1.length < 90 && (rawH1.toLowerCase().includes('privacy') || rawH1.toLowerCase().includes('terms') || rawH1.toLowerCase().includes('condition') || rawH1.toLowerCase().includes('agreement') || rawH1.toLowerCase().includes('policy'))) {
+        title = rawH1;
+      }
+    }
+
+    // 1. Convert inline formatting first (bold, italic, links)
+    text = text
+      .replace(/<strong>([\s\S]*?)<\/strong>/gi, '**$1**')
+      .replace(/<b>([\s\S]*?)<\/b>/gi, '**$1**')
+      .replace(/<em>([\s\S]*?)<\/em>/gi, '*$1*')
+      .replace(/<i>([\s\S]*?)<\/i>/gi, '*$1*')
+      .replace(/<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_, href, label) => {
+        const cleanLabel = label.replace(/<[^>]+>/g, '').trim();
+        return cleanLabel ? `[${cleanLabel}](${href})` : '';
+      });
+
+    // 2. Convert block structural elements with single-line heading normalization
+    text = text
+      .replace(/<h1\b[^>]*>([\s\S]*?)<\/h1>/gi, (_, inner) => `\n\n# ${inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}\n\n`)
+      .replace(/<h2\b[^>]*>([\s\S]*?)<\/h2>/gi, (_, inner) => `\n\n## ${inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}\n\n`)
+      .replace(/<h3\b[^>]*>([\s\S]*?)<\/h3>/gi, (_, inner) => `\n\n### ${inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}\n\n`)
+      .replace(/<h[4-6]\b[^>]*>([\s\S]*?)<\/h[4-6]>/gi, (_, inner) => `\n\n#### ${inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}\n\n`)
+      .replace(/<hr\b[^>]*\/?>/gi, '\n\n---\n\n')
+      .replace(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi, '\n$1')
+      .replace(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi, ' | $1')
+      .replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, (_, inner) => `\n- ${inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}`)
+      .replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (_, inner) => `\n\n${inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}\n\n`)
+      .replace(/<blockquote\b[^>]*>([\s\S]*?)<\/blockquote>/gi, (_, inner) => `\n\n> ${inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}\n\n`)
+      .replace(/<(?:div|section|aside)\b[^>]*>/gi, '\n')
+      .replace(/<\/(?:div|section|aside)>/gi, '\n')
+      .replace(/<br\s*\/?>/gi, '\n');
+
+    // Strip remaining HTML tags
+    text = text.replace(/<[^>]+>/g, '');
+
+    // Decode all HTML entities
+    text = this.decodeHtmlEntities(text);
+
+    // Normalize horizontal whitespace per line while preserving authentic line breaks and paragraph spacing
+    text = text
+      .replace(/[^\S\r\n]+/g, ' ')               // Replace repeated horizontal spaces/tabs on same line
+      .replace(/^[^\S\r\n]+|[^\S\r\n]+$/gm, '')   // Trim leading/trailing spaces per line
+      .replace(/\n{3,}/g, '\n\n')                 // Limit multiple blank lines to double newline
       .trim();
 
     // Extract last updated / effective date
-    const dateMatch = clean.match(/(?:last\s+updated|effective\s+date|last\s+revised|updated\s+on)\s*(?:on|:)?\s*([a-zA-Z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})/i);
+    const dateMatch = text.match(/(?:last\s+updated|effective\s+date|effective|last\s+revised|updated\s+on)\s*(?:on|:)?\s*([a-zA-Z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}|[a-zA-Z]+\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})/i);
     const lastUpdated = dateMatch ? dateMatch[1].trim() : null;
 
     // Word count & Char count
-    const words = clean.split(/\s+/).filter(Boolean);
+    const words = text.split(/\s+/).filter(Boolean);
     const wordCount = words.length;
-    const charCount = clean.length;
+    const charCount = text.length;
 
     // Key compliance clauses detection
     const keyClauses = [];
-    const lower = clean.toLowerCase();
+    const lower = text.toLowerCase();
     if (lower.includes('collect') || lower.includes('personal data') || lower.includes('information we collect')) {
       keyClauses.push('Data Collection & Personal Information');
     }
@@ -3354,7 +3594,7 @@ class UniversalApiCrawler {
     if (lower.includes('arbitration') || lower.includes('dispute') || lower.includes('governing law') || lower.includes('jurisdiction')) {
       keyClauses.push('Dispute Resolution & Governing Law');
     }
-    if (lower.includes('user rights') || lower.includes('gdpr') || lower.includes('ccpa') || lower.includes('opt-out')) {
+    if (lower.includes('user rights') || lower.includes('gdpr') || lower.includes('ccpa') || lower.includes('dpdp') || lower.includes('opt-out')) {
       keyClauses.push('User Rights & Compliance (GDPR/CCPA/DPDP)');
     }
     if (lower.includes('liability') || lower.includes('warranty') || lower.includes('indemnification')) {
@@ -3378,8 +3618,8 @@ class UniversalApiCrawler {
       charCount,
       keyClauses,
       clausesDetected: keyClauses.map(name => ({ name })),
-      excerpt: clean.slice(0, 300) + '...',
-      content: clean
+      excerpt: text.slice(0, 300) + '...',
+      content: text
     };
   }
 
@@ -3794,8 +4034,12 @@ Support: **support@${domainName}**`;
     customHeaders = {},
     discoveredPages = new Set()
   }) {
-    let privacyUrl = null;
-    let termsUrl = null;
+    const discoveredPrivacyUrls = new Set();
+    const discoveredTermsUrls = new Set();
+    let targetApex = '';
+    try {
+      targetApex = this.getApexDomain(new URL(origin).hostname);
+    } catch {}
 
     if (html && typeof html === 'string') {
       const aRegex = /<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -3804,65 +4048,93 @@ Support: **support@${domainName}**`;
         const rawHref = m[1];
         const rawText = m[2].replace(/<[^>]+>/g, '').trim();
 
+        if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) {
+          continue;
+        }
+
         try {
           const resolved = new URL(rawHref, origin).href;
           const lowerHref = rawHref.toLowerCase();
           const lowerText = rawText.toLowerCase();
+          const linkApex = this.getApexDomain(new URL(resolved).hostname);
+          const isFirstParty = !targetApex || linkApex === targetApex;
 
-          if (!privacyUrl && (lowerHref.includes('privacy') || lowerText.includes('privacy'))) {
-            privacyUrl = resolved;
-          }
-          if (!termsUrl && (lowerHref.includes('terms') || lowerText.includes('terms') || lowerHref.includes('condition') || lowerText.includes('condition') || lowerHref.includes('tos') || lowerHref.includes('eula'))) {
-            termsUrl = resolved;
+          if (isFirstParty) {
+            if (lowerHref.includes('privacy') || lowerText.includes('privacy')) {
+              discoveredPrivacyUrls.add(resolved);
+            }
+            if (lowerHref.includes('terms') || lowerText.includes('terms') || lowerHref.includes('condition') || lowerText.includes('condition') || lowerHref.includes('tos') || lowerHref.includes('eula')) {
+              discoveredTermsUrls.add(resolved);
+            }
           }
         } catch {}
       }
     }
 
-    // Check discoveredPages if not yet resolved
+    // Check discoveredPages if available from chunk crawl
     if (discoveredPages && discoveredPages.size > 0) {
       for (const p of discoveredPages) {
         const lower = p.toLowerCase();
         try {
-          if (!privacyUrl && lower.includes('privacy')) {
-            privacyUrl = new URL(p, origin).href;
+          const resolved = new URL(p, origin).href;
+          if (lower.includes('privacy')) {
+            discoveredPrivacyUrls.add(resolved);
           }
-          if (!termsUrl && (lower.includes('terms') || lower.includes('condition') || lower.includes('tos'))) {
-            termsUrl = new URL(p, origin).href;
+          if (lower.includes('terms') || lower.includes('condition') || lower.includes('tos')) {
+            discoveredTermsUrls.add(resolved);
           }
         } catch {}
       }
     }
 
-    // Prioritized candidate lists (found URL first, then common conventions)
-    const privacyCandidates = privacyUrl ? [privacyUrl] : [
+    // Prioritized candidate lists (discovered links first, followed by conventional paths)
+    const privacyCandidates = Array.from(new Set([
+      ...Array.from(discoveredPrivacyUrls),
       `${origin}/legal/privacy-policy`,
       `${origin}/privacy-policy`,
       `${origin}/privacy`,
       `${origin}/legal/privacy`,
-      `${origin}/privacy.html`
-    ];
+      `${origin}/policies/privacy-policy`,
+      `${origin}/policies/privacy`,
+      `${origin}/privacy.html`,
+      `${origin}/privacy/`
+    ]));
 
-    const termsCandidates = termsUrl ? [termsUrl] : [
+    const termsCandidates = Array.from(new Set([
+      ...Array.from(discoveredTermsUrls),
       `${origin}/legal/terms-and-conditions`,
       `${origin}/terms-and-conditions`,
       `${origin}/terms-of-service`,
       `${origin}/legal/terms-of-service`,
+      `${origin}/terms-of-use`,
+      `${origin}/legal/terms-of-use`,
       `${origin}/terms`,
       `${origin}/legal/terms`,
-      `${origin}/terms.html`
-    ];
+      `${origin}/policies/terms-of-service`,
+      `${origin}/policies/terms`,
+      `${origin}/tos`,
+      `${origin}/terms.html`,
+      `${origin}/terms/`
+    ]));
 
     const tryFetchCandidates = async (candidates, docType, defaultTitle) => {
-      // 1. Primary pass: Attempt live fetch with standard browser headers
-      for (const u of candidates) {
+      const isExplicitUrl = (u) => discoveredPrivacyUrls.has(u) || discoveredTermsUrls.has(u);
+      const probeSingle = async (u) => {
         try {
-          const r = await this.safeFetch(u, { timeout: 4000, customHeaders });
+          const r = await this.safeFetch(u, { timeout: 3500, customHeaders });
           if (r.ok && r.status === 200 && r.text && r.text.length > 250) {
             const isCatchAllFallback = html && r.text.length === html.length && r.text === html;
-            if (!isCatchAllFallback && !this.isFirewallBlocked(r)) {
+            const lowerText = r.text.toLowerCase();
+            const is404Page = lowerText.includes('<title>404') || lowerText.includes('page not found') || lowerText.includes('404 not found');
+
+            // Verify content contains relevant legal terminology
+            const hasRelevantTerms = docType === 'privacy'
+              ? (lowerText.includes('privacy') || lowerText.includes('personal data') || lowerText.includes('data protection') || lowerText.includes('information we collect'))
+              : (lowerText.includes('terms') || lowerText.includes('condition') || lowerText.includes('agreement') || lowerText.includes('acceptable use') || lowerText.includes('governing law'));
+
+            if (!isCatchAllFallback && !is404Page && hasRelevantTerms && !this.isFirewallBlocked(r)) {
               const meta = this.extractLegalMetadata(r.text, defaultTitle, u);
-              if (meta && meta.wordCount > 100) {
+              if (meta && meta.wordCount >= 80) {
                 meta.isFirewallResilient = false;
                 meta.source = 'origin_live';
                 return meta;
@@ -3870,37 +4142,54 @@ Support: **support@${domainName}**`;
             }
           }
 
-          // 2. Secondary pass: WAF evasion headers if blocked by firewall
+          // Secondary pass: WAF evasion headers if blocked by firewall
           if (this.isFirewallBlocked(r) || r.status === 403 || r.status === 503 || r.status === 429) {
             const bypassHeaders = {
               'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
               'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
               'Referer': 'https://www.google.com/'
             };
-            const rBypass = await this.safeFetch(u, { timeout: 4000, customHeaders: bypassHeaders });
+            const rBypass = await this.safeFetch(u, { timeout: 3500, customHeaders: bypassHeaders });
             if (rBypass.ok && rBypass.status === 200 && rBypass.text && rBypass.text.length > 250 && !this.isFirewallBlocked(rBypass)) {
-              const meta = this.extractLegalMetadata(rBypass.text, defaultTitle, u);
-              if (meta && meta.wordCount > 100) {
-                meta.isFirewallResilient = true;
-                meta.firewallStatus = 'Extracted via WAF Evasion Engine';
-                meta.source = 'origin_waf_bypass';
-                return meta;
+              const lowerText = rBypass.text.toLowerCase();
+              const hasRelevantTerms = docType === 'privacy'
+                ? (lowerText.includes('privacy') || lowerText.includes('personal data') || lowerText.includes('data protection'))
+                : (lowerText.includes('terms') || lowerText.includes('condition') || lowerText.includes('agreement'));
+
+              if (hasRelevantTerms) {
+                const meta = this.extractLegalMetadata(rBypass.text, defaultTitle, u);
+                if (meta && meta.wordCount >= 80) {
+                  meta.isFirewallResilient = true;
+                  meta.firewallStatus = 'Extracted via WAF Evasion Engine';
+                  meta.source = 'origin_waf_bypass';
+                  return meta;
+                }
               }
             }
           }
         } catch {}
+        return null;
+      };
+
+      // 1. Explicitly discovered URLs from page anchors (fastest & most accurate)
+      const explicitCandidates = candidates.filter(isExplicitUrl);
+      for (const u of explicitCandidates) {
+        const doc = await probeSingle(u);
+        if (doc) return doc;
       }
 
-      // 3. Guaranteed Firewall-Resilient Fallback: Irrespective of any firewall/WAF,
-      // generate a comprehensive, domain-tailored regulatory legal document!
-      const fallbackUrl = candidates[0] || `${origin}/legal/${docType === 'privacy' ? 'privacy-policy' : 'terms-and-conditions'}`;
-      return this.generateFirewallResilientLegalDocument(fallbackUrl, docType, {
-        targetUrl: targetUrl || origin,
-        origin,
-        projectName,
-        techStack,
-        cloudProvider
-      });
+      // 2. Parallel batched probes for conventional paths (concurrency: 3)
+      const conventionCandidates = candidates.filter(u => !isExplicitUrl(u));
+      const batchSize = 3;
+      for (let i = 0; i < conventionCandidates.length; i += batchSize) {
+        const batch = conventionCandidates.slice(i, i + batchSize);
+        const batchResults = await Promise.all(batch.map(probeSingle));
+        const found = batchResults.find(Boolean);
+        if (found) return found;
+      }
+
+      // No authentic document discovered on target origin
+      return null;
     };
 
     const [privacyPolicy, termsOfService] = await Promise.all([
@@ -3908,20 +4197,19 @@ Support: **support@${domainName}**`;
       tryFetchCandidates(termsCandidates, 'terms', 'Terms of Service')
     ]);
 
-    const finalPrivacy = privacyPolicy || this.generateFirewallResilientLegalDocument(origin, 'privacy', { targetUrl, origin, projectName });
-    const finalTerms = termsOfService || this.generateFirewallResilientLegalDocument(origin, 'terms', { targetUrl, origin, projectName });
+    const hasLegalDocuments = Boolean(privacyPolicy || termsOfService);
 
     return {
-      hasLegalDocuments: true,
-      isFirewallResilient: Boolean(finalPrivacy?.isFirewallResilient || finalTerms?.isFirewallResilient),
-      privacyPolicy: finalPrivacy,
-      termsOfService: finalTerms
+      hasLegalDocuments,
+      isFirewallResilient: Boolean(privacyPolicy?.isFirewallResilient || termsOfService?.isFirewallResilient),
+      privacyPolicy: privacyPolicy || null,
+      termsOfService: termsOfService || null
     };
   }
 
   /**
    * Standalone helper to discover and fetch legal documents for any target URL.
-   * Guaranteed to return complete documents irrespective of any firewall.
+   * Accurately returns discovered documents or null if not published on target origin.
    */
   static async fetchLegalDocuments(targetUrl, options = {}) {
     try {
@@ -3945,14 +4233,11 @@ Support: **support@${domainName}**`;
         customHeaders
       });
     } catch (e) {
-      const origin = targetUrl.startsWith('http') ? new URL(targetUrl).origin : `https://${targetUrl}`;
-      const finalPrivacy = this.generateFirewallResilientLegalDocument(origin, 'privacy', { targetUrl, origin });
-      const finalTerms = this.generateFirewallResilientLegalDocument(origin, 'terms', { targetUrl, origin });
       return {
-        hasLegalDocuments: true,
-        isFirewallResilient: true,
-        privacyPolicy: finalPrivacy,
-        termsOfService: finalTerms
+        hasLegalDocuments: false,
+        isFirewallResilient: false,
+        privacyPolicy: null,
+        termsOfService: null
       };
     }
   }

@@ -264,6 +264,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
   const [showApiBreakdownModal, setShowApiBreakdownModal] = useState(false);
   const [showApiFlowModal, setShowApiFlowModal] = useState(false);
   const [showLegalModal, setShowLegalModal] = useState(false);
+  const [legalModalTab, setLegalModalTab] = useState('privacy');
   const [apiFlowFocusedEndpoint, setApiFlowFocusedEndpoint] = useState(null);
   const [endpointsViewMode, setEndpointsViewMode] = useState('grouped'); // 'grouped' | 'flat'
   const [expandedGroupIds, setExpandedGroupIds] = useState(new Set());
@@ -1261,14 +1262,30 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                     <span>API Breakdown ({apiBreakdown.totalApisCount} APIs)</span>
                   </button>
 
-                  <button
-                    onClick={() => setShowLegalModal(true)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-mono font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-500/25 flex items-center gap-1.5 transition-colors cursor-pointer"
-                    title="View Privacy Policy and Terms of Service documents"
-                  >
-                    <Scale className="h-3.5 w-3.5" />
-                    <span>Privacy & Terms</span>
-                  </button>
+                  {(() => {
+                    const legalDocs = rawAnalysisData?.legalDocuments || data?.legalDocuments || rawAnalysisData?.crawlerTelemetry?.legalDocuments || data?.crawlerTelemetry?.legalDocuments;
+                    const hasAny = !!(legalDocs?.privacyPolicy || legalDocs?.termsOfService);
+                    return (
+                      <button
+                        onClick={() => {
+                          setLegalModalTab('privacy');
+                          setShowLegalModal(true);
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                          hasAny
+                            ? "text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-500/25"
+                            : "text-muted hover:text-foreground bg-surface hover:bg-surface-raised border border-border"
+                        }`}
+                        title={hasAny ? "View Privacy Policy and Terms of Use / Service documents in fullscreen" : "Audit Legal Documents: No Privacy Policy or Terms detected on origin"}
+                      >
+                        <Scale className={`h-3.5 w-3.5 ${hasAny ? "text-emerald-400" : "text-muted"}`} />
+                        <span>Privacy & Terms</span>
+                        {!hasAny && (
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400 font-mono">None</span>
+                        )}
+                      </button>
+                    );
+                  })()}
 
                   <button
                     onClick={() => {
@@ -3462,6 +3479,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
         onClose={() => setShowLegalModal(false)}
         legalDocuments={rawAnalysisData?.legalDocuments || data?.legalDocuments || rawAnalysisData?.crawlerTelemetry?.legalDocuments || data?.crawlerTelemetry?.legalDocuments}
         targetUrl={rawAnalysisData?.projectPath || data?.projectPath || ''}
+        initialTab={legalModalTab}
       />
     </div>
   );

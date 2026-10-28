@@ -1423,11 +1423,11 @@ CREATE TABLE audit_logs (
                         const terms = docs?.termsOfService;
 
                         return (
-                          <div className="p-3.5 rounded-xl bg-surface border border-emerald-500/30 space-y-3 text-xs text-left">
+                          <div className={`p-3.5 rounded-xl bg-surface border ${privacy || terms ? 'border-emerald-500/30' : 'border-rose-500/30'} space-y-3 text-xs text-left`}>
                             {/* Executive Header */}
                             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-border/80 pb-2.5">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 flex items-center gap-1 font-mono">
+                                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded font-mono flex items-center gap-1 ${privacy || terms ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25' : 'bg-rose-500/10 text-rose-400 border border-rose-500/25'}`}>
                                   <Scale className="h-3 w-3" />
                                   <span>Legal & Compliance Intelligence</span>
                                 </span>
@@ -1436,10 +1436,17 @@ CREATE TABLE audit_logs (
                                 </span>
                               </div>
                               <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20 flex items-center gap-1">
-                                  <ShieldCheck className="h-3 w-3" />
-                                  <span>Local-First & Verified</span>
-                                </span>
+                                {privacy || terms ? (
+                                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20 flex items-center gap-1">
+                                    <ShieldCheck className="h-3 w-3" />
+                                    <span>Local-First & Verified</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 font-bold border border-rose-500/20 flex items-center gap-1">
+                                    <AlertCircle className="h-3 w-3" />
+                                    <span>No Legal Documents Published</span>
+                                  </span>
+                                )}
                               </div>
                             </div>
 
@@ -1458,18 +1465,23 @@ CREATE TABLE audit_logs (
                                         {privacy.wordCount?.toLocaleString() || '0'} words
                                       </span>
                                     ) : (
-                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                                        Available to Extract
+                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">
+                                        Not Found
                                       </span>
                                     )}
                                   </div>
 
                                   <div className="text-[11px] text-muted font-mono mt-2 space-y-1">
                                     <div>
-                                      Status: <strong className={privacy ? (privacy.isFirewallResilient ? "text-emerald-400" : "text-foreground") : "text-amber-400"}>
-                                        {privacy ? (privacy.isFirewallResilient ? 'Firewall-Resilient Active' : 'Discovered & Ready') : 'On-Demand Extraction'}
+                                      Status: <strong className={privacy ? (privacy.isFirewallResilient ? "text-emerald-400" : "text-foreground") : "text-rose-400"}>
+                                        {privacy ? (privacy.isFirewallResilient ? 'Firewall-Resilient Active' : 'Discovered & Ready') : 'No Privacy Policy Published'}
                                       </strong>
                                     </div>
+                                    {!privacy && (
+                                      <div className="text-[10px] text-muted font-sans pt-0.5">
+                                        No privacy policy detected at standard endpoints or page links.
+                                      </div>
+                                    )}
                                     {privacy?.lastUpdated && (
                                       <div>Last Updated: <strong className="text-foreground">{privacy.lastUpdated}</strong></div>
                                     )}
@@ -1500,10 +1512,14 @@ CREATE TABLE audit_logs (
                                       setLegalModalTab('privacy');
                                       setShowLegalModal(true);
                                     }}
-                                    className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                      privacy
+                                        ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
+                                        : "bg-surface hover:bg-surface-raised text-muted hover:text-foreground border border-border"
+                                    }`}
                                   >
                                     <FileText className="h-3 w-3" />
-                                    <span>Read Full Privacy Policy</span>
+                                    <span>{privacy ? 'Read Full Privacy Policy' : 'View Missing Status'}</span>
                                   </button>
                                   {privacy?.url && (
                                     <a
@@ -1525,25 +1541,30 @@ CREATE TABLE audit_logs (
                                   <div className="flex items-center justify-between">
                                     <span className="text-[11px] font-bold text-sky-400 font-mono uppercase flex items-center gap-1.5">
                                       <Scale className="h-3.5 w-3.5" />
-                                      <span>Terms of Service</span>
+                                      <span>Terms of Service / Terms of Use</span>
                                     </span>
                                     {terms ? (
                                       <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
                                         {terms.wordCount?.toLocaleString() || '0'} words
                                       </span>
                                     ) : (
-                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                                        Available to Extract
+                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">
+                                        Not Found
                                       </span>
                                     )}
                                   </div>
 
                                   <div className="text-[11px] text-muted font-mono mt-2 space-y-1">
                                     <div>
-                                      Status: <strong className={terms ? (terms.isFirewallResilient ? "text-sky-400" : "text-foreground") : "text-amber-400"}>
-                                        {terms ? (terms.isFirewallResilient ? 'Firewall-Resilient Active' : 'Discovered & Ready') : 'On-Demand Extraction'}
+                                      Status: <strong className={terms ? (terms.isFirewallResilient ? "text-sky-400" : "text-foreground") : "text-rose-400"}>
+                                        {terms ? (terms.isFirewallResilient ? 'Firewall-Resilient Active' : 'Discovered & Ready') : 'No Terms of Service Published'}
                                       </strong>
                                     </div>
+                                    {!terms && (
+                                      <div className="text-[10px] text-muted font-sans pt-0.5">
+                                        No terms of service detected at standard endpoints or page links.
+                                      </div>
+                                    )}
                                     {terms?.lastUpdated && (
                                       <div>Last Updated: <strong className="text-foreground">{terms.lastUpdated}</strong></div>
                                     )}
@@ -1574,10 +1595,14 @@ CREATE TABLE audit_logs (
                                       setLegalModalTab('terms');
                                       setShowLegalModal(true);
                                     }}
-                                    className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                      terms
+                                        ? "bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30"
+                                        : "bg-surface hover:bg-surface-raised text-muted hover:text-foreground border border-border"
+                                    }`}
                                   >
                                     <FileText className="h-3 w-3" />
-                                    <span>Read Full Terms & Conditions</span>
+                                    <span>{terms ? 'Read Full Terms of Use & Service' : 'View Missing Status'}</span>
                                   </button>
                                   {terms?.url && (
                                     <a
@@ -2450,8 +2475,30 @@ CREATE TABLE audit_logs (
               <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3 w-3 text-emerald-500" /> Local-first</span>
               <span className="inline-flex items-center gap-1.5"><Lock className="h-3 w-3" /> Private by default</span>
             </div>
-            <div className="flex items-center gap-4 text-[10px]">
-              <span>Built for backend engineers who value clarity over noise.</span>
+            <div className="flex flex-wrap items-center gap-3 text-[11px]">
+              <button
+                type="button"
+                onClick={() => {
+                  setLegalModalTab('privacy');
+                  setShowLegalModal(true);
+                }}
+                className="hover:text-emerald-400 text-muted transition-colors cursor-pointer font-medium"
+              >
+                Privacy Policy
+              </button>
+              <span className="text-border-subtle">•</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setLegalModalTab('terms');
+                  setShowLegalModal(true);
+                }}
+                className="hover:text-sky-400 text-muted transition-colors cursor-pointer font-medium"
+              >
+                Terms of Use
+              </button>
+              <span className="text-border-subtle">•</span>
+              <span className="text-muted/70 text-[10px]">Built for backend engineers who value clarity over noise.</span>
             </div>
           </div>
         </div>

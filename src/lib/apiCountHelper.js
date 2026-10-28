@@ -28,7 +28,31 @@ export function getApiServicesCount(data) {
     }
   }
 
-  // 2. If remote URL crawl with discovered gateways:
+  // 2. If WordPress namespaces:
+  const epPaths = (data.code?.endpoints || data.endpoints || []).map(e => e.path);
+  const wpNamespaces = new Set(
+    epPaths
+      .filter(p => p && p.startsWith('/wp-json/'))
+      .map(p => p.replace('/wp-json/', '').split('/')[0])
+      .filter(Boolean)
+  );
+  if (wpNamespaces.size > 1) {
+    return wpNamespaces.size;
+  }
+
+  // 3. If local codebase AST with distinct route modules or controllers:
+  const modules = new Set((data.code?.endpoints || data.endpoints || []).map(e => e.module).filter(Boolean));
+  if (modules.size > 1) {
+    return modules.size;
+  }
+
+  // 4. Semantic API services / resources breakdown (Authentic AST & Endpoint Partitioning):
+  const breakdown = getApiEndpointsBreakdown(data, 'resource');
+  if (breakdown.totalApisCount > 0) {
+    return breakdown.totalApisCount;
+  }
+
+  // 5. Fallback: If remote URL crawl with discovered gateways when no endpoint breakdown is available:
   const gateways = data.techStack?.backend?.discoveredGateways ||
     data.crawlerTelemetry?.backendDomains ||
     data.backendDomains || [];
@@ -50,12 +74,12 @@ export function getApiServicesCount(data) {
       // Exclude client frontend host origin
       if (targetHost && (host === targetHost || host === `www.${targetHost}`)) return false;
       const ignored = [
-        'reactjs.org', 'jquery', 'jedwatson', 'purecatamphetamine',
+        'reactjs.org', 'react.dev', 'nextjs.org', 'jquery', 'jedwatson', 'purecatamphetamine',
         'threejs.org', 'pmnd.rs', 'owasp.org', 'yourdomain', 'your-domain',
         'example.com', 'evilmartians.com', 'w3ctech.com', 'opensource.org',
         'stackoverflow.com', 'swiperjs.com', 'infinite-scroll.com', 'facebook.net',
         'ytimg.com', 'youtube.com', 'cybervault.sg', 'linkedin.com', 'twitter.com',
-        'github.com', 'google.com'
+        'github.com', 'google.com', 'goo.gl', 'randomuser.me'
       ];
       return !ignored.some(ig => host.includes(ig));
     } catch {
@@ -65,30 +89,6 @@ export function getApiServicesCount(data) {
 
   if (authenticGateways.length > 1) {
     return authenticGateways.length;
-  }
-
-  // 2. If WordPress namespaces:
-  const epPaths = (data.code?.endpoints || data.endpoints || []).map(e => e.path);
-  const wpNamespaces = new Set(
-    epPaths
-      .filter(p => p && p.startsWith('/wp-json/'))
-      .map(p => p.replace('/wp-json/', '').split('/')[0])
-      .filter(Boolean)
-  );
-  if (wpNamespaces.size > 1) {
-    return wpNamespaces.size;
-  }
-
-  // 3. If local codebase AST with distinct route modules or controllers:
-  const modules = new Set((data.code?.endpoints || data.endpoints || []).map(e => e.module).filter(Boolean));
-  if (modules.size > 1) {
-    return modules.size;
-  }
-
-  // 4. Semantic API services / resources breakdown:
-  const breakdown = getApiEndpointsBreakdown(data, 'resource');
-  if (breakdown.totalApisCount > 0) {
-    return breakdown.totalApisCount;
   }
 
   return (data.code?.endpoints?.length || data.endpoints?.length || 0) > 0 ? 1 : 0;

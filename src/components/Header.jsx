@@ -32,6 +32,7 @@ export default function Header({
   const hasAnalysis = !!analysisData;
   const [showApiBreakdown, setShowApiBreakdown] = useState(false);
   const [showLegalModal, setShowLegalModal] = useState(false);
+  const [legalModalTab, setLegalModalTab] = useState('privacy');
   // Downloaded (Electron) users already have the app: never offer it again.
   const isDesktop = useIsDesktop();
   const isLocal = isLocalApp || (typeof window !== 'undefined' && (
@@ -260,14 +261,30 @@ export default function Header({
                 <span>API Breakdown</span>
               </button>
 
-              <button
-                onClick={() => setShowLegalModal(true)}
-                className="btn-secondary text-xs py-1.5 px-3 whitespace-nowrap flex items-center gap-1.5 border-emerald-500/30 hover:border-emerald-500/50 hover:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium cursor-pointer"
-                title="View Privacy Policy and Terms of Service documents"
-              >
-                <Scale className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
-                <span>Privacy & Terms</span>
-              </button>
+              {(() => {
+                const legalDocs = analysisData?.legalDocuments || analysisData?.crawlerTelemetry?.legalDocuments;
+                const hasAny = !!(legalDocs?.privacyPolicy || legalDocs?.termsOfService);
+                return (
+                  <button
+                    onClick={() => {
+                      setLegalModalTab('privacy');
+                      setShowLegalModal(true);
+                    }}
+                    className={`btn-secondary text-xs py-1.5 px-3 whitespace-nowrap flex items-center gap-1.5 font-medium cursor-pointer ${
+                      hasAny
+                        ? "border-emerald-500/30 hover:border-emerald-500/50 hover:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                        : "border-border hover:border-border-strong hover:bg-surface-raised text-muted hover:text-foreground"
+                    }`}
+                    title={hasAny ? "View Privacy Policy and Terms of Use / Service documents in fullscreen" : "Audit Legal Documents: No Privacy Policy or Terms detected on origin"}
+                  >
+                    <Scale className={`h-3.5 w-3.5 ${hasAny ? "text-emerald-500 dark:text-emerald-400" : "text-muted"}`} />
+                    <span>Privacy & Terms</span>
+                    {!hasAny && (
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/10 border border-amber-500/20 text-amber-500 font-mono">None</span>
+                    )}
+                  </button>
+                );
+              })()}
 
               {onOpenApiFlow && (
                 <button
@@ -314,6 +331,7 @@ export default function Header({
         onClose={() => setShowLegalModal(false)}
         legalDocuments={analysisData?.legalDocuments || analysisData?.crawlerTelemetry?.legalDocuments}
         targetUrl={currentPath || analysisData?.projectPath}
+        initialTab={legalModalTab}
       />
     </header>
   );

@@ -125,4 +125,34 @@ BendLens features a dedicated, authentic cloud reverse-engineering engine that s
   - **Multi-Signal DNS & Subnet Engine**: Parallel non-blocking DNS queries with fallback public resolvers (8.8.8.8, 1.1.1.1), apex CNAME redirection fallback (finstackk.com -> www.finstackk.com -> *.elb.amazonaws.com), authoritative NS inspection (Route 53 awsdns), and expanded enterprise CIDR subnets (e.g. AWS 44.192.0.0/10, 3.0.0.0/9, 99.80.0.0/12). Automatically classifies containerized AWS ECS workloads behind Application Load Balancers.
   - UI surfaces (`DeveloperView.jsx`, `page.jsx`, `Header.jsx`, `apiPdfReportGenerator.js`, `ExportModal.jsx`) clearly display both Frontend Edge and Backend Hosting with status badges (`MULTI-CLOUD` vs single cloud), categories, services, regions, and verified evidence.
 
+---
+
+## 9. Authentic API Service Count Hierarchical Precedence (`apiCountHelper.js`)
+To prevent false-positive inflation of the API service count (such as reporting external links or documentation URLs like `nextjs.org`, `randomuser.me` as distinct backend APIs), `getApiServicesCount(data)` enforces a strict hierarchical precedence:
+1. **Multi-Role Portal Domains**: If endpoints span $\ge 3$ distinct role portals (`Admin`, `Student`, `Mentor`, `TPO`, `Employer`, `Public`), reports the role domains count (e.g., exactly **6 APIs** on `futrsec.in`).
+2. **WordPress Core & Plugin Namespaces**: If endpoints contain $\ge 2$ `/wp-json/*` namespaces, reports the namespace count (`wp/v2`, `wc/v3`, etc.).
+3. **Local Codebase AST Controllers**: If local controllers or modules $\ge 2$, reports the distinct controller count.
+4. **Semantic Resource & API Grouping (`getApiEndpointsBreakdown`)**: Partitions discovered endpoints into functional API services. For `finstackk.com`, all 153 endpoints resolve to the `Business Formation API`, reporting exactly **1 API** across all HUD headers, modals, and PDF reports.
+5. **Gateway Domain Fallback**: Only falls back to discovered gateway domains if zero endpoints or breakdown structures exist. Third-party docs (`nextjs.org`, `react.dev`), mock APIs (`randomuser.me`), and maps (`goo.gl`) are explicitly excluded.
+
+---
+
+## 10. Zero-Hallucination Legal Documents Discovery & Empty State Engine
+To maintain strict enterprise authenticity and air-gapped zero hallucination guarantees:
+1. **Origin Verification**: When probing candidate paths (`/privacy`, `/terms`, `/legal/*`, etc.), if the origin returns HTTP 404 or fails to publish genuine legal text, the crawler **never synthesizes or fabricates fake legal text**.
+2. **Explicit Null Contract**: The crawler returns:
+   ```json
+   {
+     "hasLegalDocuments": false,
+     "isFirewallResilient": false,
+     "privacyPolicy": null,
+     "termsOfService": null
+   }
+   ```
+3. **UI Missing State Presentation**:
+   - `page.jsx`: Renders "No Privacy Policy Published" and "No Terms of Service Published" with "View Missing Status" action.
+   - `Header.jsx` & `DeveloperView.jsx`: Displays a `None` status pill badge when 0 legal documents are detected.
+   - `LegalDocumentsModal.jsx`: Displays explicit "No Privacy Policy Found" / "No Terms of Service Found" banners with audit scope details (probed paths, HTML anchor scan result) and provides an optional manual drafting workspace for corporate compliance teams.
+
+
 
