@@ -61,7 +61,11 @@ export default function LegalDocumentsModal({
   const cleanHost = useMemo(() => {
     try {
       if (!targetUrl) return 'this website';
-      return new URL(targetUrl.startsWith('http') ? targetUrl : `https://${targetUrl}`).hostname;
+      const clean = targetUrl.trim();
+      if (!clean.includes('.') || clean.includes(' ')) {
+        return clean;
+      }
+      return new URL(clean.startsWith('http') ? clean : `https://${clean}`).hostname;
     } catch {
       return targetUrl || 'this website';
     }
@@ -89,10 +93,12 @@ export default function LegalDocumentsModal({
 
   // If modal opened without documents prop at all, auto-trigger on-demand fetch
   useEffect(() => {
-    if (isOpen && legalDocuments === undefined && liveDocs === undefined && targetUrl && !isLoading && !loadError) {
+    const hasExisting = Boolean(liveDocs?.privacyPolicy || liveDocs?.termsOfService || legalDocuments?.privacyPolicy || legalDocuments?.termsOfService);
+    const isValidUrl = targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://') || /^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(targetUrl)) && !targetUrl.includes(' ');
+    if (isOpen && !hasExisting && isValidUrl && !isLoading && !loadError) {
       fetchOnDemand();
     }
-  }, [isOpen, legalDocuments, liveDocs, targetUrl]);
+  }, [isOpen, liveDocs, legalDocuments, targetUrl, isLoading, loadError]);
 
   const privacyDoc = liveDocs?.privacyPolicy || null;
   const termsDoc = liveDocs?.termsOfService || null;
@@ -258,11 +264,10 @@ export default function LegalDocumentsModal({
             <button
               type="button"
               onClick={() => { setActiveTab('privacy'); setSearchQuery(''); }}
-              className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
-                activeTab === 'privacy'
+              className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-2 ${activeTab === 'privacy'
                   ? 'bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/30 shadow-xs'
                   : 'text-muted hover:text-foreground'
-              }`}
+                }`}
             >
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
               <span>Privacy Policy</span>
@@ -280,11 +285,10 @@ export default function LegalDocumentsModal({
             <button
               type="button"
               onClick={() => { setActiveTab('terms'); setSearchQuery(''); }}
-              className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
-                activeTab === 'terms'
+              className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-2 ${activeTab === 'terms'
                   ? 'bg-cyan-500/15 text-cyan-400 font-bold border border-cyan-500/30 shadow-xs'
                   : 'text-muted hover:text-foreground'
-              }`}
+                }`}
             >
               <FileText className="h-3.5 w-3.5 text-cyan-400" />
               <span>Terms of Service / Terms of Use</span>
@@ -302,11 +306,10 @@ export default function LegalDocumentsModal({
             <button
               type="button"
               onClick={() => { setActiveTab('compliance'); setSearchQuery(''); }}
-              className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
-                activeTab === 'compliance'
+              className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-2 ${activeTab === 'compliance'
                   ? 'bg-violet-500/15 text-violet-400 font-bold border border-violet-500/30 shadow-xs'
                   : 'text-muted hover:text-foreground'
-              }`}
+                }`}
             >
               <Scale className="h-3.5 w-3.5 text-violet-400" />
               <span>Compliance Overview</span>
@@ -321,11 +324,10 @@ export default function LegalDocumentsModal({
                 <button
                   type="button"
                   onClick={() => setViewMode('formatted')}
-                  className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 cursor-pointer font-medium ${
-                    viewMode === 'formatted'
+                  className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 cursor-pointer font-medium ${viewMode === 'formatted'
                       ? 'bg-brand/15 text-brand font-bold shadow-xs'
                       : 'text-muted hover:text-foreground'
-                  }`}
+                    }`}
                   title="Website Layout View (Authentic website typography and formatting)"
                 >
                   <Globe className="h-3.5 w-3.5" />
@@ -334,11 +336,10 @@ export default function LegalDocumentsModal({
                 <button
                   type="button"
                   onClick={() => setViewMode('raw')}
-                  className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 cursor-pointer font-medium ${
-                    viewMode === 'raw'
+                  className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 cursor-pointer font-medium ${viewMode === 'raw'
                       ? 'bg-brand/15 text-brand font-bold shadow-xs'
                       : 'text-muted hover:text-foreground'
-                  }`}
+                    }`}
                   title="Raw Markdown / Source View"
                 >
                   <Code2 className="h-3.5 w-3.5" />
@@ -364,11 +365,10 @@ export default function LegalDocumentsModal({
                   if (!isEditing) setCustomContent(currentDoc.content);
                   setIsEditing(!isEditing);
                 }}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
-                  isEditing
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${isEditing
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                     : 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/25'
-                }`}
+                  }`}
                 title="Edit document or paste custom internal corporate policy"
               >
                 <Edit3 className="h-3.5 w-3.5" />
@@ -718,7 +718,17 @@ export default function LegalDocumentsModal({
                 </ul>
               </div>
 
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex items-center gap-2 pt-1 flex-wrap justify-center">
+                {targetUrl && (
+                  <button
+                    onClick={fetchOnDemand}
+                    disabled={isLoading}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                    <span>Probe Origin Live</span>
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     const defaultContent = `# ${activeTab === 'privacy' ? 'Privacy Policy' : 'Terms of Service'} for ${cleanHost}\n\n**Status:** Internal Custom Draft\n\n## 1. Overview\nAdd your corporate legal policy text here...`;

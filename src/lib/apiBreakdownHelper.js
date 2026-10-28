@@ -166,11 +166,37 @@ export function getApiEndpointsBreakdown(analysisData, groupBy = 'auto') {
   }
 
   // Extract raw endpoints
-  const rawEndpoints = Array.isArray(analysisData.endpoints) && analysisData.endpoints.length > 0
+  let rawEndpoints = Array.isArray(analysisData.endpoints) && analysisData.endpoints.length > 0
     ? analysisData.endpoints
     : (Array.isArray(analysisData.code?.endpoints) && analysisData.code.endpoints.length > 0
       ? analysisData.code.endpoints
-      : []);
+      : (Array.isArray(analysisData.enrichedEndpoints) && analysisData.enrichedEndpoints.length > 0
+        ? analysisData.enrichedEndpoints
+        : []));
+
+  // If endpoints are still empty, derive from openApiSpec paths
+  if (rawEndpoints.length === 0 && analysisData.openApiSpec?.paths) {
+    const derived = [];
+    Object.entries(analysisData.openApiSpec.paths).forEach(([routePath, methodsObj]) => {
+      if (!methodsObj || typeof methodsObj !== 'object') return;
+      ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'].forEach((m) => {
+        if (methodsObj[m]) {
+          const op = methodsObj[m];
+          derived.push({
+            path: routePath,
+            method: m.toUpperCase(),
+            summary: op.summary || op.description || '',
+            module: op['x-bundle-source'] || '',
+            isLazyLoaded: op['x-lazy-loaded'] === true,
+            crawlTier: op['x-crawl-tier'] || 'normal',
+            routeType: op['x-route-type'] || 'API',
+            isUiRoute: op['x-is-ui-route'] === true
+          });
+        }
+      });
+    });
+    rawEndpoints = derived;
+  }
 
   if (rawEndpoints.length === 0) {
     return {
@@ -363,8 +389,8 @@ export function getApiEndpointsBreakdown(analysisData, groupBy = 'auto') {
 
   const totalApisCount = apis.length;
   const totalEndpointsCount = normalizedEndpoints.length;
-  const averageEndpointsPerApi = totalApisCount > 0 
-    ? Number((totalEndpointsCount / totalApisCount).toFixed(1)) 
+  const averageEndpointsPerApi = totalApisCount > 0
+    ? Number((totalEndpointsCount / totalApisCount).toFixed(1))
     : 0;
 
   const maxEndpointsApi = apis[0] ? { name: apis[0].name, count: apis[0].totalEndpoints } : null;

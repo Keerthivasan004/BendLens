@@ -95,7 +95,7 @@ export async function POST(request) {
       if (!isGithubRepoRoot) {
         try {
           const fetchHeaders = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 BendLens/1.0',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'Accept': 'application/json, application/yaml, text/yaml, text/plain, text/html, */*'
           };
           if (token) {
@@ -342,7 +342,7 @@ export async function POST(request) {
       for (const archiveUrl of publicArchiveUrls) {
         try {
           const zipRes = await fetch(archiveUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 BendLens/1.0' },
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' },
             redirect: 'follow',
             signal: AbortSignal.timeout(30000)
           });
@@ -379,7 +379,7 @@ export async function POST(request) {
           : `https://api.github.com/repos/${ownerName}/${repoName}/zipball`;
 
         const headers = {
-          'User-Agent': 'Mozilla/5.0 BendLens/1.0',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
           'Accept': 'application/vnd.github+json'
         };
 
@@ -440,7 +440,7 @@ export async function POST(request) {
       for (const branch of branchesToTry) {
         try {
           const glArchiveUrl = `https://gitlab.com/${glOwner}/${glRepo}/-/archive/${branch}/${glRepo}-${branch}.zip`;
-          const glHeaders = { 'User-Agent': 'Mozilla/5.0 BendLens/1.0' };
+          const glHeaders = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' };
           if (token) glHeaders['PRIVATE-TOKEN'] = token;
           const glRes = await fetch(glArchiveUrl, { headers: glHeaders, signal: AbortSignal.timeout(30000) });
           if (glRes.ok) {

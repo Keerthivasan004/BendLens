@@ -81,6 +81,8 @@ export async function POST(request) {
     // Run AST Analysis, Diagram Generation & Blast Radius Engine
     const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
     result.projectName = crawlResult.projectName;
+    result.projectPath = targetUrl;
+    result.targetUrl = targetUrl;
     result.crawlerTelemetry = crawlResult.telemetry;
     result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
     result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
