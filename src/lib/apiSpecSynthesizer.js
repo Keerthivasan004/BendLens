@@ -631,11 +631,25 @@ class ApiSpecSynthesizer {
 
     // 3. Fetch app script bundles and extract API routes with accurate HTTP methods and normalized path parameters
     const endpointMap = new Map(); // path -> Set of methods
+    const endpointSubdomainMap = new Map(); // path -> subdomain
+    const discoveredSubdomains = new Set();
+    const baseHostname = parsedUrl.hostname.toLowerCase().replace(/^www\./, '');
+    if (baseHostname) discoveredSubdomains.add(baseHostname);
 
     const candidateScripts = scriptSrcs.slice(0, 5);
 
     for (const scriptUrl of candidateScripts) {
       try {
+        let scriptSub = baseHostname;
+        try {
+          const su = new URL(scriptUrl);
+          const sh = su.hostname.toLowerCase().replace(/^www\./, '');
+          if (sh && (sh.endsWith(baseHostname) || baseHostname.endsWith(sh))) {
+            discoveredSubdomains.add(sh);
+            scriptSub = sh;
+          }
+        } catch {}
+
         const res = await fetch(scriptUrl, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -656,6 +670,19 @@ class ApiSpecSynthesizer {
             const methodMatch = options.match(/method\s*:\s*["'](GET|POST|PUT|DELETE|PATCH)["']/i);
             let method = methodMatch ? methodMatch[1].toLowerCase() : 'get';
 
+            let epSub = scriptSub;
+            try {
+              if (rawPath.startsWith('http://') || rawPath.startsWith('https://')) {
+                const u = new URL(rawPath);
+                const uh = u.hostname.toLowerCase().replace(/^www\./, '');
+                if (uh) {
+                  discoveredSubdomains.add(uh);
+                  epSub = uh;
+                }
+                rawPath = u.pathname;
+              }
+            } catch {}
+
             // Clean template strings:
             // Remove query string template interpolations like ${t} or ?...
             rawPath = rawPath.replace(/\?[^`'"]*/g, '');
@@ -672,7 +699,27 @@ class ApiSpecSynthesizer {
             if (rawPath.startsWith('/api') && rawPath.length > 5 && !/\.(?:js|css|png|jpg|svg|ico)$/i.test(rawPath)) {
               if (!endpointMap.has(rawPath)) endpointMap.set(rawPath, new Set());
               endpointMap.get(rawPath).add(method);
+              if (!endpointSubdomainMap.has(rawPath) || epSub !== baseHostname) {
+                endpointSubdomainMap.set(rawPath, epSub);
+              }
             }
+          }
+
+          // Pass 1.5: Absolute backend API URLs in code
+          const absApiRegex = /["'`](https?:\/\/[a-zA-Z0-9_\-\.]+(\/(?:api|v[0-9]+)[a-zA-Z0-9_\-\/\{\}]*))["'`]/gi;
+          let abm;
+          while ((abm = absApiRegex.exec(code)) !== null) {
+            try {
+              const u = new URL(abm[0].slice(1, -1));
+              let norm = u.pathname.replace(/\/+$/, '').trim();
+              if (norm && norm.length > 5 && !/\.(?:js|css|png|jpg|svg|ico)$/i.test(norm)) {
+                const subHost = u.hostname.toLowerCase().replace(/^www\./, '');
+                if (subHost) discoveredSubdomains.add(subHost);
+                endpointSubdomainMap.set(norm, subHost);
+                if (!endpointMap.has(norm)) endpointMap.set(norm, new Set());
+                endpointMap.get(norm).add('get');
+              }
+            } catch {}
           }
 
           // Pass 2: Extract any remaining static /api/... or /v1/... endpoints in the bundle
@@ -693,6 +740,9 @@ class ApiSpecSynthesizer {
                   inferredMethod = 'put';
                 }
                 endpointMap.set(ep, new Set([inferredMethod]));
+                if (!endpointSubdomainMap.has(ep)) {
+                  endpointSubdomainMap.set(ep, scriptSub);
+                }
               }
             }
           }
@@ -719,6 +769,7 @@ class ApiSpecSynthesizer {
         }
       }
 
+      const epSub = endpointSubdomainMap.get(ep) || baseHostname;
       if (!paths[ep]) paths[ep] = {};
       for (const m of methods) {
         const method = m.toLowerCase();
@@ -726,6 +777,8 @@ class ApiSpecSynthesizer {
           tags: [tag],
           summary: `${method.toUpperCase()} ${ep}`,
           description: `API route extracted from frontend web application bundle for ${actionName}`,
+          'x-subdomain': epSub,
+          'x-origin': `https://${epSub}`,
           responses: {
             '200': { description: 'Successful API execution' }
           }
@@ -767,9 +820,10 @@ class ApiSpecSynthesizer {
         version: '1.0.0',
         description: `Universal API Architecture extracted from web application assets at ${basePageUrl}`
       },
-      servers: [
-        { url: parsedUrl.origin, description: 'Live Web App Origin' }
-      ],
+      servers: Array.from(discoveredSubdomains).map((sub) => ({
+        url: `https://${sub}`,
+        description: sub === baseHostname ? 'Live Web App Origin' : `Discovered Subdomain Gateway (${sub})`
+      })),
       paths,
       components: {
         schemas
@@ -780,7 +834,8 @@ class ApiSpecSynthesizer {
       projectName,
       openApiSpec,
       sqlSchema: sqlStatements.join('\n\n'),
-      totalEndpoints: endpointMap.size
+      totalEndpoints: endpointMap.size,
+      subdomains: Array.from(discoveredSubdomains)
     };
   }
 }

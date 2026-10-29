@@ -76,9 +76,10 @@ const SERVICE_COLOR_THEMES = [
 export default function ApiFlowModal({
   isOpen,
   onClose,
-  endpoints = [],
-  tables = [],
-  diagrams = {},
+  endpoints: propEndpoints = [],
+  tables: propTables = [],
+  diagrams: propDiagrams = {},
+  analysisData = null,
   theme = 'dark',
   initialFocusedEndpoint = null,
   onSelectForImpact
@@ -105,6 +106,49 @@ export default function ApiFlowModal({
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const rAFRef = useRef(null);
+
+  const endpoints = useMemo(() => {
+    if (Array.isArray(propEndpoints) && propEndpoints.length > 0) return propEndpoints;
+    if (analysisData) {
+      if (Array.isArray(analysisData.code?.endpoints) && analysisData.code.endpoints.length > 0) return analysisData.code.endpoints;
+      if (Array.isArray(analysisData.endpoints) && analysisData.endpoints.length > 0) return analysisData.endpoints;
+      if (Array.isArray(analysisData.enrichedEndpoints) && analysisData.enrichedEndpoints.length > 0) return analysisData.enrichedEndpoints;
+      if (Array.isArray(analysisData.crawlerTelemetry?.endpoints) && analysisData.crawlerTelemetry.endpoints.length > 0) return analysisData.crawlerTelemetry.endpoints;
+      if (analysisData.openApiSpec?.paths) {
+        const derived = [];
+        Object.entries(analysisData.openApiSpec.paths).forEach(([routePath, methodsObj]) => {
+          if (!methodsObj || typeof methodsObj !== 'object') return;
+          ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'].forEach((m) => {
+            if (methodsObj[m]) {
+              const op = methodsObj[m];
+              derived.push({
+                path: routePath,
+                method: m.toUpperCase(),
+                summary: op.summary || op.description || '',
+                module: op['x-bundle-source'] || '',
+                isLazyLoaded: op['x-lazy-loaded'] === true,
+                crawlTier: op['x-crawl-tier'] || 'normal',
+                routeType: op['x-route-type'] || 'API',
+                isUiRoute: op['x-is-ui-route'] === true
+              });
+            }
+          });
+        });
+        return derived;
+      }
+    }
+    return [];
+  }, [propEndpoints, analysisData]);
+
+  const tables = useMemo(() => {
+    if (Array.isArray(propTables) && propTables.length > 0) return propTables;
+    return analysisData?.schema?.tables || [];
+  }, [propTables, analysisData]);
+
+  const diagrams = useMemo(() => {
+    if (propDiagrams && Object.keys(propDiagrams).length > 0) return propDiagrams;
+    return analysisData?.diagrams || {};
+  }, [propDiagrams, analysisData]);
 
   useEffect(() => {
     setMounted(true);

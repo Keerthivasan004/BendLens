@@ -156,3 +156,16 @@ flowchart TD
   - **Interactive Legal Reader Fullscreen Modal (`LegalDocumentsModal.jsx`)**: Opens directly in edge-to-edge Fullscreen (`w-screen h-screen z-[99999]`) instead of a constrained small box, with an interactive Maximize/Restore toggle (`Maximize2` / `Minimize2`) in header and footer. Features tabbed glassmorphic views (`🛡️ Privacy Policy`, `📜 Terms of Service / Terms of Use`, `⚖️ Compliance Overview`), `🛡️ Firewall-Resilient Active` badge with explanatory banner, in-document search with match counter and yellow highlights, 1-click Markdown copy and download, live page links, and interactive `[✏️ Edit / Custom]` mode allowing compliance officers to view or customize legal agreements directly with high-capacity monospace editing.
   - 100% Local-First & Air-Gapped: In-memory parsing with zero external cloud transmission.
 - **Client App (`src/app/lens/page.jsx`)**: Renders interactive diagram canvases with pan/zoom/export, persona views, data tables, and the blast radius simulator.
+
+
+## Multi-Subdomain API Architecture Engine
+- **Hierarchical Precedence for API Counting (piCountHelper.js & piBreakdownHelper.js)**: Multi-role portal domains (e.g. 6 APIs on utrsec.in) take priority over simple subdomain counting. For domains without role portals (e.g. instackk.com), distinct subdomains define the API count (2 APIs: root + app).
+- BendLens automatically discovers and crawls first-party subdomains (e.g. `api.`, `admin.`, `auth.`, `app.`) using TLS SAN certificate extraction, CSP header parsing, JS AST token matching, and non-blocking DNS probing.
+- **Canonical Apex/Subdomain Unification**: Normalizes apex domains (e.g. instackk.com) and their www. aliases (www.finstackk.com) to prevent phantom splitting of the main website API. Distinct subdomains (e.g. pp.finstackk.com) are accurately isolated as distinct APIs (e.g. finstackk.com evaluates to exactly 2 APIs).
+- Endpoints are tagged with their authentic subdomain origin and displayed with `🌐 {subdomain}` visual badges in DeveloperView and ApiBreakdownModal.
+
+
+### API Counting & Perimeter Resilience Updates
+- **6 Role APIs for Multi-Role Platforms**: Multi-tenant cadet platforms like `futrsec.in` with role portals (Admin, Student, Mentor, TPO, Employer, Core) are authoritatively partitioned into 6 distinct APIs across all views.
+- **2 Subdomain APIs for Multi-Domain Portals**: Multi-domain applications like `finstackk.com` are cleanly classified into 2 distinct subdomain APIs (`finstackk.com` and `app.finstackk.com`).
+- **Endpoint Count Parity (676 Routes)**: Elimination of sequential socket timeouts via parallel `Promise.allSettled` probing with 4500ms timeout preserves all 3 live health endpoints on `api.futrsec.in` alongside the 673 client bundle routes, producing a completely stable, invariant 676 endpoint count.

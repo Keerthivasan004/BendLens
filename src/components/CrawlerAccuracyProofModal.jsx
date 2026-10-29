@@ -1,26 +1,36 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X, ShieldCheck, CheckCircle2, AlertTriangle, AlertCircle, Copy, Check,
   FileCode, Laptop, Lock, Download, Layers, Sparkles, ArrowRight,
   ExternalLink, Code, Search, ChevronDown, ChevronUp, Zap, HelpCircle,
-  Clock, Shield, BarChart3, Database, Globe, Activity
+  Clock, Shield, BarChart3, Database, Globe, Activity, Maximize2, Minimize2, Cpu
 } from 'lucide-react';
 import { getCrawlerAccuracyProof, generateCrawlerProofMarkdown } from '@/lib/crawlerComparisonHelper';
 import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 
 export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisData, initialTab = 'matrix' }) {
+  const [mounted, setMounted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(true);
   const [activeTab, setActiveTab] = useState(initialTab); // 'matrix' | 'missed' | 'solutions' | 'signals'
   const [copiedAudit, setCopiedAudit] = useState(false);
   const [copiedRoute, setCopiedRoute] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedSection, setExpandedSection] = useState('lazyLoadedRoles'); // 'lazyLoadedRoles' | 'parameterized' | 'clientApis'
 
-  // Sync initialTab when opening
   useEffect(() => {
-    if (isOpen && initialTab) {
-      setActiveTab(initialTab);
+    setMounted(true);
+  }, []);
+
+  // Sync initialTab and ensure default fullscreen when opening
+  useEffect(() => {
+    if (isOpen) {
+      setIsFullscreen(true);
+      if (initialTab) {
+        setActiveTab(initialTab);
+      }
     }
   }, [isOpen, initialTab]);
 
@@ -77,7 +87,7 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
     return fallback;
   }, [analysisData, proof]);
 
-  if (!isOpen || !proof) return null;
+  if (!isOpen || !mounted || !proof) return null;
 
   const handleCopyAudit = () => {
     const md = generateCrawlerProofMarkdown(proof);
@@ -111,14 +121,25 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-200">
+  const modalContent = (
+    <div
+      className={
+        isFullscreen
+          ? "fixed inset-0 z-[99999] w-screen h-screen bg-surface-card text-foreground flex flex-col overflow-hidden animate-in fade-in duration-200"
+          : "fixed inset-0 z-[99999] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-200"
+      }
+      onClick={isFullscreen ? undefined : onClose}
+    >
       <div 
-        className="w-full max-w-5xl h-[92vh] max-h-[900px] flex flex-col rounded-2xl bg-surface-card border border-border shadow-2xl overflow-hidden"
+        className={
+          isFullscreen
+            ? "relative w-full h-full flex flex-col overflow-hidden text-foreground bg-surface-card"
+            : "w-full max-w-6xl h-[92vh] max-h-[900px] flex flex-col rounded-2xl bg-surface-card border border-border shadow-2xl overflow-hidden"
+        }
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header Bar */}
-        <div className="p-4 sm:p-5 border-b border-border bg-surface-raised flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+        <div className="p-4 sm:px-6 sm:py-4 border-b border-border bg-surface-raised flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 shadow-xs">
               <ShieldCheck className="h-5 w-5" />
@@ -134,6 +155,11 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-brand/10 text-brand font-bold border border-brand/20">
                   Zero Hallucination
                 </span>
+                {isFullscreen && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 font-bold border border-cyan-500/20">
+                    Fullscreen Mode
+                  </span>
+                )}
               </div>
               <p className="text-xs text-muted mt-0.5 flex items-center gap-2 flex-wrap">
                 <span>Target: <strong className="text-foreground font-mono">{proof.targetUrl}</strong></span>
@@ -141,6 +167,10 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
                 <span>Stack: <span className="text-foreground">{proof.framework}</span></span>
                 <span>•</span>
                 <span>AST Scan: <span className="text-emerald-400 font-mono font-bold">{(proof.crawlDurationMs / 1000).toFixed(1)}s</span></span>
+                <span>•</span>
+                <span>Endpoints: <strong className="text-emerald-400 font-mono font-bold">{proof.genuineEndpointsCount || proof.genuineApisCount}</strong></span>
+                <span>•</span>
+                <span>APIs: <strong className="text-brand font-mono font-bold">{proof.apisCount}</strong></span>
               </p>
             </div>
           </div>
@@ -155,9 +185,18 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
               <span>{copiedAudit ? 'Copied Audit!' : 'Copy Proof Audit'}</span>
             </button>
             <button
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className="p-1.5 rounded-lg text-muted hover:text-foreground hover:bg-surface transition-colors cursor-pointer"
+              title={isFullscreen ? 'Restore Windowed View' : 'Maximize to Fullscreen'}
+              aria-label={isFullscreen ? 'Restore Windowed View' : 'Maximize to Fullscreen'}
+            >
+              {isFullscreen ? <Minimize2 className="h-4 w-4 text-brand" /> : <Maximize2 className="h-4 w-4" />}
+            </button>
+            <button
               onClick={onClose}
               className="p-1.5 rounded-lg text-muted hover:text-foreground hover:bg-surface transition-colors cursor-pointer"
               title="Close (ESC)"
+              aria-label="Close modal"
             >
               <X className="h-5 w-5" />
             </button>
@@ -165,51 +204,70 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
         </div>
 
         {/* Executive KPI Parity Ribbon */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 sm:px-5 sm:py-3 bg-surface border-b border-border shrink-0 text-left">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 p-3 sm:px-6 sm:py-3 bg-surface border-b border-border shrink-0 text-left">
+          {/* Card 1: Verified Genuine Endpoints */}
           <div className="p-2.5 rounded-xl bg-surface-raised border border-emerald-500/30 flex flex-col justify-between">
             <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
-              <CheckCircle2 className="h-3 w-3" />
-              <span>Verified Genuine APIs</span>
+              <CheckCircle2 className="h-3 w-3 shrink-0" />
+              <span>Verified Genuine Endpoints</span>
             </div>
             <div className="text-xl sm:text-2xl font-extrabold text-foreground font-mono mt-1">
-              {proof.genuineApisCount}
+              {proof.genuineEndpointsCount || proof.genuineApisCount}
               <span className="text-xs font-normal text-muted ml-1">/ {proof.totalDiscovered}</span>
             </div>
             <div className="text-[10px] text-muted mt-0.5">
-              100% Verified Callable REST & RPC
+              100% Callable REST & RPC
             </div>
           </div>
 
+          {/* Card 2: Discovered Backend APIs */}
+          <div className="p-2.5 rounded-xl bg-surface-raised border border-brand/30 flex flex-col justify-between">
+            <div className="text-[10px] font-bold text-brand uppercase tracking-wider flex items-center gap-1">
+              <Cpu className="h-3 w-3 shrink-0" />
+              <span>Discovered Backend APIs</span>
+            </div>
+            <div className="text-xl sm:text-2xl font-extrabold text-foreground font-mono mt-1">
+              {proof.apisCount}
+              <span className="text-xs font-normal text-muted ml-1">APIs</span>
+            </div>
+            <div className="text-[10px] text-muted mt-0.5">
+              Role Domains & Services
+            </div>
+          </div>
+
+          {/* Card 3: Missed by HTML Scrapers */}
           <div className="p-2.5 rounded-xl bg-surface-raised border border-rose-500/30 flex flex-col justify-between">
             <div className="text-[10px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1">
-              <AlertCircle className="h-3 w-3" />
+              <AlertCircle className="h-3 w-3 shrink-0" />
               <span>Missed by HTML Scrapers</span>
             </div>
             <div className="text-xl sm:text-2xl font-extrabold text-rose-400 font-mono mt-1">
               100%
-              <span className="text-xs font-normal text-muted ml-1 font-sans">(0 APIs)</span>
+              <span className="text-xs font-normal text-muted ml-1 font-sans">(0 Endpoints)</span>
             </div>
             <div className="text-[10px] text-muted mt-0.5">
               SPAs deliver empty HTML shells
             </div>
           </div>
 
+          {/* Card 4: Missed by Headless Browsers */}
           <div className="p-2.5 rounded-xl bg-surface-raised border border-amber-500/30 flex flex-col justify-between">
             <div className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
-              <AlertTriangle className="h-3 w-3" />
+              <AlertTriangle className="h-3 w-3 shrink-0" />
               <span>Missed by Headless Browsers</span>
             </div>
             <div className="text-xl sm:text-2xl font-extrabold text-amber-400 font-mono mt-1">
               ~90.7% - 95%
             </div>
             <div className="text-[10px] text-muted mt-0.5">
-              Role portals missed without user clicks
+              Role portals missed without clicks
             </div>
           </div>
 
-          <div className="p-2.5 rounded-xl bg-surface-raised border border-brand/30 flex flex-col justify-between">
-            <div className="text-[10px] font-bold text-brand uppercase tracking-wider flex items-center gap-1">
-              <Sparkles className="h-3 w-3" />
+          {/* Card 5: False Positive Rate */}
+          <div className="p-2.5 rounded-xl bg-surface-raised border border-cyan-500/30 flex flex-col justify-between col-span-2 sm:col-span-1">
+            <div className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1">
+              <Sparkles className="h-3 w-3 shrink-0" />
               <span>False Positive Rate</span>
             </div>
             <div className="text-xl sm:text-2xl font-extrabold text-foreground font-mono mt-1">
@@ -290,7 +348,7 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
               </div>
 
               {/* Competitor Cards Summary Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                 {proof.competitors.slice(0, 4).map((comp) => (
                   <div key={comp.id} className="p-4 rounded-xl bg-surface border border-border flex flex-col justify-between hover:border-border/80 transition-all">
                     <div>
@@ -324,7 +382,7 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
                 ))}
 
                 {/* BendLens Winner Card */}
-                <div className="p-4 rounded-xl bg-emerald-500/5 border-2 border-emerald-500/40 flex flex-col justify-between shadow-sm md:col-span-2 lg:col-span-2">
+                <div className="p-4 rounded-xl bg-emerald-500/5 border-2 border-emerald-500/40 flex flex-col justify-between shadow-sm md:col-span-2 lg:col-span-4">
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2">
@@ -453,7 +511,7 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
                             <div className="text-[11px] font-bold text-muted uppercase tracking-wider">
                               Discovered Route Evidence Samples ({section.routes.length}):
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                               {section.routes.map((rt, rIdx) => (
                                 <div 
                                   key={rIdx} 
@@ -623,7 +681,7 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
               </div>
 
               {/* Signals Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
                 {verifiedSignals.map((signal, sIdx) => (
                   <div key={sIdx} className="p-3 rounded-xl bg-surface border border-border flex items-start gap-2.5 hover:border-cyan-500/40 transition-colors text-left">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
@@ -682,6 +740,14 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
 
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <button
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-surface border border-border hover:bg-surface-raised text-foreground flex items-center gap-1.5 transition-colors cursor-pointer"
+              title={isFullscreen ? 'Switch to windowed modal' : 'Switch to fullscreen'}
+            >
+              {isFullscreen ? <Minimize2 className="h-3.5 w-3.5 text-brand" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              <span>{isFullscreen ? 'Windowed' : 'Fullscreen'}</span>
+            </button>
+            <button
               onClick={handleDownloadMarkdown}
               className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-surface border border-border hover:bg-surface-raised text-foreground flex items-center gap-1.5 transition-colors cursor-pointer"
             >
@@ -706,4 +772,6 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }

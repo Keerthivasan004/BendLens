@@ -74,7 +74,7 @@ CREATE TABLE orders (
   const [showLandingSignals, setShowLandingSignals] = useState(false);
 
   const landingBreakdown = useMemo(() => {
-    return getApiEndpointsBreakdown(analysisResult, 'resource');
+    return getApiEndpointsBreakdown(analysisResult, 'auto');
   }, [analysisResult]);
 
   const landingEndpointsList = useMemo(() => {

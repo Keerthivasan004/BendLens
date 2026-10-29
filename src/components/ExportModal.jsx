@@ -1,14 +1,20 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Download, Copy, Check, FileText, Code2, Printer } from 'lucide-react';
 import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 
 export default function ExportModal({ isOpen, onClose, data }) {
+  const [mounted, setMounted] = useState(false);
   const [format, setFormat] = useState('markdown');
   const [copied, setCopied] = useState(false);
 
-  if (!isOpen || !data) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!isOpen || !mounted || !data) return null;
 
   const isUrlScan = !!(data.isUrlCrawl || data.crawlerTelemetry || (data.schema?.tables?.length === 0 && (data.code?.endpoints?.length || 0) > 0));
 
@@ -113,8 +119,8 @@ ${data.diagrams?.lld?.mermaid || ''}
     }, 2000);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+  const modalContent = (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
       <div className="w-full max-w-3xl rounded-2xl border border-border bg-surface-card shadow-modal flex flex-col max-h-[85vh] overflow-hidden">
         {/* Modal Header */}
         <div className="px-5 py-3.5 border-b border-border-subtle flex items-center justify-between bg-surface-subtle">
@@ -200,4 +206,6 @@ ${data.diagrams?.lld?.mermaid || ''}
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }

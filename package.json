@@ -7,7 +7,9 @@
   "main": "electron/main.js",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
+    "predev": "node -e \"const fs=require('fs'); if(fs.existsSync('.next/BUILD_ID')) { try { fs.rmSync('.next', {recursive:true,force:true}); } catch(e){} }\"",
+    "dev": "next dev --webpack -p 3000",
+    "dev:turbo": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
     "desktop": "electron .",

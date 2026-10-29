@@ -50,7 +50,8 @@ export default function Header({
   const isUrl = (currentPath || '').startsWith('http://') || (currentPath || '').startsWith('https://') || /^(?:api\.|github\.com|gitlab\.com|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/|$))/i.test(currentPath || '');
 
   return (
-    <header className="relative border-b border-border chrome-bar px-4 sm:px-6 py-3 transition-colors">
+    <>
+      <header className="relative border-b border-border chrome-bar px-4 sm:px-6 py-3 transition-colors">
       <div className="w-full max-w-[1720px] mx-auto">
         {/* Primary row: brand, path input, and system controls */}
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
@@ -176,6 +177,55 @@ export default function Header({
                       <ChevronRight className="h-2.5 w-2.5 text-violet-400/60 group-hover:text-violet-400 group-hover:translate-x-0.5 transition-all" />
                     </button>
                     <span className="h-3 w-px bg-border hidden sm:block shrink-0" />
+                    {(() => {
+                      const subdomainsList = (() => {
+                        const set = new Set();
+                        const add = (s) => {
+                          if (!s || typeof s !== 'string') return;
+                          let clean = s.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
+                          if (clean.startsWith('www.')) clean = clean.slice(4);
+                          if (clean) set.add(clean);
+                        };
+                        if (Array.isArray(analysisData.crawlerTelemetry?.subdomains)) {
+                          analysisData.crawlerTelemetry.subdomains.forEach(add);
+                        }
+                        if (Array.isArray(analysisData.subdomains)) {
+                          analysisData.subdomains.forEach(add);
+                        }
+                        if (Array.isArray(analysisData.crawlerTelemetry?.backendDomains)) {
+                          analysisData.crawlerTelemetry.backendDomains.forEach(add);
+                        }
+                        if (Array.isArray(analysisData.openApiSpec?.servers)) {
+                          analysisData.openApiSpec.servers.forEach(srv => srv?.url && add(srv.url));
+                        }
+                        if (Array.isArray(analysisData.code?.endpoints)) {
+                          analysisData.code.endpoints.forEach(e => {
+                            if (e.subdomain) add(e.subdomain);
+                          });
+                        }
+                        return Array.from(set);
+                      })();
+
+                      if (subdomainsList.length === 0) return null;
+
+                      return (
+                        <>
+                          <span
+                            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/[0.08] border border-indigo-500/20 text-indigo-400 whitespace-nowrap shrink-0"
+                            title={`Discovered Subdomains (${subdomainsList.length}):\n${subdomainsList.join('\n')}`}
+                          >
+                            <Globe className="h-3 w-3 text-indigo-400 shrink-0" />
+                            <span className="text-[11px] font-mono font-bold">
+                              {subdomainsList.length} {subdomainsList.length === 1 ? 'Subdomain' : 'Subdomains'}
+                              {subdomainsList.length <= 2 && (
+                                <span className="text-indigo-300 font-normal ml-1">({subdomainsList.join(', ')})</span>
+                              )}
+                            </span>
+                          </span>
+                          <span className="h-3 w-px bg-border hidden sm:block shrink-0" />
+                        </>
+                      );
+                    })()}
                   </>
                 );
               })()}
@@ -341,32 +391,33 @@ export default function Header({
           </div>
         )}
       </div>
-
-      {hasAnalysis && (
-        <ApiBreakdownModal
-          isOpen={showApiBreakdown}
-          onClose={() => setShowApiBreakdown(false)}
-          analysisData={analysisData}
-          onOpenApiFlow={onOpenApiFlow}
-        />
-      )}
-
-      {/* Local-First Authentic Legal Documents (Privacy Policy & Terms of Service) Modal */}
-      <LegalDocumentsModal
-        isOpen={showLegalModal}
-        onClose={() => setShowLegalModal(false)}
-        legalDocuments={analysisData?.legalDocuments || analysisData?.crawlerTelemetry?.legalDocuments}
-        targetUrl={currentPath || analysisData?.projectPath}
-        initialTab={legalModalTab}
-      />
-
-      {/* Crawler Accuracy & Trustworthiness Proof Modal */}
-      <CrawlerAccuracyProofModal
-        isOpen={showCrawlerProof}
-        onClose={() => setShowCrawlerProof(false)}
-        analysisData={analysisData}
-        initialTab={crawlerProofTab}
-      />
     </header>
+
+    {hasAnalysis && (
+      <ApiBreakdownModal
+        isOpen={showApiBreakdown}
+        onClose={() => setShowApiBreakdown(false)}
+        analysisData={analysisData}
+        onOpenApiFlow={onOpenApiFlow}
+      />
+    )}
+
+    {/* Local-First Authentic Legal Documents (Privacy Policy & Terms of Service) Modal */}
+    <LegalDocumentsModal
+      isOpen={showLegalModal}
+      onClose={() => setShowLegalModal(false)}
+      legalDocuments={analysisData?.legalDocuments || analysisData?.crawlerTelemetry?.legalDocuments}
+      targetUrl={currentPath || analysisData?.projectPath || analysisData?.projectName}
+      initialTab={legalModalTab}
+    />
+
+    {/* Crawler Accuracy & Trustworthiness Proof Modal */}
+    <CrawlerAccuracyProofModal
+      isOpen={showCrawlerProof}
+      onClose={() => setShowCrawlerProof(false)}
+      analysisData={analysisData}
+      initialTab={crawlerProofTab}
+    />
+  </>
   );
 }

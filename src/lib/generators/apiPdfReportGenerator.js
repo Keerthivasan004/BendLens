@@ -35,7 +35,8 @@ export function generateApiReportHtml(analysisData) {
   const lazyLoadedCount = analysisData?.crawlerTelemetry?.lazyLoadedEndpointsCount 
     || endpoints.filter(e => e.isLazyLoaded || e.crawlTier === 'DEEP_LAZY').length 
     || 0;
-  const genuineApisCount = analysisData?.crawlerTelemetry?.genuineApisCount 
+  const genuineApisCount = analysisData?.crawlerTelemetry?.genuineEndpointsCount
+    || analysisData?.crawlerTelemetry?.genuineApisCount 
     || endpoints.filter(e => !e.isUiRoute && e.routeType !== 'PAGE').length 
     || totalApis;
   const uiPagesCount = analysisData?.crawlerTelemetry?.uiPagesCount 
@@ -506,7 +507,7 @@ export function generateApiReportHtml(analysisData) {
           </tr>
           <tr style="background: rgba(5, 150, 105, 0.04); font-weight: 700;">
             <td style="padding: 10px; color: #059669;">BendLens Universal Crawler</td>
-            <td style="padding: 10px; font-family: monospace; color: #059669; font-size: 13px;">${genuineApisCount} Genuine APIs</td>
+            <td style="padding: 10px; font-family: monospace; color: #059669; font-size: 13px;">${genuineApisCount} Genuine Endpoints (${apisCount} APIs)</td>
             <td style="padding: 10px; font-family: monospace; color: #059669; font-size: 13px;">90.7% - 94.2%</td>
             <td style="padding: 10px; color: #059669;">0.0% (Zero Hallucination)</td>
             <td style="padding: 10px; color: #065f46;">Dual-Depth In-Memory AST Traversal + WAF Edge Asset Bypass + Parameter Normalization. Exact mathematical ground truth.</td>

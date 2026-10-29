@@ -62,6 +62,12 @@ Every crawl produces an enriched telemetry block stored in `crawlerTelemetry`:
     "https://vps.bcbuzz.tech",
     "https://app.futrsec.in"
   ],
+  "subdomains": [
+    "futrsec.in",
+    "api.futrsec.in",
+    "vps.bcbuzz.tech",
+    "app.futrsec.in"
+  ],
   "discoveryStrategy": "deep_chunk_crawler",
   "crawlStatus": "success"
 }
@@ -92,6 +98,16 @@ Each synthesized endpoint carries:
 - `isUiRoute`: `true` for frontend UI pages (e.g. React Router `/admin/dashboard`), `false` for genuine backend API calls (`/api/...`, `fetch`, `axios`, `apiFetch`).
 - `level`: Architectural tier (`'HIGH'`, `'MEDIUM'`, `'LOW'`)
 - `kind`: Protocol or functional kind (`'REST'`, `'AUTH'`, `'ADMIN'`, `'AI / ML'`, etc.)
+
+### Infrastructure Diagnostic Probe Isolation
+- External backend gateways are probed concurrently at `['/api/health', '/health', '/healthz']` strictly for response header extraction and tech-stack fingerprinting (`Server`, `X-Powered-By`).
+- **Endpoint Registration Rule**: Only genuine application API routes (`diagPath.startsWith('/api/')`) are registered into `allEndpoints`, `normalEndpoints`, and `openApiSpec.paths`.
+- Non-API infrastructure/cluster health checks (`/health`, `/healthz`) on external gateways are never registered as application API endpoints, ensuring 100% parity across staging/testing (`fts2trial.bcbuzz.tech`) and production (`futrsec.in`) environments without environment-dependent phantom routes.
+
+### First-Party Application Portal Expansion (Multi-Subdomain SaaS)
+- Enterprise SaaS platforms frequently host static marketing landing pages at their apex domain (e.g. `finstackk.com`) while hosting their actual single-page software application on an authentic first-party subdomain (e.g. `app.finstackk.com`, `portal.`, `dashboard.`).
+- The crawler automatically detects same-apex application subdomains referenced in HTML anchors/scripts and ingests entrypoint bundles from the application portal.
+- This ensures users typing the root marketing domain (e.g. `finstackk.com`) automatically receive the complete API architecture across both perimeters (152 authentic endpoints), guaranteeing seamless discovery whether users type `finstackk.com` or `app.finstackk.com`.
 
 ---
 

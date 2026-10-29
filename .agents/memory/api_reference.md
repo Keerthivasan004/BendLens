@@ -324,3 +324,9 @@ Discovers and extracts authentic Privacy Policy and Terms of Service legal docum
   - Guaranteed `hasLegalDocuments: true` with complete documents even on total network isolation or extreme firewall blocks.
 
 
+
+
+## Subdomain Crawler Contract
+- `/api/crawl` and `/api/analyze` telemetry output `subdomains` (Array of discovered subdomains) and `subdomainsCount`.
+- Discovered endpoints carry `subdomain` and `origin` metadata.
+- Canonical Subdomain Unification: subdomain values are normalized to strip redundant www. prefixes and merge apex aliases into their root domain (e.g. instackk.com + pp.finstackk.com = 2 distinct APIs).

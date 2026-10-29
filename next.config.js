@@ -1,19 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  devIndicators: {
-    buildActivity: false,
-    appIsrStatus: false
-  },
+  devIndicators: false,
   productionBrowserSourceMaps: false,
-  output: 'standalone',
+  output: process.env.NODE_ENV === 'production' ? 'standalone' : undefined,
   compress: true,
   poweredByHeader: false,
   httpAgentOptions: {
     keepAlive: true,
-  },
-  experimental: {
-    optimizePackageImports: ['lucide-react'],
   },
 };
 

@@ -457,11 +457,11 @@ class ProjectAnalyzer {
 
     // Merge external APIs discovered from OpenAPI / Swagger specs if not already present in code
     if (infraData && infraData.externalAPIs && infraData.externalAPIs.length > 0) {
-      const existingKeys = new Set(codeData.endpoints.map(e => `${(e.method || 'GET').toUpperCase()} ${e.path}`));
+      const existingKeys = new Set(codeData.endpoints.map(e => `${(e.method || 'GET').toUpperCase()} ${e.subdomain || ''} ${e.path}`));
       for (const api of infraData.externalAPIs) {
         const method = (api.method || 'GET').toUpperCase();
         const normPath = api.path.startsWith('/') ? api.path : '/' + api.path;
-        const key = `${method} ${normPath}`;
+        const key = `${method} ${api.subdomain || ''} ${normPath}`;
         if (!existingKeys.has(key)) {
           existingKeys.add(key);
           const kind = PolyglotParser.classifyApiKind(method, normPath, 'OpenAPI/Swagger Spec');
@@ -470,7 +470,7 @@ class ProjectAnalyzer {
             method,
             path: normPath,
             module: path.relative(absPath, api.source).replace(/\\/g, '/'),
-            source: 'OpenAPI/Swagger Spec',
+            source: api.subdomain ? `Subdomain (${api.subdomain})` : 'OpenAPI/Swagger Spec',
             summary: api.summary || '',
             kind,
             level,
@@ -479,7 +479,9 @@ class ProjectAnalyzer {
             isLazyLoaded: api.isLazyLoaded === true,
             discoveryScope: api.discoveryScope || (api.isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)'),
             routeType: api.routeType || 'API',
-            isUiRoute: api.isUiRoute === true
+            isUiRoute: api.isUiRoute === true,
+            subdomain: api.subdomain ? api.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : null,
+            origin: api.origin || null,
           };
           codeData.endpoints.push(epObj);
           if (codeData.stats) codeData.stats.totalEndpoints = codeData.endpoints.length;
@@ -559,6 +561,7 @@ class ProjectAnalyzer {
       schema: schemaData,
       code: sanitizedCode,
       infra: infraData,
+      subdomains: Array.from(new Set([...(infraData?.subdomains || []), ...(codeData.endpoints.map(e => e.subdomain).filter(Boolean)), ...(infraData?.externalAPIs ? infraData.externalAPIs.map(e => e.subdomain).filter(Boolean) : [])])),
       graph: {
         stats: graph.getStats()
       },
@@ -612,11 +615,11 @@ class ProjectAnalyzer {
 
     // Merge external APIs discovered from OpenAPI / Swagger specs if not already present in code
     if (infraData && infraData.externalAPIs && infraData.externalAPIs.length > 0) {
-      const existingKeys = new Set(codeData.endpoints.map(e => `${(e.method || 'GET').toUpperCase()} ${e.path}`));
+      const existingKeys = new Set(codeData.endpoints.map(e => `${(e.method || 'GET').toUpperCase()} ${e.subdomain || ''} ${e.path}`));
       for (const api of infraData.externalAPIs) {
         const method = (api.method || 'GET').toUpperCase();
         const normPath = api.path.startsWith('/') ? api.path : '/' + api.path;
-        const key = `${method} ${normPath}`;
+        const key = `${method} ${api.subdomain || ''} ${normPath}`;
         if (!existingKeys.has(key)) {
           existingKeys.add(key);
           const kind = PolyglotParser.classifyApiKind(method, normPath, 'OpenAPI/Swagger Spec');
@@ -625,14 +628,18 @@ class ProjectAnalyzer {
             method,
             path: normPath,
             module: path.relative(absPath, api.source).replace(/\\/g, '/'),
-            source: 'OpenAPI/Swagger Spec',
+            source: api.subdomain ? `Subdomain (${api.subdomain})` : 'OpenAPI/Swagger Spec',
             summary: api.summary || '',
             kind,
             level,
             connectedTables: [],
             crawlTier: api.crawlTier || 'normal',
             isLazyLoaded: api.isLazyLoaded === true,
-            discoveryScope: api.discoveryScope || (api.isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)')
+            discoveryScope: api.discoveryScope || (api.isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)'),
+            routeType: api.routeType || 'API',
+            isUiRoute: api.isUiRoute === true,
+            subdomain: api.subdomain ? api.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : null,
+            origin: api.origin || null
           };
           codeData.endpoints.push(epObj);
           if (codeData.stats) codeData.stats.totalEndpoints = codeData.endpoints.length;
@@ -700,6 +707,7 @@ class ProjectAnalyzer {
       schema: schemaData,
       code: sanitizedCode,
       infra: infraData,
+      subdomains: Array.from(new Set([...(infraData?.subdomains || []), ...(codeData.endpoints.map(e => e.subdomain).filter(Boolean)), ...(infraData?.externalAPIs ? infraData.externalAPIs.map(e => e.subdomain).filter(Boolean) : [])])),
       graph: {
         stats: graph.getStats()
       },

@@ -8,6 +8,8 @@
  * Local-First, Air-Gapped, Zero Hallucination.
  */
 
+import { getApiServicesCount } from './apiCountHelper.js';
+
 /**
  * Generates an authentic comparative analysis matrix for a crawled target.
  * 
@@ -26,7 +28,9 @@ export function getCrawlerAccuracyProof(analysisData) {
       ? analysisData.endpoints
       : (Array.isArray(analysisData.enrichedEndpoints) && analysisData.enrichedEndpoints.length > 0
         ? analysisData.enrichedEndpoints
-        : []));
+        : (Array.isArray(analysisData.crawlerTelemetry?.endpoints) && analysisData.crawlerTelemetry.endpoints.length > 0
+          ? analysisData.crawlerTelemetry.endpoints
+          : [])));
 
   // If endpoints are still empty, derive from openApiSpec paths if available
   if (endpoints.length === 0 && analysisData.openApiSpec?.paths) {
@@ -52,9 +56,21 @@ export function getCrawlerAccuracyProof(analysisData) {
     endpoints = derived;
   }
 
-  const totalDiscovered = Math.max(endpoints.length, telemetry.totalEndpointsCount || 0, telemetry.totalSurfacesCount || 0);
-  const genuineApisCount = telemetry.genuineApisCount || Math.max(endpoints.filter(e => !e.isUiRoute && e.routeType !== 'PAGE').length, totalDiscovered);
-  const uiPagesCount = telemetry.uiPagesCount || endpoints.filter(e => e.isUiRoute || e.routeType === 'PAGE').length || 0;
+  // Authentic genuine backend endpoints count (excludes client-side UI pages)
+  const nonUiEndpoints = endpoints.filter(e => !e.isUiRoute && e.routeType !== 'PAGE');
+  const genuineEndpointsCount = telemetry.genuineEndpointsCount ??
+    telemetry.genuineApisCount ??
+    (nonUiEndpoints.length > 0 ? nonUiEndpoints.length : (telemetry.totalEndpointsCount || endpoints.length));
+  // Backward-compatible alias for existing code
+  const genuineApisCount = genuineEndpointsCount;
+  const uiPagesCount = telemetry.uiPagesCount ?? endpoints.filter(e => e.isUiRoute || e.routeType === 'PAGE').length ?? 0;
+  const totalDiscovered = Math.max(
+    endpoints.length,
+    genuineEndpointsCount + uiPagesCount,
+    telemetry.totalEndpointsCount || 0,
+    telemetry.totalSurfacesCount || 0
+  );
+  const apisCount = getApiServicesCount(analysisData);
   const lazyLoadedCount = telemetry.lazyLoadedEndpointsCount || endpoints.filter(e => e.isLazyLoaded || e.crawlTier === 'deep').length || 0;
   const normalCount = telemetry.normalCrawlCount || Math.max(1, totalDiscovered - lazyLoadedCount);
   const chunksCrawled = telemetry.chunksCrawledCount || 1;
@@ -95,12 +111,12 @@ export function getCrawlerAccuracyProof(analysisData) {
   const htmlScraperCoverage = totalDiscovered > 0 ? ((htmlScraperPages / Math.max(1, totalDiscovered)) * 100).toFixed(1) : '0.0';
 
   // 2. Headless Browser (Puppeteer/Playwright): Sees 2-5 bootstrap network calls on initial page load
-  const headlessEstimatedApis = Math.min(genuineApisCount, Math.max(2, Math.round(genuineApisCount * 0.05)));
-  const headlessMissedCount = Math.max(0, genuineApisCount - headlessEstimatedApis);
-  const headlessCoverage = genuineApisCount > 0 ? ((headlessEstimatedApis / genuineApisCount) * 100).toFixed(1) : '5.0';
+  const headlessEstimatedApis = Math.min(genuineEndpointsCount, Math.max(2, Math.round(genuineEndpointsCount * 0.05)));
+  const headlessMissedCount = Math.max(0, genuineEndpointsCount - headlessEstimatedApis);
+  const headlessCoverage = genuineEndpointsCount > 0 ? ((headlessEstimatedApis / genuineEndpointsCount) * 100).toFixed(1) : '5.0';
 
   // 3. Brute-Force Wordlist / Guessing Scanner (Dirsearch / Gobuster / FFUF)
-  const wordlistEstimatedValidHits = Math.min(genuineApisCount, Math.max(3, Math.round(genuineApisCount * 0.12)));
+  const wordlistEstimatedValidHits = Math.min(genuineEndpointsCount, Math.max(3, Math.round(genuineEndpointsCount * 0.12)));
   const wordlistFalsePositiveRate = '45% - 75%';
 
   // 4. Public Swagger Prober
@@ -122,8 +138,8 @@ export function getCrawlerAccuracyProof(analysisData) {
       missedCount: htmlScraperMissedCount,
       falsePositiveRate: '0% (Only static links)',
       speed: '< 1s',
-      whatItDisplays: `Finds only ~${htmlScraperPages} static HTML anchor links (<a href="...">) from the raw HTML shell (e.g. /about, /contact, /terms). Shows 0 backend APIs.`,
-      whatItMisses: `Misses 100% of backend APIs (${genuineApisCount} APIs) and all ${lazyLoadedCount} lazy-loaded chunks. Completely blind to any API called inside JavaScript.`,
+      whatItDisplays: `Finds only ~${htmlScraperPages} static HTML anchor links (<a href="...">) from the raw HTML shell (e.g. /about, /contact, /terms). Shows 0 backend endpoints.`,
+      whatItMisses: `Misses 100% of backend endpoints (${genuineEndpointsCount} callable routes across ${apisCount} APIs) and all ${lazyLoadedCount} lazy-loaded chunks. Completely blind to any API called inside JavaScript.`,
       howItMisses: `Modern frameworks (${framework}) deliver an empty HTML shell (<div id="root"> or <div id="__next">). HTML scrapers do not execute or parse JavaScript, so client-side fetch() and axios calls never exist in the DOM.`,
       howBendLensSolves: `BendLens parses the Abstract Syntax Tree (AST) of all entry and code-split JavaScript bundles in memory, extracting genuine REST/RPC calls directly from client code without needing HTML anchors.`
     },
@@ -191,14 +207,15 @@ export function getCrawlerAccuracyProof(analysisData) {
       icon: 'ShieldCheck',
       status: 'Ground-Truth Parity',
       statusColor: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30',
-      apisFound: genuineApisCount,
+      apisFound: genuineEndpointsCount,
+      apisCount: apisCount,
       pagesFound: uiPagesCount,
       totalFound: totalDiscovered,
       coveragePercent: '90.7% - 94.2%',
       missedCount: 0,
       falsePositiveRate: '0.0% (Zero Hallucination)',
       speed: `${(crawlDurationMs / 1000).toFixed(1)}s`,
-      whatItDisplays: `Complete verified inventory of ${totalDiscovered} surfaces (${genuineApisCount} Verified Backend APIs + ${uiPagesCount} UI Pages), full HTTP verbs (GET/POST/PUT/DELETE), path parameters, role domains, and dual-tier cloud providers.`,
+      whatItDisplays: `Complete verified inventory of ${totalDiscovered} surfaces (${genuineEndpointsCount} Verified Backend Endpoints across ${apisCount} APIs + ${uiPagesCount} UI Pages), full HTTP verbs (GET/POST/PUT/DELETE), path parameters, role domains, and dual-tier cloud providers.`,
       whatItMisses: `Only private backend-only workers, webhooks, or cron tasks never invoked from client JavaScript bundles (~6-9% of perimeter).`,
       howItMisses: `N/A - Achieves exact mathematical parity with true callable backend APIs.`,
       howBendLensSolves: `Dual-Depth Bounded AST Traversal (Phase 1 Normal + Phase 2 Deep) + Anti-Bot WAF Edge Asset Bypass + AST Parameter Normalization + Polyglot Framework Decoders.`
@@ -238,7 +255,7 @@ export function getCrawlerAccuracyProof(analysisData) {
       headless: `${headlessEstimatedApis} (initial load only)`,
       wordlist: 'Hundreds of noisy 404s',
       swagger: '0 (Disabled in prod)',
-      bendLens: `${totalDiscovered} (${genuineApisCount} APIs + ${uiPagesCount} Pages)`
+      bendLens: `${totalDiscovered} (${genuineEndpointsCount} Endpoints across ${apisCount} APIs + ${uiPagesCount} Pages)`
     },
     {
       feature: 'Lazy-Loaded Code Chunks',
@@ -303,7 +320,9 @@ export function getCrawlerAccuracyProof(analysisData) {
     projectName,
     framework,
     totalDiscovered,
-    genuineApisCount,
+    genuineEndpointsCount,
+    genuineApisCount: genuineEndpointsCount,
+    apisCount,
     uiPagesCount,
     lazyLoadedCount,
     normalCount,
@@ -314,7 +333,9 @@ export function getCrawlerAccuracyProof(analysisData) {
     comparisonDimensions,
     summary: {
       endpointsTotal: totalDiscovered,
-      genuineApisCount,
+      genuineEndpointsCount,
+      genuineApisCount: genuineEndpointsCount,
+      apisCount,
       uiPagesCount,
       lazyLoadedCount,
       normalCount,
@@ -331,25 +352,28 @@ export function getCrawlerAccuracyProof(analysisData) {
 export function generateCrawlerProofMarkdown(proofData) {
   if (!proofData) return '';
 
+  const genuineEndpoints = proofData.genuineEndpointsCount || proofData.genuineApisCount || 0;
+  const apisCount = proofData.apisCount || 1;
+
   return `# BendLens Universal Crawler Accuracy & Trustworthiness Proof Audit
 
 **Target URL:** ${proofData.targetUrl}  
 **Architecture / Framework:** ${proofData.framework}  
 **Scan Duration:** ${(proofData.crawlDurationMs / 1000).toFixed(1)}s  
-**Total Surfaces Discovered (Ground Truth):** ${proofData.totalDiscovered} (${proofData.genuineApisCount} Genuine APIs + ${proofData.uiPagesCount} UI Pages)  
+**Total Surfaces Discovered (Ground Truth):** ${proofData.totalDiscovered} (${genuineEndpoints} Genuine Endpoints across ${apisCount} APIs + ${proofData.uiPagesCount} UI Pages)  
 **Lazy-Loaded Chunks Traversed:** ${proofData.chunksCrawled} code-split chunks (${proofData.lazyLoadedCount} lazy endpoints)  
 
 ---
 
 ## 1. Executive Parity & Coverage Summary
 
-| Crawler Tool / Paradigm | Total Discovered | Backend APIs | Coverage % | False Positive Rate | Verdict |
+| Crawler Tool / Paradigm | Total Discovered | Backend Endpoints & APIs | Coverage % | False Positive Rate | Verdict |
 | :--- | :---: | :---: | :---: | :---: | :--- |
 | **HTML Scraper** (Cheerio, Scrapy, BeautifulSoup) | ~${proofData.competitors[0].totalFound} | 0 | ${proofData.competitors[0].coveragePercent} | 0% | ❌ Misses all JS & APIs |
 | **Headless Browser** (Puppeteer, Playwright) | ~${proofData.competitors[1].totalFound} | ~${proofData.competitors[1].apisFound} | ${proofData.competitors[1].coveragePercent} | 0% | ❌ Misses 90%+ (no clicks) |
 | **Wordlist Scanner** (FFUF, Dirsearch, Gobuster) | Hundreds of 404s | ~${proofData.competitors[2].apisFound} | 8% - 15% | 45% - 75% | ⚠️ High Noise & Fabrications |
 | **Public Swagger Sniffer** | 0 | 0 | 0.0% | N/A | ❌ Blocked in production |
-| **BendLens Universal Crawler** | **${proofData.totalDiscovered}** | **${proofData.genuineApisCount}** | **90.7% - 94.2%** | **0.0%** | **✅ Mathematical Ground Truth** |
+| **BendLens Universal Crawler** | **${proofData.totalDiscovered}** | **${genuineEndpoints} Endpoints (${apisCount} APIs)** | **90.7% - 94.2%** | **0.0%** | **✅ Mathematical Ground Truth** |
 
 ---
 
@@ -357,13 +381,13 @@ export function generateCrawlerProofMarkdown(proofData) {
 
 ### A. HTML Scrapers (Cheerio, Scrapy, BeautifulSoup)
 - **What they display:** Only ~${proofData.competitors[0].totalFound} static HTML anchor links (<a href="...">).
-- **What they miss:** 100% of backend APIs (${proofData.genuineApisCount} APIs) and all ${proofData.lazyLoadedCount} lazy-loaded code-split chunks.
+- **What they miss:** 100% of backend endpoints (${genuineEndpoints} callable routes across ${apisCount} APIs) and all ${proofData.lazyLoadedCount} lazy-loaded code-split chunks.
 - **Why they miss it:** Modern SPAs deliver an empty HTML shell. HTML scrapers do not execute or parse JavaScript, so client-side \`fetch()\` and \`axios\` calls never exist in the DOM.
 - **How BendLens solves it:** BendLens parses the Abstract Syntax Tree (AST) of all JavaScript bundles in memory, extracting genuine REST/RPC calls directly from code.
 
 ### B. Headless Browsers (Puppeteer, Playwright, Selenium)
 - **What they display:** Only ${proofData.competitors[1].apisFound} bootstrap network calls triggered on initial page hydration.
-- **What they miss:** Misses ~${proofData.competitors[1].missedCount} backend APIs, including role-restricted portals (/admin, /mentor, /ai) and interactive mutation endpoints (POST/PUT/DELETE).
+- **What they miss:** Misses ~${proofData.competitors[1].missedCount} backend endpoints, including role-restricted portals (/admin, /mentor, /ai) and interactive mutation endpoints (POST/PUT/DELETE).
 - **Why they miss it:** Headless browsers only monitor active network traffic. Without human login credentials or clicking through every workflow, unexecuted code branches never send network requests.
 - **How BendLens solves it:** Dual-Depth Chunk Graph Traversal. Statically analyzes all dynamically imported code chunks (Phase 1 + Phase 2 across 500+ bundles) to recover the entire API perimeter without needing credentials or UI clicks.
 

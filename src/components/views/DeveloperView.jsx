@@ -224,6 +224,16 @@ function enrichEndpoint(ep, tables, tableLookup) {
     }
   }
 
+  let rawSub = ep.subdomain || ep['x-subdomain'] || (ep.origin ? (function() { try { return new URL(ep.origin).hostname; } catch { return null; } })() : null) || null;
+  if (!rawSub && typeof routePath === 'string' && routePath.startsWith('//')) {
+    rawSub = routePath.slice(2).split('/')[0];
+  }
+  if (!rawSub && typeof ep.source === 'string') {
+    const sm = ep.source.match(/Subdomain\s*\(([^)]+)\)/i);
+    if (sm) rawSub = sm[1];
+  }
+  const epSubdomain = rawSub ? rawSub.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : null;
+
   return {
     ...ep,
     method,
@@ -233,7 +243,8 @@ function enrichEndpoint(ep, tables, tableLookup) {
     connectedTables,
     crawlTier: ep.crawlTier || ep['x-crawl-tier'] || 'normal',
     isLazyLoaded: ep.isLazyLoaded ?? (ep['x-lazy-loaded'] === true) ?? false,
-    discoveryScope: ep.discoveryScope || ep['x-discovery-scope'] || (ep.isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)')
+    discoveryScope: ep.discoveryScope || ep['x-discovery-scope'] || (ep.isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)'),
+    subdomain: epSubdomain
   };
 }
 
@@ -244,6 +255,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
   const [apiLevelFilter, setApiLevelFilter] = useState('ALL'); // 'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'
   const [apiKindFilter, setApiKindFilter] = useState('ALL'); // 'ALL' | 'REST' | 'WEBSOCKET' | 'AUTH' | 'STORAGE' | 'ADMIN' | 'WEBHOOK' | 'SYSTEM'
   const [apiCrawlScopeFilter, setApiCrawlScopeFilter] = useState('ALL'); // 'ALL' | 'NORMAL' | 'LAZY'
+  const [apiSubdomainFilter, setApiSubdomainFilter] = useState('ALL');
   const [apiTableFilter, setApiTableFilter] = useState('ALL'); // 'ALL' | tableName
   const [apiSearchQuery, setApiSearchQuery] = useState('');
   const [expandedApiRoute, setExpandedApiRoute] = useState(null); // string (method + path)
@@ -465,6 +477,33 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
     return endpoints.map((ep) => enrichEndpoint(ep, tables, tableLookup));
   }, [endpoints, tables, tableLookup]);
 
+  const distinctSubdomains = useMemo(() => {
+    const subs = new Set();
+    const addSub = (s) => {
+      if (!s || typeof s !== 'string') return;
+      let clean = s.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
+      if (clean.startsWith('www.')) clean = clean.slice(4);
+      if (clean) subs.add(clean);
+    };
+
+    allEnrichedEndpoints.forEach((e) => {
+      if (e.subdomain) addSub(e.subdomain);
+    });
+    if (Array.isArray(rawAnalysisData?.crawlerTelemetry?.subdomains)) {
+      rawAnalysisData.crawlerTelemetry.subdomains.forEach(addSub);
+    }
+    if (Array.isArray(rawAnalysisData?.subdomains)) {
+      rawAnalysisData.subdomains.forEach(addSub);
+    }
+    if (Array.isArray(rawAnalysisData?.crawlerTelemetry?.backendDomains)) {
+      rawAnalysisData.crawlerTelemetry.backendDomains.forEach(addSub);
+    }
+    if (Array.isArray(rawAnalysisData?.openApiSpec?.servers)) {
+      rawAnalysisData.openApiSpec.servers.forEach((srv) => srv?.url && addSub(srv.url));
+    }
+    return Array.from(subs);
+  }, [allEnrichedEndpoints, rawAnalysisData]);
+
   const apiStats = useMemo(() => {
     const total = allEnrichedEndpoints.length;
     const high = allEnrichedEndpoints.filter((e) => e.level === 'HIGH').length;
@@ -486,7 +525,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
     const normalCount = rawAnalysisData?.crawlerTelemetry?.normalCrawlCount ?? allEnrichedEndpoints.filter(e => !e.isLazyLoaded).length;
     const deepCount = rawAnalysisData?.crawlerTelemetry?.deepCrawlCount ?? total;
     const lazyLoadedCount = rawAnalysisData?.crawlerTelemetry?.lazyLoadedEndpointsCount ?? allEnrichedEndpoints.filter(e => e.isLazyLoaded).length;
-    const genuineCount = rawAnalysisData?.crawlerTelemetry?.genuineApisCount ?? allEnrichedEndpoints.filter(e => !e.isUiRoute && e.routeType !== 'PAGE').length;
+    const genuineCount = rawAnalysisData?.crawlerTelemetry?.genuineEndpointsCount ?? rawAnalysisData?.crawlerTelemetry?.genuineApisCount ?? allEnrichedEndpoints.filter(e => !e.isUiRoute && e.routeType !== 'PAGE').length;
     const uiPageCount = rawAnalysisData?.crawlerTelemetry?.uiPagesCount ?? allEnrichedEndpoints.filter(e => e.isUiRoute || e.routeType === 'PAGE').length;
 
     return { total, high, medium, low, connected, kinds, normalCount, deepCount, lazyLoadedCount, genuineCount, uiPageCount };
@@ -494,6 +533,11 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
 
   const filteredApiEndpoints = useMemo(() => {
     return allEnrichedEndpoints.filter((ep) => {
+      if (apiSubdomainFilter !== 'ALL') {
+        const epSub = ep.subdomain ? ep.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : '';
+        const matchesSub = epSub === apiSubdomainFilter || (!epSub && (distinctSubdomains.length === 1 || apiSubdomainFilter === distinctSubdomains[0]));
+        if (!matchesSub) return false;
+      }
       if (apiLevelFilter !== 'ALL' && ep.level !== apiLevelFilter) return false;
       if (apiKindFilter !== 'ALL' && ep.kind !== apiKindFilter) return false;
       if (apiCrawlScopeFilter === 'NORMAL' && ep.isLazyLoaded) return false;
@@ -518,7 +562,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       }
       return true;
     });
-  }, [allEnrichedEndpoints, apiLevelFilter, apiKindFilter, apiCrawlScopeFilter, methodFilter, apiTableFilter, apiSearchQuery, searchQuery]);
+  }, [allEnrichedEndpoints, apiLevelFilter, apiKindFilter, apiCrawlScopeFilter, apiSubdomainFilter, methodFilter, apiTableFilter, apiSearchQuery, searchQuery]);
 
   const stackMethodCounts = useMemo(() => {
     const counts = { ALL: allEnrichedEndpoints.length, GET: 0, POST: 0, PUT: 0, DELETE: 0, OTHER: 0 };
@@ -532,6 +576,11 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
 
   const stackFilteredEndpoints = useMemo(() => {
     return allEnrichedEndpoints.filter((ep) => {
+      if (apiSubdomainFilter !== 'ALL') {
+        const epSub = ep.subdomain ? ep.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : '';
+        const matchesSub = epSub === apiSubdomainFilter || (!epSub && (distinctSubdomains.length === 1 || apiSubdomainFilter === distinctSubdomains[0]));
+        if (!matchesSub) return false;
+      }
       if (stackMethodFilter !== 'ALL' && ep.method !== stackMethodFilter) return false;
       if (stackScopeFilter === 'NORMAL' && ep.isLazyLoaded) return false;
       if (stackScopeFilter === 'LAZY' && !ep.isLazyLoaded) return false;
@@ -543,7 +592,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       }
       return true;
     });
-  }, [allEnrichedEndpoints, stackMethodFilter, stackScopeFilter, stackEndpointSearch]);
+  }, [allEnrichedEndpoints, stackMethodFilter, stackScopeFilter, stackEndpointSearch, apiSubdomainFilter]);
 
   const apiBreakdown = useMemo(() => {
     return getApiEndpointsBreakdown(rawAnalysisData || data, 'auto');
@@ -769,8 +818,9 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
     if (ep.path.startsWith('http://') || ep.path.startsWith('https://')) {
       return ep.path;
     }
+    const origin = ep.origin || (ep.subdomain ? `https://${ep.subdomain}` : null) || targetBaseUrl;
     const cleanPath = ep.path.startsWith('/') ? ep.path : '/' + ep.path;
-    return `${targetBaseUrl}${cleanPath}`;
+    return `${origin}${cleanPath}`;
   };
 
   const handleCopyCurl = (ep) => {
@@ -1683,6 +1733,12 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                                             {ep.level}
                                           </span>
                                         )}
+                                        {(ep.subdomain || (distinctSubdomains.length === 1 ? distinctSubdomains[0] : null)) && (
+                                          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 dark:text-indigo-300 border border-indigo-500/30 flex items-center gap-1 font-semibold shrink-0" title={`Served by subdomain ${ep.subdomain || distinctSubdomains[0]}`}>
+                                            <Globe className="h-2.5 w-2.5 shrink-0" />
+                                            {ep.subdomain || distinctSubdomains[0]}
+                                          </span>
+                                        )}
                                       </div>
                                       {(ep.handler || ep.module || ep.source || ep.summary) && (
                                         <div className="text-[10px] text-muted font-mono truncate mt-0.5">
@@ -1811,6 +1867,12 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                               {ep.isLazyLoaded && (
                                 <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
                                   LAZY
+                                </span>
+                              )}
+                              {(ep.subdomain || (distinctSubdomains.length === 1 ? distinctSubdomains[0] : null)) && (
+                                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 dark:text-indigo-300 border border-indigo-500/30 flex items-center gap-1 font-semibold shrink-0" title={`Served by subdomain ${ep.subdomain || distinctSubdomains[0]}`}>
+                                  <Globe className="h-2.5 w-2.5 shrink-0" />
+                                  {ep.subdomain || distinctSubdomains[0]}
                                 </span>
                               )}
                             </div>
@@ -2795,6 +2857,55 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               )}
               <span className="px-2 py-0.5 rounded bg-surface border border-border text-emerald-400 font-bold">Total: {apiStats.deepCount}</span>
             </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* MULTI-SUBDOMAIN FILTER TABS                                              */}
+        {/* ========================================================================= */}
+        {distinctSubdomains.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 p-2.5 bg-surface-raised rounded-xl border border-indigo-500/20 text-xs">
+            <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
+              <Globe className="h-3 w-3 text-indigo-400" />
+              <span>Subdomains ({distinctSubdomains.length}):</span>
+            </span>
+            <button
+              onClick={() => setApiSubdomainFilter('ALL')}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                apiSubdomainFilter === 'ALL'
+                  ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-xs'
+                  : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
+              }`}
+            >
+              <span>All Subdomains</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-surface-raised text-foreground font-bold">
+                {allEnrichedEndpoints.length}
+              </span>
+            </button>
+            {distinctSubdomains.map((sub) => {
+              const subCount = allEnrichedEndpoints.filter((e) => {
+                const epSub = e.subdomain ? e.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : '';
+                return epSub === sub || (!epSub && (distinctSubdomains.length === 1 || sub === distinctSubdomains[0]));
+              }).length;
+              const isActive = apiSubdomainFilter === sub;
+              return (
+                <button
+                  key={sub}
+                  onClick={() => setApiSubdomainFilter(sub)}
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-indigo-500/25 text-indigo-200 border-indigo-400 shadow-xs ring-1 ring-indigo-500/30'
+                      : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
+                  }`}
+                >
+                  <Globe className="h-3 w-3 text-indigo-400" />
+                  <span>{sub}</span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-surface-raised text-indigo-300 font-bold">
+                    {subCount}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
 

@@ -101,6 +101,15 @@ function extractSemanticResourceKey(endpoint) {
   return candidate.toLowerCase();
 }
 
+export function canonicalizeSubdomain(sub) {
+  if (!sub || typeof sub !== 'string') return null;
+  let clean = sub.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
+  if (clean.startsWith('www.')) {
+    clean = clean.slice(4);
+  }
+  return clean || null;
+}
+
 /**
  * Normalizes an endpoint item into a clean representation.
  */
@@ -117,9 +126,19 @@ function normalizeEndpointItem(ep, rawIndex) {
   const crawlTier = ep.crawlTier || (isLazyLoaded ? 'deep' : 'normal');
   const routeType = ep.routeType || (ep.isUiRoute ? 'PAGE' : 'API');
   const connectedTables = Array.isArray(ep.connectedTables) ? ep.connectedTables : [];
+  let rawSubdomain = ep.subdomain || ep['x-subdomain'] || (ep.origin ? (function () { try { return new URL(ep.origin).hostname; } catch { return null; } })() : null) || null;
+  if (!rawSubdomain && typeof ep.path === 'string' && ep.path.startsWith('//')) {
+    rawSubdomain = ep.path.slice(2).split('/')[0];
+  }
+  if (!rawSubdomain && typeof ep.source === 'string') {
+    const sm = ep.source.match(/Subdomain\s*\(([^)]+)\)/i);
+    if (sm) rawSubdomain = sm[1];
+  }
+  const subdomain = canonicalizeSubdomain(rawSubdomain);
+  const origin = ep.origin || (subdomain ? `https://${subdomain}` : null);
 
   return {
-    id: `ep_${rawIndex}_${method}_${routePath.replace(/[^a-zA-Z0-9]/g, '_')}`,
+    id: `ep_${rawIndex}_${method}_${routePath.replace(/[^a-zA-Z0-9]/g, '_')}${subdomain ? `_${subdomain.replace(/[^a-zA-Z0-9]/g, '_')}` : ''}`,
     method,
     path: routePath,
     name,
@@ -133,6 +152,8 @@ function normalizeEndpointItem(ep, rawIndex) {
     routeType,
     isUiRoute: ep.isUiRoute === true || routeType === 'PAGE',
     connectedTables,
+    subdomain,
+    origin,
     parameters: Array.isArray(ep.parameters) ? ep.parameters : []
   };
 }
@@ -172,7 +193,9 @@ export function getApiEndpointsBreakdown(analysisData, groupBy = 'auto') {
       ? analysisData.code.endpoints
       : (Array.isArray(analysisData.enrichedEndpoints) && analysisData.enrichedEndpoints.length > 0
         ? analysisData.enrichedEndpoints
-        : []));
+        : (Array.isArray(analysisData.crawlerTelemetry?.endpoints) && analysisData.crawlerTelemetry.endpoints.length > 0
+          ? analysisData.crawlerTelemetry.endpoints
+          : [])));
 
   // If endpoints are still empty, derive from openApiSpec paths
   if (rawEndpoints.length === 0 && analysisData.openApiSpec?.paths) {
@@ -217,10 +240,31 @@ export function getApiEndpointsBreakdown(analysisData, groupBy = 'auto') {
   // Determine effective groupBy strategy
   let effectiveStrategy = groupBy;
   if (effectiveStrategy === 'auto') {
-    // If codebase has distinct controllers / modules >= 2
-    const distinctModules = new Set(normalizedEndpoints.map(e => e.module).filter(Boolean));
-    if (distinctModules.size > 1 && !analysisData.isUrlCrawl && !analysisData.crawlerTelemetry) {
-      effectiveStrategy = 'resource'; // 'resource' is universally clean, modules accessible as filter
+    const hasAdmin = normalizedEndpoints.some(e => e.path?.includes('/admin'));
+    const hasStudent = normalizedEndpoints.some(e => e.path?.includes('/student') || e.path?.includes('/learning') || e.path?.includes('/labs'));
+    const hasMentor = normalizedEndpoints.some(e => e.path?.includes('/mentor') || e.path?.includes('/lab-builder') || e.path?.includes('/batch'));
+    const hasTpo = normalizedEndpoints.some(e => e.path?.includes('/tpo') || e.path?.includes('/placement'));
+    const hasEmployer = normalizedEndpoints.some(e => e.path?.includes('/employer') || (e.path?.includes('/jobs') && !e.path?.includes('/admin/')) || e.path?.includes('/applications'));
+    const hasPublic = normalizedEndpoints.some(e => e.path?.includes('/auth') || e.path?.includes('/tracks') || e.path?.includes('/events') || e.path?.includes('/platform'));
+    const roleDomainsCount = [hasAdmin, hasStudent, hasMentor, hasTpo, hasEmployer, hasPublic].filter(Boolean).length;
+
+    const distinctSubdomains = new Set(normalizedEndpoints.map(e => e.subdomain).filter(Boolean));
+    if (Array.isArray(analysisData.crawlerTelemetry?.subdomains)) {
+      analysisData.crawlerTelemetry.subdomains.forEach(s => s && distinctSubdomains.add(canonicalizeSubdomain(s)));
+    }
+    if (Array.isArray(analysisData.subdomains)) {
+      analysisData.subdomains.forEach(s => s && distinctSubdomains.add(canonicalizeSubdomain(s)));
+    }
+    if (Array.isArray(analysisData.crawlerTelemetry?.backendDomains)) {
+      analysisData.crawlerTelemetry.backendDomains.forEach(d => {
+        try { distinctSubdomains.add(canonicalizeSubdomain(new URL(d).hostname)); } catch {}
+      });
+    }
+
+    if (roleDomainsCount >= 4 && (hasStudent || hasMentor || hasTpo)) {
+      effectiveStrategy = 'domain';
+    } else if (distinctSubdomains.size > 1) {
+      effectiveStrategy = 'subdomain';
     } else {
       effectiveStrategy = 'resource';
     }
@@ -235,7 +279,15 @@ export function getApiEndpointsBreakdown(analysisData, groupBy = 'auto') {
     let groupType = 'Resource';
     let groupDescription = '';
 
-    if (effectiveStrategy === 'controller' || effectiveStrategy === 'module') {
+    if (effectiveStrategy === 'subdomain') {
+      const rawSub = ep.subdomain || (ep.origin ? (function () { try { return new URL(ep.origin).hostname; } catch { return null; } })() : null) || (analysisData.projectName || 'Primary Domain');
+      const sub = canonicalizeSubdomain(rawSub) || 'Primary Domain';
+      groupKey = sub;
+      groupName = `${sub} API`;
+      groupBadge = `🌐 ${sub}`;
+      groupType = 'Subdomain Gateway';
+      groupDescription = `Endpoints discovered across the ${sub} perimeter`;
+    } else if (effectiveStrategy === 'controller' || effectiveStrategy === 'module') {
       const mod = ep.module || 'Root Application Module';
       groupKey = mod;
       groupName = mod.split(/[/\\]/).pop() || mod;

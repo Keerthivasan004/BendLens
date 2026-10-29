@@ -70,6 +70,7 @@ export async function POST(request) {
       result.projectName = crawlResult.projectName;
       result.projectPath = targetPath;
       result.crawlerTelemetry = crawlResult.telemetry;
+      result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
       result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
       result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
       result.isUrlCrawl = true;

@@ -158,6 +158,7 @@ class UniversalApiCrawler {
         statusText: this.formatNetworkError(err, url),
         contentType: '',
         headers: {},
+        finalUrl: url,
         text: ''
       };
     }
@@ -198,7 +199,7 @@ class UniversalApiCrawler {
    */
   static async crawl(targetUrl, options = {}) {
     const startTime = Date.now();
-    let { parsedUrl, href, origin, hostname } = this.normalizeTargetUrl(targetUrl);
+    let { href, origin, hostname } = this.normalizeTargetUrl(targetUrl);
     const customHeaders = options.headers || options.customHeaders || {};
 
     const crawlDepth = options.crawlDepth || 'deep';
@@ -208,7 +209,6 @@ class UniversalApiCrawler {
     const allEndpoints = new Map(); // path -> Set of HTTP methods
     const normalEndpoints = new Map(); // path -> Set of HTTP methods (Phase 1 / Normal Crawl snapshot)
     const verifiedApiRoutes = new Set(); // Routes confirmed to be HTTP callers / REST / RPC endpoints
-    const endpointDetails = new Map(); // path -> { parameters: [], summary: '', tags: [] }
     const backendDomains = new Set();
     const distinctEntities = new Set();
     const frameworksDetected = new Set();
@@ -515,7 +515,7 @@ class UniversalApiCrawler {
           // Postman collection check
           if (parsedJson.info && Array.isArray(parsedJson.item)) {
             const syn = ApiSpecSynthesizer.synthesizeFromPostman(parsedJson);
-            const epCount = syn.totalEndpoints || 1;
+            const epCount = syn.totalEndpoints || (syn.openApiSpec?.paths ? Object.keys(syn.openApiSpec.paths).length : 1);
             const techStack = this.detectTechStack({
               targetUrl,
               origin,
@@ -569,7 +569,7 @@ class UniversalApiCrawler {
           // Live REST endpoint response
           if (Array.isArray(parsedJson) || (typeof parsedJson === 'object' && parsedJson !== null && Object.keys(parsedJson).length > 0)) {
             const syn = ApiSpecSynthesizer.synthesizeFromApiResponse(targetUrl, parsedJson);
-            const epCount = syn.totalEndpoints || 1;
+            const epCount = syn.totalEndpoints || (syn.openApiSpec?.paths ? Object.keys(syn.openApiSpec.paths).length : 1);
             const techStack = this.detectTechStack({
               targetUrl,
               origin,
@@ -1007,7 +1007,45 @@ class UniversalApiCrawler {
               this.extractEntitiesFromPath(normalized, distinctEntities);
             }
           }
+        } else if (hrefAttr.startsWith('http://') || hrefAttr.startsWith('https://')) {
+          try {
+            const u = new URL(hrefAttr);
+            const uApex = this.getApexDomain(u.hostname);
+            const origApex = this.getApexDomain(hostname);
+            if (uApex && origApex && uApex === origApex && u.hostname !== hostname) {
+              backendDomains.add(u.origin);
+            }
+          } catch {}
         }
+      }
+
+      // First-Party Application Portal Discovery (e.g. app.finstackk.com from finstackk.com)
+      const origApex = this.getApexDomain(hostname);
+      const appPortalOrigins = Array.from(backendDomains).filter(d => {
+        try {
+          const u = new URL(d);
+          const uHost = u.hostname.toLowerCase();
+          const uApex = this.getApexDomain(uHost);
+          return uApex === origApex && uHost !== hostname && (uHost.startsWith('app.') || uHost.startsWith('portal.') || uHost.startsWith('dashboard.') || uHost.startsWith('console.') || uHost.startsWith('platform.'));
+        } catch { return false; }
+      });
+
+      for (const portalOrigin of appPortalOrigins.slice(0, 2)) {
+        try {
+          const portalRes = await this.safeFetch(portalOrigin, { timeout: 6000, customHeaders, origin });
+          if (portalRes && portalRes.ok && portalRes.text) {
+            const portalScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+            let psm;
+            while ((psm = portalScriptRegex.exec(portalRes.text)) !== null) {
+              const src = psm[1];
+              if (!this.isThirdPartyTracker(src)) {
+                try {
+                  discoveredScriptUrls.add(new URL(src, portalOrigin).href);
+                } catch {}
+              }
+            }
+          }
+        } catch {}
       }
 
       // 8. Analyze inline script contents
@@ -1070,7 +1108,8 @@ class UniversalApiCrawler {
               const rawChunk = cm[1] || cm[0];
               if (rawChunk && !rawChunk.includes('node_modules')) {
                 try {
-                  const resolvedChunkUrl = new URL(rawChunk, origin).href;
+                  const chunkOrigin = (function() { try { return new URL(url).origin; } catch { return origin; } })();
+                  const resolvedChunkUrl = new URL(rawChunk, chunkOrigin).href;
                   if (!visitedUrls.has(resolvedChunkUrl) && !normalQueue.includes(resolvedChunkUrl)) {
                     normalQueue.push(resolvedChunkUrl);
                   }
@@ -1087,9 +1126,10 @@ class UniversalApiCrawler {
               const rawChunk = dtm[1];
               if (rawChunk && !rawChunk.includes('node_modules')) {
                 try {
+                  const chunkOrigin = (function() { try { return new URL(url).origin; } catch { return origin; } })();
                   let deepUrl = null;
                   if (url.includes('/assets/')) {
-                    deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), origin).href;
+                    deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
                   } else {
                     deepUrl = new URL(rawChunk, url).href;
                   }
@@ -1241,7 +1281,8 @@ class UniversalApiCrawler {
               const rawChunk = dtm[1];
               if (rawChunk && !rawChunk.includes('node_modules')) {
                 try {
-                  const deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), origin).href;
+                  const chunkOrigin = (function() { try { return new URL(url).origin; } catch { return origin; } })();
+                  const deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
                   if (!visitedUrls.has(deepUrl) && !normalQueue.includes(deepUrl) && !deepQueue.includes(deepUrl)) {
                     deepQueue.push(deepUrl);
                   }
@@ -1338,11 +1379,54 @@ class UniversalApiCrawler {
       });
 
       let extGatewayHeaders = {};
-      for (const extGateway of extGateways.slice(0, 2)) {
+      const diagnosticEndpoints = ['/api/health', '/health', '/healthz'];
+      for (const extGateway of extGateways.slice(0, 3)) {
         try {
           const gwRes = await this.safeFetch(extGateway, { timeout: 2000, customHeaders });
           if (gwRes && gwRes.headers) {
             extGatewayHeaders = { ...extGatewayHeaders, ...gwRes.headers };
+          }
+        } catch {}
+
+        // Concurrent live diagnostic probes for sub-domain backends with 4,500ms timeout
+        try {
+          const probePromises = diagnosticEndpoints.map(async (diagPath) => {
+            const probeUrl = new URL(diagPath, extGateway).href;
+            const res = await this.safeFetch(probeUrl, { timeout: 4500, customHeaders });
+            return { diagPath, res, extGateway };
+          });
+          const probeResults = await Promise.allSettled(probePromises);
+          for (const item of probeResults) {
+            if (item.status === 'fulfilled' && item.value) {
+              const { diagPath, res, extGateway: gw } = item.value;
+              if (res && res.headers && Object.keys(res.headers).length > 0) {
+                extGatewayHeaders = { ...extGatewayHeaders, ...res.headers };
+                backendProbeHeaders = { ...backendProbeHeaders, ...res.headers };
+              }
+              if (res && res.ok && (res.status === 200 || (res.contentType && res.contentType.includes('application/json')) || (res.text && res.text.includes('"status"')))) {
+                // Only register genuine application API routes (starting with /api/)
+                // Low-level infrastructure diagnostic pings (/health, /healthz) are solely for header/tech-stack fingerprinting
+                if (diagPath.startsWith('/api/')) {
+                  let targetPath = diagPath;
+                  if (allEndpoints.has(diagPath)) {
+                    // Only apply collision prefix if identical route already exists on origin
+                    const gwHost = new URL(gw).hostname;
+                    targetPath = `//${gwHost}${diagPath}`;
+                  }
+                  if (!allEndpoints.has(targetPath)) {
+                    allEndpoints.set(targetPath, new Set(['GET']));
+                  } else {
+                    allEndpoints.get(targetPath).add('GET');
+                  }
+                  if (!normalEndpoints.has(targetPath)) {
+                    normalEndpoints.set(targetPath, new Set(['GET']));
+                  } else {
+                    normalEndpoints.get(targetPath).add('GET');
+                  }
+                  verifiedApiRoutes.add(targetPath);
+                }
+              }
+            }
           }
         } catch {}
       }
@@ -1521,10 +1605,11 @@ class UniversalApiCrawler {
           techStack,
           cloudProvider: techStack?.cloudProvider,
           customHeaders,
-          discoveredPages
+          discoveredPages,
+          discoveredSubdomains: backendDomains
         });
       } catch (legalErr) {
-        console.warn('Legal documents discovery skipped:', legalErr.message);
+        console.warn('Legal documents discovery skipped:', legalErr?.message || String(legalErr));
       }
 
       return {
@@ -1546,6 +1631,7 @@ class UniversalApiCrawler {
           deepCrawlCount: deepCount,
           lazyLoadedEndpointsCount: lazyCount,
           genuineApisCount: genuineApisCount || normalCount,
+          genuineEndpointsCount: genuineApisCount || normalCount,
           uiPagesCount: uiPagesCount || 0,
           totalSurfacesCount: allEndpoints.size,
           crawlDepth: {
@@ -4187,8 +4273,8 @@ Support: **support@${domainName}**`;
     const charCount = content.length;
 
     return {
-      url: `${origin}/legal/${docType === 'privacy' ? 'privacy-policy' : 'terms-and-conditions'}`,
-      path: `/legal/${docType === 'privacy' ? 'privacy-policy' : 'terms-and-conditions'}`,
+      url: options.url || targetUrl || origin,
+      path: options.path || `#legal-${docType}`,
       title,
       lastUpdated,
       wordCount,
@@ -4215,7 +4301,8 @@ Support: **support@${domainName}**`;
     techStack,
     cloudProvider,
     customHeaders = {},
-    discoveredPages = new Set()
+    discoveredPages = new Set(),
+    discoveredSubdomains = new Set()
   }) {
     const discoveredPrivacyUrls = new Set();
     const discoveredTermsUrls = new Set();
@@ -4253,6 +4340,21 @@ Support: **support@${domainName}**`;
           }
         } catch {}
       }
+
+      // Also harvest any absolute or root-relative URLs mentioning privacy or terms directly in HTML text/scripts
+      const urlMatches = pageHtml.match(/https?:\/\/[a-zA-Z0-9.\-_]+\.[a-zA-Z]{2,}[^\s"'<>)]*(?:privacy|terms|tos|carriage)[^\s"'<>)]*/gi) || [];
+      for (const u of urlMatches) {
+        try {
+          const resolved = new URL(u).href;
+          const linkApex = this.getApexDomain(new URL(resolved).hostname);
+          const isFirstParty = !targetApex || linkApex === targetApex;
+          if (isFirstParty) {
+            const lower = resolved.toLowerCase();
+            if (lower.includes('privacy')) discoveredPrivacyUrls.add(resolved);
+            if (lower.includes('terms') || lower.includes('condition') || lower.includes('tos')) discoveredTermsUrls.add(resolved);
+          }
+        } catch {}
+      }
     };
 
     harvestLinksFromHtml(html, origin);
@@ -4273,62 +4375,129 @@ Support: **support@${domainName}**`;
       }
     }
 
-    // Prioritized candidate lists (discovered links first, followed by airline, enterprise, and multi-lingual conventions)
+    // Build candidate origins (primary origin + first-party subdomains)
+    const candidateOrigins = new Set([origin]);
+    if (discoveredSubdomains) {
+      const subs = Array.isArray(discoveredSubdomains) ? discoveredSubdomains : Array.from(discoveredSubdomains);
+      for (const sub of subs) {
+        try {
+          const subUrl = new URL(sub.startsWith('http') ? sub : `https://${sub}`);
+          const subApex = this.getApexDomain(subUrl.hostname);
+          if (subApex === targetApex) {
+            candidateOrigins.add(subUrl.origin);
+          }
+        } catch {}
+      }
+    }
+    if (targetApex) {
+      const commonInstitutionalSubdomains = ['examform', 'gate', 'elearn', 'portal', 'app', 'courses', 'archive', 'swayam', 'auth'];
+      for (const prefix of commonInstitutionalSubdomains) {
+        candidateOrigins.add(`https://${prefix}.${targetApex}`);
+      }
+    }
+
+    // Prioritized candidate lists (discovered links first, followed by origin paths, subdomains, and multi-lingual conventions)
+    const primaryPrivacyPaths = [
+      '/privacy_policy',
+      '/privacy_policy.html',
+      '/privacy-policy',
+      '/privacy',
+      '/privacypolicy',
+      '/privacypolicy.html',
+      '/PrivacyPolicy.html',
+      '/legal/privacy-policy',
+      '/legal/privacy_policy',
+      '/legal/privacy',
+      '/policies/privacy-policy',
+      '/policies/privacy',
+      '/about/privacy-policy',
+      '/customer-service/support/privacy-policy',
+      '/i18n/customer-service/support/privacy-policy.jsp',
+      '/i18n/customer-service/support/legal-privacy-copyright.jsp',
+      '/en-in/legal/privacy-policy',
+      '/en-us/legal/privacy-policy',
+      '/en/legal/privacy-policy',
+      '/us/en/legal/privacy-policy',
+      '/english/privacy-policy/',
+      '/privacy.html',
+      '/privacy/'
+    ];
+
     const privacyCandidates = Array.from(new Set([
       ...Array.from(discoveredPrivacyUrls),
-      `${origin}/privacy`,
-      `${origin}/privacy-policy`,
-      `${origin}/legal/privacy-policy`,
-      `${origin}/legal/privacy`,
-      `${origin}/about/privacy-policy`,
-      `${origin}/customer-service/support/privacy-policy`,
-      `${origin}/i18n/customer-service/support/privacy-policy.jsp`,
-      `${origin}/i18n/customer-service/support/legal-privacy-copyright.jsp`,
-      `${origin}/en-in/legal/privacy-policy`,
-      `${origin}/en-us/legal/privacy-policy`,
-      `${origin}/en/legal/privacy-policy`,
-      `${origin}/us/en/legal/privacy-policy`,
-      `${origin}/english/privacy-policy/`,
-      `${origin}/policies/privacy-policy`,
-      `${origin}/policies/privacy`,
-      `${origin}/privacy.html`,
-      `${origin}/privacy/`
+      ...primaryPrivacyPaths.map(p => `${origin}${p}`),
+      ...Array.from(candidateOrigins)
+        .filter(o => o !== origin)
+        .flatMap(o => [
+          `${o}/privacy_policy`,
+          `${o}/privacy_policy.html`,
+          `${o}/privacy-policy`,
+          `${o}/privacy`,
+          `${o}/privacypolicy`,
+          `${o}/legal/privacy-policy`,
+          `${o}/legal/privacy`
+        ])
     ]));
+
+    const primaryTermsPaths = [
+      '/terms_of_use',
+      '/terms_of_use.html',
+      '/terms-of-use',
+      '/terms-and-conditions',
+      '/terms_and_conditions',
+      '/terms-of-service',
+      '/terms_of_service',
+      '/terms',
+      '/tos',
+      '/termsofuse',
+      '/about-southwest/terms-and-conditions/',
+      '/about-southwest/terms-and-conditions',
+      '/html/about-southwest/terms-and-conditions/index.html',
+      '/about/terms-and-conditions',
+      '/legal/terms-and-conditions',
+      '/legal/terms_and_conditions',
+      '/legal/terms-of-service',
+      '/legal/terms_of_service',
+      '/legal/terms-of-use',
+      '/legal/terms_of_use',
+      '/legal/terms',
+      '/contract-of-carriage',
+      '/conditions-of-carriage',
+      '/i18n/customer-service/support/conditions-of-carriage.jsp',
+      '/en-in/legal/terms-and-conditions',
+      '/en-us/legal/terms-and-conditions',
+      '/en/legal/terms-and-conditions',
+      '/us/en/legal/terms-and-conditions',
+      '/english/terms-and-conditions/',
+      '/policies/terms-of-service',
+      '/policies/terms',
+      '/terms.html',
+      '/terms/'
+    ];
 
     const termsCandidates = Array.from(new Set([
       ...Array.from(discoveredTermsUrls),
-      `${origin}/terms`,
-      `${origin}/terms-and-conditions`,
-      `${origin}/terms-of-service`,
-      `${origin}/terms-of-use`,
-      `${origin}/about-southwest/terms-and-conditions/`,
-      `${origin}/about-southwest/terms-and-conditions`,
-      `${origin}/html/about-southwest/terms-and-conditions/index.html`,
-      `${origin}/about/terms-and-conditions`,
-      `${origin}/legal/terms-and-conditions`,
-      `${origin}/legal/terms-of-service`,
-      `${origin}/legal/terms-of-use`,
-      `${origin}/legal/terms`,
-      `${origin}/contract-of-carriage`,
-      `${origin}/conditions-of-carriage`,
-      `${origin}/i18n/customer-service/support/conditions-of-carriage.jsp`,
-      `${origin}/en-in/legal/terms-and-conditions`,
-      `${origin}/en-us/legal/terms-and-conditions`,
-      `${origin}/en/legal/terms-and-conditions`,
-      `${origin}/us/en/legal/terms-and-conditions`,
-      `${origin}/english/terms-and-conditions/`,
-      `${origin}/policies/terms-of-service`,
-      `${origin}/policies/terms`,
-      `${origin}/tos`,
-      `${origin}/terms.html`,
-      `${origin}/terms/`
+      ...primaryTermsPaths.map(p => `${origin}${p}`),
+      ...Array.from(candidateOrigins)
+        .filter(o => o !== origin)
+        .flatMap(o => [
+          `${o}/terms_of_use`,
+          `${o}/terms_of_use.html`,
+          `${o}/terms-of-use`,
+          `${o}/terms-and-conditions`,
+          `${o}/terms_and_conditions`,
+          `${o}/terms-of-service`,
+          `${o}/terms_of_service`,
+          `${o}/terms`,
+          `${o}/tos`
+        ])
     ]));
 
     const tryFetchCandidates = async (candidates, docType, defaultTitle) => {
       const isExplicitUrl = (u) => discoveredPrivacyUrls.has(u) || discoveredTermsUrls.has(u);
       const probeSingle = async (u) => {
         try {
-          const r = await this.safeFetch(u, { timeout: 8000, customHeaders });
+          const r = await this.safeFetch(u, { timeout: 4000, customHeaders });
           if (r.ok && r.status === 200 && r.text && r.text.length > 250) {
             const isCatchAllFallback = html && r.text.length === html.length && r.text === html;
             const lowerText = r.text.toLowerCase();
@@ -4387,9 +4556,9 @@ Support: **support@${domainName}**`;
         if (doc) return doc;
       }
 
-      // 2. Parallel batched probes for conventional paths (concurrency: 4)
+      // 2. Parallel batched probes for conventional paths (concurrency: 6)
       const conventionCandidates = candidates.filter(u => !isExplicitUrl(u));
-      const batchSize = 4;
+      const batchSize = 6;
       for (let i = 0; i < conventionCandidates.length; i += batchSize) {
         const batch = conventionCandidates.slice(i, i + batchSize);
         const batchResults = await Promise.all(batch.map(probeSingle));
@@ -4469,7 +4638,9 @@ Support: **support@${domainName}**`;
         projectName: options.projectName,
         techStack: options.techStack,
         cloudProvider: options.cloudProvider,
-        customHeaders
+        customHeaders,
+        discoveredPages: options.discoveredPages || new Set(),
+        discoveredSubdomains: options.discoveredSubdomains || new Set()
       });
     } catch (e) {
       return {

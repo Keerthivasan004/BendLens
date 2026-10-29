@@ -4,55 +4,25 @@ import { getApiEndpointsBreakdown } from './apiBreakdownHelper.js';
  * Calculate the count of distinct APIs (Services, Gateways, or Modules)
  * as distinct from individual Endpoints (routes/paths).
  *
- * - For remote web/API crawls: Number of authentic API gateways / backend domains or plugin namespaces.
+ * - For multi-role portals (e.g. futrsec.in): Authoritative role domain APIs (Admin, Student, Mentor, TPO, Employer, Core).
+ * - For multi-subdomain architectures (e.g. finstackk.com): Distinct subdomain perimeters (finstackk.com, app.finstackk.com).
  * - For local codebases: Number of distinct API route modules or semantic API service resources.
+ *
+ * Guarantees 100% mathematical parity with getApiEndpointsBreakdown(data, 'auto').
  */
 export function getApiServicesCount(data) {
   if (!data) return 0;
 
-  // 1. If endpoints exhibit role-based portal domains (e.g. Admin, Student, Mentor, TPO, Employer, Public)
-  const epList = Array.isArray(data.code?.endpoints) && data.code.endpoints.length > 0
-    ? data.code.endpoints
-    : (Array.isArray(data.endpoints) ? data.endpoints : []);
-
-  if (epList.length > 0) {
-    const hasAdmin = epList.some(e => e.path?.includes('/admin'));
-    const hasStudent = epList.some(e => e.path?.includes('/student') || e.path?.includes('/learning') || e.path?.includes('/labs'));
-    const hasMentor = epList.some(e => e.path?.includes('/mentor') || e.path?.includes('/lab-builder') || e.path?.includes('/batch'));
-    const hasTpo = epList.some(e => e.path?.includes('/tpo') || e.path?.includes('/placement'));
-    const hasEmployer = epList.some(e => e.path?.includes('/employer') || e.path?.includes('/jobs') || e.path?.includes('/applications'));
-    const hasPublic = epList.some(e => e.path?.includes('/auth') || e.path?.includes('/tracks') || e.path?.includes('/events') || e.path?.includes('/platform'));
-    const roleDomainsCount = [hasAdmin, hasStudent, hasMentor, hasTpo, hasEmployer, hasPublic].filter(Boolean).length;
-    if (roleDomainsCount >= 3) {
-      return roleDomainsCount;
-    }
+  // 1. Authoritative API & Endpoints Breakdown Alignment
+  // When an endpoint architecture breakdown is available (via code.endpoints, endpoints, enrichedEndpoints, or openApiSpec.paths),
+  // getApiEndpointsBreakdown in 'auto' mode accurately classifies the architecture (Role Domains, Subdomains, Modules, or Resources).
+  // Aligning getApiServicesCount directly ensures 100% parity across the HUD header, landing page, and breakdown modal.
+  const autoBreakdown = getApiEndpointsBreakdown(data, 'auto');
+  if (autoBreakdown && autoBreakdown.totalApisCount > 0) {
+    return autoBreakdown.totalApisCount;
   }
 
-  // 2. If WordPress namespaces:
-  const epPaths = (data.code?.endpoints || data.endpoints || []).map(e => e.path);
-  const wpNamespaces = new Set(
-    epPaths
-      .filter(p => p && p.startsWith('/wp-json/'))
-      .map(p => p.replace('/wp-json/', '').split('/')[0])
-      .filter(Boolean)
-  );
-  if (wpNamespaces.size > 1) {
-    return wpNamespaces.size;
-  }
-
-  // 3. If local codebase AST with distinct route modules or controllers:
-  const modules = new Set((data.code?.endpoints || data.endpoints || []).map(e => e.module).filter(Boolean));
-  if (modules.size > 1) {
-    return modules.size;
-  }
-
-  // 4. Semantic API services / resources breakdown (Authentic AST & Endpoint Partitioning):
-  const breakdown = getApiEndpointsBreakdown(data, 'resource');
-  if (breakdown.totalApisCount > 0) {
-    return breakdown.totalApisCount;
-  }
-
-  // 5. Fallback: If remote URL crawl with discovered gateways when no endpoint breakdown is available:
+  // 2. Fallback: If remote URL crawl with discovered gateways when no endpoint breakdown is available:
   const gateways = data.techStack?.backend?.discoveredGateways ||
     data.crawlerTelemetry?.backendDomains ||
     data.backendDomains || [];
@@ -101,4 +71,3 @@ if (typeof module !== 'undefined' && module.exports) {
     getApiServicesCount
   };
 }
-

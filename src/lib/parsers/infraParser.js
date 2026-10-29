@@ -12,6 +12,7 @@ class InfraParser {
     this.databases = [];
     this.configs = [];
     this.externalAPIs = [];
+    this.subdomains = [];
   }
 
   parseDirectory(dirPath, fileList) {
@@ -53,7 +54,8 @@ class InfraParser {
       services: this.services,
       databases: this.databases,
       externalAPIs: this.externalAPIs,
-      configs: this.configs
+      configs: this.configs,
+      subdomains: Array.from(new Set(this.subdomains))
     };
   }
 
@@ -140,11 +142,41 @@ class InfraParser {
     try {
       const spec = JSON.parse(content);
       if (spec.paths) {
+        const specServerHosts = [];
+        if (Array.isArray(spec.servers)) {
+          for (const s of spec.servers) {
+            if (s?.url) {
+              try {
+                let h = new URL(s.url).hostname.toLowerCase().replace(/^www\./, '');
+                if (h && !specServerHosts.includes(h)) {
+                  specServerHosts.push(h);
+                  if (!this.subdomains.includes(h)) this.subdomains.push(h);
+                }
+              } catch {}
+            }
+          }
+        }
+
         const basePath = (spec.basePath && spec.basePath !== '/') ? spec.basePath.replace(/\/+$/, '') : '';
         for (const [pathUrl, methods] of Object.entries(spec.paths)) {
-          const fullPath = basePath ? `${basePath}${pathUrl.startsWith('/') ? pathUrl : '/' + pathUrl}` : pathUrl;
+          let fullPath = basePath ? `${basePath}${pathUrl.startsWith('/') ? pathUrl : '/' + pathUrl}` : pathUrl;
+          let inferredSubdomain = null;
+          let inferredOrigin = null;
+
+          if (fullPath.startsWith('//')) {
+            const parts = fullPath.slice(2).split('/');
+            inferredSubdomain = parts[0];
+            fullPath = '/' + parts.slice(1).join('/');
+            inferredOrigin = `https://${inferredSubdomain}`;
+          }
+
           for (const [method, details] of Object.entries(methods)) {
             if (['get', 'post', 'put', 'delete', 'patch', 'options', 'head'].includes(method.toLowerCase())) {
+              const rawSub = details?.['x-subdomain'] || inferredSubdomain || (details?.servers?.[0]?.url ? (function() { try { return new URL(details.servers[0].url).hostname; } catch { return null; } })() : null) || (specServerHosts.length === 1 ? specServerHosts[0] : null);
+              const sub = rawSub ? rawSub.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : null;
+              const orig = details?.['x-origin'] || inferredOrigin || (details?.servers?.[0]?.url || (sub ? `https://${sub}` : null));
+              if (sub && !this.subdomains.includes(sub)) this.subdomains.push(sub);
+
               this.externalAPIs.push({
                 path: fullPath,
                 method: method.toUpperCase(),
@@ -155,7 +187,9 @@ class InfraParser {
                 isLazyLoaded: details?.['x-lazy-loaded'] === true,
                 discoveryScope: details?.['x-discovery-scope'] || (details?.['x-lazy-loaded'] ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)'),
                 routeType: details?.['x-route-type'] || 'API',
-                isUiRoute: details?.['x-is-ui-route'] === true
+                isUiRoute: details?.['x-is-ui-route'] === true,
+                subdomain: sub,
+                origin: orig
               });
             }
           }

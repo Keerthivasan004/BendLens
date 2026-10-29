@@ -22,6 +22,7 @@ export default function LensDashboard() {
   const [activeDiagramTab, setActiveDiagramTab] = useState('erd');
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [showApiFlowModal, setShowApiFlowModal] = useState(false);
+  const [initialFlowEndpoint, setInitialFlowEndpoint] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [theme, setTheme] = useState('dark');
   const [isLocalApp, setIsLocalApp] = useState(true);
@@ -247,6 +248,12 @@ export default function LensDashboard() {
     if (Array.isArray(analysisData.endpoints) && analysisData.endpoints.length > 0) {
       return analysisData.endpoints;
     }
+    if (Array.isArray(analysisData.enrichedEndpoints) && analysisData.enrichedEndpoints.length > 0) {
+      return analysisData.enrichedEndpoints;
+    }
+    if (Array.isArray(analysisData.crawlerTelemetry?.endpoints) && analysisData.crawlerTelemetry.endpoints.length > 0) {
+      return analysisData.crawlerTelemetry.endpoints;
+    }
     if (analysisData.openApiSpec?.paths) {
       const eps = [];
       Object.entries(analysisData.openApiSpec.paths).forEach(([routePath, methodsObj]) => {
@@ -285,7 +292,10 @@ export default function LensDashboard() {
         onToggleTheme={toggleTheme}
         isLocalApp={isLocalApp}
         onDownloadApp={handleDownloadApp}
-        onOpenApiFlow={() => setShowApiFlowModal(true)}
+        onOpenApiFlow={(ep) => {
+          setInitialFlowEndpoint(ep || null);
+          setShowApiFlowModal(true);
+        }}
       />
 
       {/* Breadcrumb & Navigation Strip */}
@@ -468,10 +478,15 @@ export default function LensDashboard() {
       {/* Visual Interactive API Flow Graph Modal */}
       <ApiFlowModal
         isOpen={showApiFlowModal}
-        onClose={() => setShowApiFlowModal(false)}
+        onClose={() => {
+          setShowApiFlowModal(false);
+          setInitialFlowEndpoint(null);
+        }}
         endpoints={resolvedEndpoints}
         tables={analysisData?.schema?.tables || []}
         diagrams={analysisData?.diagrams}
+        analysisData={analysisData}
+        initialFocusedEndpoint={initialFlowEndpoint}
         theme={theme}
         onSelectForImpact={handleSelectForImpact}
       />

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X, Layers, Search, Filter, Copy, Check, Terminal,
   ChevronDown, ChevronUp, ArrowUpDown, Key, Users,
@@ -31,12 +32,17 @@ function getApiIcon(api) {
 }
 
 export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpenApiFlow }) {
-  const [groupBy, setGroupBy] = useState('domain'); // 'domain' | 'resource' | 'controller' | 'kind'
+  const [mounted, setMounted] = useState(false);
+  const [groupBy, setGroupBy] = useState('auto'); // 'auto' | 'subdomain' | 'domain' | 'resource' | 'controller' | 'kind'
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState('count_desc'); // 'count_desc' | 'count_asc' | 'name_asc'
   const [expandedApiIds, setExpandedApiIds] = useState(new Set());
   const [copiedKey, setCopiedKey] = useState(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Close on ESC
   useEffect(() => {
@@ -100,7 +106,7 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
       });
   }, [breakdown.apis, searchQuery, methodFilter, sortBy]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
   const toggleExpand = (apiId) => {
     setExpandedApiIds((prev) => {
@@ -136,8 +142,8 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
     } catch {}
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-fadeIn">
+  const modalContent = (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-fadeIn">
       <div 
         className="w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl bg-surface border border-border shadow-2xl overflow-hidden animate-scaleUp"
         onClick={(e) => e.stopPropagation()}
@@ -228,6 +234,8 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
             <span className="text-muted font-medium mr-1 text-[11px] shrink-0">Group By:</span>
             {[
+              { id: 'auto', label: 'Auto (Recommended)' },
+              { id: 'subdomain', label: 'Subdomain / Host' },
               { id: 'domain', label: 'Role Domain / Portals' },
               { id: 'resource', label: 'API Resource / Service' },
               { id: 'controller', label: 'File / Controller' },
@@ -466,6 +474,12 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
                                         LAZY
                                       </span>
                                     )}
+                                    {(ep.subdomain || (breakdown?.groupBy === 'subdomain' && api?.name ? api.name.replace(/\s*API$/i, '') : null)) && (
+                                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 dark:text-indigo-300 border border-indigo-500/30 flex items-center gap-1 font-semibold shrink-0">
+                                        <Globe className="h-2.5 w-2.5 shrink-0" />
+                                        {ep.subdomain || api.name.replace(/\s*API$/i, '')}
+                                      </span>
+                                    )}
                                   </div>
 
                                   {(ep.handler || ep.module || ep.summary) && (
@@ -555,4 +569,6 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }

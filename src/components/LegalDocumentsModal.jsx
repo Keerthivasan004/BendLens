@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X, ShieldCheck, FileText, Scale, Search, Copy, Check,
   Download, ExternalLink, Calendar, BookOpen, Clock,
@@ -15,6 +16,7 @@ export default function LegalDocumentsModal({
   targetUrl,
   initialTab = 'privacy'
 }) {
+  const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState(initialTab); // 'privacy' | 'terms' | 'compliance'
   const [isFullscreen, setIsFullscreen] = useState(true);
   const [viewMode, setViewMode] = useState('formatted'); // 'formatted' (Website Layout) | 'raw' (Markdown Code)
@@ -25,6 +27,10 @@ export default function LegalDocumentsModal({
   const [loadError, setLoadError] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [customContent, setCustomContent] = useState('');
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Sync state if prop changes
   useEffect(() => {
@@ -180,9 +186,9 @@ export default function LegalDocumentsModal({
     return matches ? matches.length : 0;
   }, [currentDoc, searchQuery]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
+  const modalContent = (
     <div
       className={
         isFullscreen
@@ -774,6 +780,8 @@ export default function LegalDocumentsModal({
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }
 
 /**
