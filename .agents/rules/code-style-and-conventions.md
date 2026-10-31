@@ -38,3 +38,11 @@ Mermaid.js parses diagram syntax strictly. Violating syntax crashes client-side 
 - **Hierarchy**: one gradient headline per page, `.section-label` for micro-labels, `.chip` for status pills, `.glass-card`/`.glass-panel`/`.ingestion-shell` for elevations, `.canvas-viewport` + `.canvas-grid` for diagram surfaces.
 - **Motion**: entrance via `.animate-rise` + `.stagger-1..4`; keep `animate-fadeIn` for inline updates. Scrolling stays native for wheel/trackpad (`html { scroll-behavior: auto }`); smooth applies only to keyboard/anchor jumps via `html:focus-within` (never hijack the wheel — canvas uses Ctrl+wheel to zoom). Stable gutter, 88px anchor margin under sticky headers. Heavy below-fold blocks use `.cv-auto` (content-visibility) to keep scroll repaints cheap. `overflow-x: clip` (not hidden) so the document stays the scroller. If live behavior ever stops matching the code, restart the dev server first (a wedged Turbopack/HMR state serves stale bundles). Respect `prefers-reduced-motion` (already global).
 - **Functionality freeze**: UI passes must not rename props, state, handlers, route contracts, or Mermaid sanitization logic.
+
+## 5. Light/Dark Theme Accessibility & Contrast Rules
+- **No Unscoped Light Pastels**: Never use standalone light pastel text classes (`text-indigo-200`, `text-indigo-300`, `text-cyan-400`, `text-emerald-400`, `text-purple-300`, `text-sky-400`, `text-amber-400`) without dark mode scoping.
+- **Dual-Mode Text Contrast**:
+  - Always pair with deep 700/800 light-mode shades: `text-indigo-700 dark:text-indigo-400`, `text-cyan-700 dark:text-cyan-400`, `text-emerald-700 dark:text-emerald-400`, `text-purple-700 dark:text-purple-400`.
+  - For badges/chips, pair soft light background tints with dark borders in light mode: `bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20`.
+- **Global Light Mode Guard**: `src/app/globals.css` enforces `html:not(.dark)` contrast rules mapping 300/400 dark neon tokens to high-contrast WCAG AAA 700/800 shades and keeps `--subtext` at `#334155` (Slate 700) for sharp body and label readability.
+

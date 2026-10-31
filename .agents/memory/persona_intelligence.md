@@ -18,6 +18,9 @@ BendLens features a multi-persona intelligence translation layer (`src/lib/gener
     - `connected`: Count of endpoints with explicit database entity dependencies.
     - `byKind`: Protocol distribution (`REST`, `WEBSOCKET`, `AUTH`, `STORAGE`, `ADMIN`, `WEBHOOK`, `SYSTEM`, `GRAPHQL`).
 - **Interactive Multi-Tier API Topology**:
+  - Multi-Subdomain perimeter filtering tabs with endpoint counts per subdomain gateway (`ALL`, primary apex, and all discovered live subdomains).
+  - Subdomain gateway host badges on each route in the Segregated Routes List for multi-gateway disambiguation.
+  - Automatic Subdomain grouping in API Breakdown Modal (`getApiEndpointsBreakdown`) generating dedicated gateway cards.
   - Architectural Level filter chips & segregation blocks.
   - Protocol Kind pills with dedicated badges and icons.
   - Entity Connection tags (`📖 READ`, `✍️ WRITE`, `🔄 STREAM`) with direct schema preview.

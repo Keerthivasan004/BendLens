@@ -168,8 +168,8 @@ export async function POST(request) {
                     const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
                     result.projectName = crawlResult.projectName;
                     result.projectPath = targetFetchUrl;
+                    result.openApiSpec = crawlResult.openApiSpec;
                     result.crawlerTelemetry = crawlResult.telemetry;
-        result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
                     result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
                     result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
                     result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;

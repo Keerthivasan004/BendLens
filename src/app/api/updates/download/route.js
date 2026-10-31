@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { getEffectiveLatest, parseArtifactVersion } from '@/lib/releaseInfo';
+import { getEffectiveLatest, parseArtifactVersion, BASELINE_LATEST_VERSION } from '@/lib/releaseInfo';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,7 +88,7 @@ export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
     const effective = await getEffectiveLatest(undefined, { allowRemote: true }).catch(() => null);
-    const targetVersion = body.version || effective?.latestVersion || '1.1.49';
+    const targetVersion = body.version || effective?.latestVersion || BASELINE_LATEST_VERSION;
     const artifactName = body.artifactName || effective?.updateArtifact || `BendLens-Setup-${targetVersion}.exe`;
     const downloadUrl = body.downloadUrl || effective?.downloadUrl || `https://github.com/Keerthivasan004/BendLens/releases/download/v${targetVersion}/${artifactName}`;
 

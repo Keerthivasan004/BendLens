@@ -192,36 +192,70 @@ export default function Header({
                         if (Array.isArray(analysisData.subdomains)) {
                           analysisData.subdomains.forEach(add);
                         }
+                        if (Array.isArray(analysisData.techStack?.backend?.subdomains)) {
+                          analysisData.techStack.backend.subdomains.forEach(add);
+                        }
+                        if (Array.isArray(analysisData.crawlerTelemetry?.techStack?.backend?.subdomains)) {
+                          analysisData.crawlerTelemetry.techStack.backend.subdomains.forEach(add);
+                        }
                         if (Array.isArray(analysisData.crawlerTelemetry?.backendDomains)) {
                           analysisData.crawlerTelemetry.backendDomains.forEach(add);
                         }
                         if (Array.isArray(analysisData.openApiSpec?.servers)) {
                           analysisData.openApiSpec.servers.forEach(srv => srv?.url && add(srv.url));
                         }
+                        if (Array.isArray(analysisData.openApiSpec?.['x-subdomains'])) {
+                          analysisData.openApiSpec['x-subdomains'].forEach(add);
+                        }
+                        if (Array.isArray(analysisData.infra?.subdomains)) {
+                          analysisData.infra.subdomains.forEach(add);
+                        }
                         if (Array.isArray(analysisData.code?.endpoints)) {
                           analysisData.code.endpoints.forEach(e => {
                             if (e.subdomain) add(e.subdomain);
                           });
                         }
-                        return Array.from(set);
+                        const primaryCandidate = (() => {
+                          const candidates = [analysisData.projectPath, analysisData.projectName, analysisData.targetUrl, analysisData.crawlerTelemetry?.targetUrl];
+                          for (const c of candidates) {
+                            if (c && typeof c === 'string') {
+                              try {
+                                const h = new URL(c.startsWith('http') ? c : `https://${c}`).hostname.toLowerCase().replace(/^www\./, '');
+                                if (h && h.includes('.')) return h;
+                              } catch {}
+                            }
+                          }
+                          return null;
+                        })();
+                        if (primaryCandidate) {
+                          add(primaryCandidate);
+                        }
+                        const list = Array.from(set);
+                        if (primaryCandidate && list.includes(primaryCandidate)) {
+                          return [primaryCandidate, ...list.filter(s => s !== primaryCandidate).sort()];
+                        }
+                        return list.sort();
                       })();
 
                       if (subdomainsList.length === 0) return null;
 
                       return (
                         <>
-                          <span
-                            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/[0.08] border border-indigo-500/20 text-indigo-400 whitespace-nowrap shrink-0"
-                            title={`Discovered Subdomains (${subdomainsList.length}):\n${subdomainsList.join('\n')}`}
+                          <button
+                            onClick={() => setShowApiBreakdown(true)}
+                            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 dark:bg-indigo-500/[0.08] dark:hover:bg-indigo-500/15 dark:border-indigo-500/20 hover:dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-400 whitespace-nowrap shrink-0 transition-all cursor-pointer group"
+                            title={`Discovered Subdomains (${subdomainsList.length}):\n${subdomainsList.join('\n')}\n\nClick to view full architecture breakdown.`}
                           >
-                            <Globe className="h-3 w-3 text-indigo-400 shrink-0" />
+                            <Globe className="h-3 w-3 text-indigo-600 dark:text-indigo-400 shrink-0 group-hover:scale-110 transition-transform" />
                             <span className="text-[11px] font-mono font-bold">
                               {subdomainsList.length} {subdomainsList.length === 1 ? 'Subdomain' : 'Subdomains'}
-                              {subdomainsList.length <= 2 && (
-                                <span className="text-indigo-300 font-normal ml-1">({subdomainsList.join(', ')})</span>
+                              {subdomainsList.length <= 4 ? (
+                                <span className="text-indigo-900/80 dark:text-indigo-300 font-normal ml-1">({subdomainsList.join(', ')})</span>
+                              ) : (
+                                <span className="text-indigo-900/80 dark:text-indigo-300 font-normal ml-1">({subdomainsList.slice(0, 3).join(', ')} +{subdomainsList.length - 3})</span>
                               )}
                             </span>
-                          </span>
+                          </button>
                           <span className="h-3 w-px bg-border hidden sm:block shrink-0" />
                         </>
                       );
@@ -260,19 +294,19 @@ export default function Header({
                     if (!cp || cp.code === 'unknown') return null;
 
                     const feCp = ts?.frontend?.cloudProvider || cp.frontend || cp;
-                    const beCp = ts?.backend?.cloudProvider || cp.backend;
-                    const isMulti = beCp && beCp.name && feCp.name && beCp.name !== feCp.name && beCp.code !== 'co_hosted';
+                    const beCp = ts?.backend?.cloudProvider || cp.backend || analysisData.crawlerTelemetry?.cloudProvider?.backend;
+                    const isMulti = beCp && beCp.code && feCp && feCp.code && beCp.code !== feCp.code && beCp.code !== 'co_hosted' && beCp.code !== 'unknown';
 
                     return (
                       <>
                         <span className="h-3 w-px bg-border hidden sm:block shrink-0" />
                         <span
                           className="flex items-center gap-1.5 px-1 text-muted cursor-help whitespace-nowrap shrink-0"
-                          title={`Frontend: ${feCp?.name || 'Cloud Edge'} (${feCp?.category || 'Edge CDN'}) • Backend: ${beCp?.name || 'Compute'} (${beCp?.category || 'API Server'}) • Evidence: ${beCp?.evidence?.[0] || feCp?.evidence?.[0] || 'Verified'}`}
+                          title={`Frontend: ${feCp?.name || 'Cloud Edge'} (${feCp?.category || 'Edge CDN'}) • Backend: ${beCp?.name || feCp?.name || 'Compute'} (${beCp?.category || 'API Server'}) • Evidence: ${beCp?.evidence?.[0] || feCp?.evidence?.[0] || 'Verified'}`}
                         >
-                          <Cloud className="h-3.5 w-3.5 text-sky-400 shrink-0" />
+                          <Cloud className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400 shrink-0" />
                           <span className="text-foreground font-semibold font-mono text-[11px]">
-                            {isMulti ? `${feCp.name.split('(')[0].trim()} / ${beCp.name.split('(')[0].trim()}` : feCp.name.split('(')[0].trim()}
+                            {isMulti ? `${feCp.name.split('(')[0].trim()} / ${beCp.name.split('(')[0].trim()}` : (feCp?.name?.split('(')[0]?.trim() || beCp?.name?.split('(')[0]?.trim() || 'Cloud Infrastructure')}
                           </span>
                         </span>
                       </>

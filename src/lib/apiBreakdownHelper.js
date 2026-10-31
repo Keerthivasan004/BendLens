@@ -41,6 +41,11 @@ export function formatResourceName(resourceKey) {
   // WordPress namespaces
   if (lower.startsWith('wp/v2') || lower.startsWith('wp-json/wp/v2')) return 'WordPress Core API (wp/v2)';
   if (lower.includes('wc/v3') || lower.includes('woocommerce')) return 'WooCommerce REST API (wc/v3)';
+  if (lower.includes('/')) {
+    const [ns, ver] = lower.split('/');
+    const nsTitle = ns.split(/[-_]+/).filter(Boolean).map(capitalize).join(' ');
+    return `${nsTitle} API (${ver.toLowerCase()})`;
+  }
 
   // General fallback: convert hyphen/underscore to title case
   const words = resourceKey
@@ -62,16 +67,30 @@ function extractSemanticResourceKey(endpoint) {
     }
   }
 
-  const p = (endpoint.path || '').trim();
+  let p = (endpoint.path || '').trim();
   if (!p) return 'general';
+
+  // Strip protocol / collision subdomain prefix
+  if (p.startsWith('http://') || p.startsWith('https://')) {
+    try {
+      p = new URL(p).pathname;
+    } catch {
+      p = '/' + p.split('/').slice(3).join('/');
+    }
+  } else if (p.startsWith('//')) {
+    p = '/' + p.slice(2).split('/').slice(1).join('/');
+  }
+
+  // Strip query parameters
+  p = p.split('?')[0];
 
   // 2. WordPress REST API namespaces: /wp-json/wp/v2/posts -> wp/v2
   if (p.startsWith('/wp-json/')) {
-    const wpParts = p.replace('/wp-json/', '').split('/').filter(Boolean);
+    const wpParts = p.replace(/^\/wp-json\//, '').split('/').filter(Boolean);
     if (wpParts.length >= 2) {
-      return `${wpParts[0]}/${wpParts[1]}`;
+      return `${wpParts[0]}/${wpParts[1]}`.toLowerCase();
     }
-    if (wpParts.length === 1) return wpParts[0];
+    if (wpParts.length === 1) return wpParts[0].toLowerCase();
   }
 
   // 3. Remove leading slash
@@ -212,6 +231,8 @@ export function getApiEndpointsBreakdown(analysisData, groupBy = 'auto') {
             module: op['x-bundle-source'] || '',
             isLazyLoaded: op['x-lazy-loaded'] === true,
             crawlTier: op['x-crawl-tier'] || 'normal',
+            subdomain: op['x-subdomain'] || null,
+            origin: op['x-origin'] || null,
             routeType: op['x-route-type'] || 'API',
             isUiRoute: op['x-is-ui-route'] === true
           });
@@ -237,6 +258,27 @@ export function getApiEndpointsBreakdown(analysisData, groupBy = 'auto') {
   // Normalize endpoints
   const normalizedEndpoints = rawEndpoints.map((ep, idx) => normalizeEndpointItem(ep, idx));
 
+  const distinctSubdomains = new Set(normalizedEndpoints.map(e => e.subdomain).filter(Boolean));
+  if (Array.isArray(analysisData.crawlerTelemetry?.subdomains)) {
+    analysisData.crawlerTelemetry.subdomains.forEach(s => s && distinctSubdomains.add(canonicalizeSubdomain(s)));
+  }
+  if (Array.isArray(analysisData.subdomains)) {
+    analysisData.subdomains.forEach(s => s && distinctSubdomains.add(canonicalizeSubdomain(s)));
+  }
+  if (Array.isArray(analysisData.crawlerTelemetry?.backendDomains)) {
+    analysisData.crawlerTelemetry.backendDomains.forEach(d => {
+      try { distinctSubdomains.add(canonicalizeSubdomain(new URL(d).hostname)); } catch {}
+    });
+  }
+  if (Array.isArray(analysisData.openApiSpec?.servers)) {
+    analysisData.openApiSpec.servers.forEach(srv => {
+      try { if (srv?.url) distinctSubdomains.add(canonicalizeSubdomain(new URL(srv.url).hostname)); } catch {}
+    });
+  }
+  if (Array.isArray(analysisData.openApiSpec?.['x-subdomains'])) {
+    analysisData.openApiSpec['x-subdomains'].forEach(s => s && distinctSubdomains.add(canonicalizeSubdomain(s)));
+  }
+
   // Determine effective groupBy strategy
   let effectiveStrategy = groupBy;
   if (effectiveStrategy === 'auto') {
@@ -247,23 +289,14 @@ export function getApiEndpointsBreakdown(analysisData, groupBy = 'auto') {
     const hasEmployer = normalizedEndpoints.some(e => e.path?.includes('/employer') || (e.path?.includes('/jobs') && !e.path?.includes('/admin/')) || e.path?.includes('/applications'));
     const hasPublic = normalizedEndpoints.some(e => e.path?.includes('/auth') || e.path?.includes('/tracks') || e.path?.includes('/events') || e.path?.includes('/platform'));
     const roleDomainsCount = [hasAdmin, hasStudent, hasMentor, hasTpo, hasEmployer, hasPublic].filter(Boolean).length;
-
-    const distinctSubdomains = new Set(normalizedEndpoints.map(e => e.subdomain).filter(Boolean));
-    if (Array.isArray(analysisData.crawlerTelemetry?.subdomains)) {
-      analysisData.crawlerTelemetry.subdomains.forEach(s => s && distinctSubdomains.add(canonicalizeSubdomain(s)));
-    }
-    if (Array.isArray(analysisData.subdomains)) {
-      analysisData.subdomains.forEach(s => s && distinctSubdomains.add(canonicalizeSubdomain(s)));
-    }
-    if (Array.isArray(analysisData.crawlerTelemetry?.backendDomains)) {
-      analysisData.crawlerTelemetry.backendDomains.forEach(d => {
-        try { distinctSubdomains.add(canonicalizeSubdomain(new URL(d).hostname)); } catch {}
-      });
-    }
+    const hasWpJson = normalizedEndpoints.some(e => e.path?.includes('/wp-json/'));
+    const subdomainsWithEndpoints = new Set(normalizedEndpoints.map(e => e.subdomain).filter(Boolean));
 
     if (roleDomainsCount >= 4 && (hasStudent || hasMentor || hasTpo)) {
       effectiveStrategy = 'domain';
-    } else if (distinctSubdomains.size > 1) {
+    } else if (hasWpJson) {
+      effectiveStrategy = 'resource';
+    } else if (subdomainsWithEndpoints.size > 1) {
       effectiveStrategy = 'subdomain';
     } else {
       effectiveStrategy = 'resource';
@@ -354,7 +387,7 @@ export function getApiEndpointsBreakdown(analysisData, groupBy = 'auto') {
       const resKey = extractSemanticResourceKey(ep);
       groupKey = resKey;
       groupName = formatResourceName(resKey);
-      groupBadge = ep.path && ep.path.startsWith('/wp-json/')
+      groupBadge = (ep.path && ep.path.includes('/wp-json/'))
         ? `/wp-json/${resKey}`
         : `/api/${resKey}`;
       groupType = 'Service / Resource';
@@ -376,10 +409,12 @@ export function getApiEndpointsBreakdown(analysisData, groupBy = 'auto') {
     groupsMap.get(groupKey).endpoints.push(ep);
   });
 
-  // Calculate statistics for each API group
+  // Calculate statistics for each API group (strictly filtering active services with endpoints > 0)
   const methodTotals = { GET: 0, POST: 0, PUT: 0, DELETE: 0, PATCH: 0, OTHER: 0 };
 
-  const apis = Array.from(groupsMap.values()).map((grp) => {
+  const apis = Array.from(groupsMap.values())
+    .filter((grp) => grp.endpoints.length > 0)
+    .map((grp) => {
     const epCount = grp.endpoints.length;
     const methodCounts = { GET: 0, POST: 0, PUT: 0, DELETE: 0, PATCH: 0, OTHER: 0 };
     const tablesSet = new Set();

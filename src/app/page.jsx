@@ -72,6 +72,7 @@ CREATE TABLE orders (
   const [showCrawlerProofModal, setShowCrawlerProofModal] = useState(false);
   const [crawlerProofTab, setCrawlerProofTab] = useState('matrix');
   const [showLandingSignals, setShowLandingSignals] = useState(false);
+  const [showAllSubdomains, setShowAllSubdomains] = useState(false);
 
   const landingBreakdown = useMemo(() => {
     return getApiEndpointsBreakdown(analysisResult, 'auto');
@@ -97,7 +98,11 @@ CREATE TABLE orders (
               summary: op.summary || op.description || '',
               module: op['x-bundle-source'] || '',
               isLazyLoaded: op['x-lazy-loaded'] === true,
-              crawlTier: op['x-crawl-tier'] || 'normal'
+              crawlTier: op['x-crawl-tier'] || 'normal',
+              subdomain: op['x-subdomain'] || null,
+              origin: op['x-origin'] || null,
+              routeType: op['x-route-type'] || 'API',
+              isUiRoute: op['x-is-ui-route'] === true
             });
           }
         });
@@ -1185,13 +1190,13 @@ CREATE TABLE audit_logs (
                               <CheckCircle2 className="h-3 w-3" />
                               <span>Normal Crawl</span>
                             </span>
-                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-400 font-bold border border-cyan-500/20">
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 font-bold border border-cyan-200 dark:border-cyan-500/20">
                               Standard
                             </span>
                           </div>
-                          <div className="text-xl font-bold font-mono text-cyan-400">
+                          <div className="text-xl font-bold font-mono text-cyan-700 dark:text-cyan-400">
                             {analysisResult.crawlerTelemetry.normalCrawlCount ?? analysisResult.code?.endpoints?.filter(e => !e.isLazyLoaded).length ?? 0}
-                            <span className="text-xs font-sans font-normal text-muted ml-1">APIs</span>
+                            <span className="text-xs font-sans font-normal text-muted ml-1">Endpoints</span>
                           </div>
                           <div className="text-[10px] text-muted font-sans mt-0.5">
                             Entry Bundles ({analysisResult.crawlerTelemetry.normalChunksCount || analysisResult.crawlerTelemetry.crawlDepth?.normal?.chunksCount || 1} chunk)
@@ -1201,17 +1206,17 @@ CREATE TABLE audit_logs (
                         {/* 2. Lazy-Loaded Chunks Card */}
                         <div className="p-2.5 rounded-lg bg-surface border border-purple-500/30 flex flex-col justify-between">
                           <div className="flex items-center justify-between gap-1 mb-1">
-                            <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1">
+                            <span className="text-[10px] font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider flex items-center gap-1">
                               <Layers className="h-3 w-3" />
                               <span>Lazy-Loaded</span>
                             </span>
-                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-400 font-bold border border-purple-500/20">
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 font-bold border border-purple-200 dark:border-purple-500/20">
                               Code-Split
                             </span>
                           </div>
-                          <div className="text-xl font-bold font-mono text-purple-400">
+                          <div className="text-xl font-bold font-mono text-purple-700 dark:text-purple-400">
                             +{analysisResult.crawlerTelemetry.lazyLoadedEndpointsCount ?? 0}
-                            <span className="text-xs font-sans font-normal text-muted ml-1">APIs</span>
+                            <span className="text-xs font-sans font-normal text-muted ml-1">Endpoints</span>
                           </div>
                           <div className="text-[10px] text-muted font-sans mt-0.5">
                             Uncovered via Dynamic Chunks
@@ -1221,17 +1226,17 @@ CREATE TABLE audit_logs (
                         {/* 3. Deep Crawl Total Card */}
                         <div className="p-2.5 rounded-lg bg-surface border border-emerald-500/30 flex flex-col justify-between">
                           <div className="flex items-center justify-between gap-1 mb-1">
-                            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1">
                               <Sparkles className="h-3 w-3" />
                               <span>Deep Crawl</span>
                             </span>
-                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20">
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-200 dark:border-emerald-500/20">
                               Total
                             </span>
                           </div>
-                          <div className="text-xl font-bold font-mono text-emerald-400">
+                          <div className="text-xl font-bold font-mono text-emerald-700 dark:text-emerald-400">
                             {analysisResult.crawlerTelemetry.deepCrawlCount ?? analysisResult.code?.endpoints?.length ?? 0}
-                            <span className="text-xs font-sans font-normal text-muted ml-1">APIs</span>
+                            <span className="text-xs font-sans font-normal text-muted ml-1">Endpoints</span>
                           </div>
                           <div className="text-[10px] text-muted font-sans mt-0.5">
                             All {analysisResult.crawlerTelemetry.chunksCrawledCount || 1} Chunks & Routes
@@ -1243,28 +1248,28 @@ CREATE TABLE audit_logs (
                       <div className="p-2 rounded-lg bg-surface border border-border text-[11px] font-mono flex items-center justify-between flex-wrap gap-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-muted">Crawl Composition:</span>
-                          <span className="px-2 py-0.5 rounded bg-cyan-950/40 text-cyan-400 border border-cyan-500/20 font-bold">
+                          <span className="px-2 py-0.5 rounded bg-cyan-50 text-cyan-800 border-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-400 dark:border-cyan-500/20 font-bold">
                             Normal: {analysisResult.crawlerTelemetry.normalCrawlCount ?? 0}
                           </span>
                           <span className="text-muted">+</span>
-                          <span className="px-2 py-0.5 rounded bg-purple-950/40 text-purple-400 border border-purple-500/20 font-bold">
+                          <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-500/20 font-bold">
                             Lazy: {analysisResult.crawlerTelemetry.lazyLoadedEndpointsCount ?? 0}
                           </span>
                           <span className="text-muted">=</span>
-                          <span className="px-2 py-0.5 rounded bg-emerald-950/40 text-emerald-400 border border-emerald-500/20 font-bold">
-                            Deep: {analysisResult.crawlerTelemetry.deepCrawlCount ?? (analysisResult.code?.endpoints?.length || 0)} APIs
+                          <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-500/20 font-bold">
+                            Deep: {analysisResult.crawlerTelemetry.deepCrawlCount ?? (analysisResult.code?.endpoints?.length || 0)} Endpoints
                           </span>
                         </div>
                         <div className="flex items-center gap-3 text-muted text-[10px]">
                           <span>Duration: <strong className="text-foreground">{((analysisResult.crawlerTelemetry.crawlDurationMs || 0) / 1000).toFixed(2)}s</strong></span>
-                          <span>Chunks: <strong className="text-amber-400">{analysisResult.crawlerTelemetry.chunksCrawledCount || 1}</strong></span>
+                          <span>Chunks: <strong className="text-amber-700 dark:text-amber-400">{analysisResult.crawlerTelemetry.chunksCrawledCount || 1}</strong></span>
                         </div>
                       </div>
 
                       {/* Crawler Accuracy & Trustworthiness Proof Ribbon */}
                       <div className="p-3 rounded-xl bg-gradient-to-r from-emerald-500/10 via-brand/10 to-purple-500/10 border border-emerald-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-left">
                         <div className="flex items-center gap-2.5">
-                          <div className="h-8 w-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+                          <div className="h-8 w-8 rounded-lg bg-emerald-50 dark:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/40 flex items-center justify-center text-emerald-700 dark:text-emerald-400 shrink-0">
                             <ShieldCheck className="h-4.5 w-4.5" />
                           </div>
                           <div>
@@ -1321,7 +1326,7 @@ CREATE TABLE audit_logs (
                         if (!ts && !cp) return null;
 
                         const frontendCp = ts?.frontend?.cloudProvider || cp?.frontend || cp;
-                        const backendCp = ts?.backend?.cloudProvider || cp?.backend || (
+                        const backendCp = ts?.backend?.cloudProvider || cp?.backend || analysisResult.crawlerTelemetry?.cloudProvider?.backend || (
                           frontendCp?.code === 'vercel'
                             ? { name: 'Vercel Serverless Functions', code: 'vercel', category: 'Serverless Cloud (AWS Lambda Under-the-hood)' }
                             : frontendCp?.code === 'cloudflare'
@@ -1462,7 +1467,7 @@ CREATE TABLE audit_logs (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                               {/* 1. Frontend */}
                               <div className="p-2.5 rounded-lg bg-surface-raised border border-border/80 space-y-1">
-                                <span className="text-[9px] font-bold text-cyan-400 font-mono uppercase flex items-center gap-1">
+                                <span className="text-[9px] font-bold text-cyan-700 dark:text-cyan-400 font-mono uppercase flex items-center gap-1">
                                   <Code2 className="h-3 w-3" />
                                   <span>Frontend Layer</span>
                                 </span>
@@ -1478,7 +1483,7 @@ CREATE TABLE audit_logs (
 
                               {/* 2. Backend */}
                               <div className="p-2.5 rounded-lg bg-surface-raised border border-border/80 space-y-1">
-                                <span className="text-[9px] font-bold text-purple-400 font-mono uppercase flex items-center gap-1">
+                                <span className="text-[9px] font-bold text-purple-700 dark:text-purple-400 font-mono uppercase flex items-center gap-1">
                                   <Server className="h-3 w-3" />
                                   <span>Backend Runtime</span>
                                 </span>
@@ -1487,20 +1492,20 @@ CREATE TABLE audit_logs (
                                 </div>
                                 <div className="text-[10px] text-muted font-mono space-y-0.5 pt-0.5">
                                   <div className="truncate">Pattern: <strong className="text-foreground">{ts?.backend?.apiArchitecture?.split('·')[0]?.trim() || 'REST APIs'}</strong></div>
-                                  <div className="truncate">Host: <strong className="text-purple-400">{backendCp?.name?.split('(')[0]?.trim() || 'Cloud Compute'}</strong></div>
+                                  <div className="truncate">Host: <strong className="text-purple-700 dark:text-purple-400">{backendCp?.name?.split('(')[0]?.trim() || 'Cloud Compute'}</strong></div>
                                   <div className="truncate">Server: <strong className="text-foreground">{ts?.backend?.serverSoftware || 'HTTP Gateway'}</strong></div>
-                                  <div className="truncate">Routes: <strong className="text-emerald-400">{landingEndpointsList.length} Endpoints</strong></div>
+                                  <div className="truncate">Routes: <strong className="text-emerald-700 dark:text-emerald-400">{landingEndpointsList.length} Endpoints</strong></div>
                                 </div>
                               </div>
 
                               {/* 3. Cloud Provider & Hosting */}
                               <div className="p-2.5 rounded-lg bg-surface-raised border border-border/80 space-y-1.5">
-                                <span className="text-[9px] font-bold text-sky-400 font-mono uppercase flex items-center justify-between">
+                                <span className="text-[9px] font-bold text-sky-700 dark:text-sky-400 font-mono uppercase flex items-center justify-between">
                                   <span className="flex items-center gap-1">
                                     <Cloud className="h-3 w-3" />
                                     <span>Cloud & Hosting</span>
                                   </span>
-                                  <span className="text-[8px] font-mono px-1 py-0.2 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-bold">
+                                  <span className="text-[8px] font-mono px-1 py-0.2 rounded bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-200 dark:border-sky-500/20 font-bold">
                                     {frontendCp?.code !== backendCp?.code && backendCp?.code && backendCp.code !== 'unknown' && backendCp.code !== 'co_hosted'
                                       ? 'MULTI-CLOUD'
                                       : (frontendCp?.code ? frontendCp.code.toUpperCase() : 'CLOUD')}
@@ -1509,14 +1514,14 @@ CREATE TABLE audit_logs (
                                 
                                 <div className="space-y-1 text-xs">
                                   <div className="truncate flex items-center gap-1">
-                                    <span className="text-[9px] font-mono text-cyan-400 font-bold">FE:</span>
+                                    <span className="text-[9px] font-mono text-cyan-700 dark:text-cyan-400 font-bold">FE:</span>
                                     <strong className="text-foreground truncate" title={frontendCp?.name || 'Cloud Edge'}>
                                       {frontendCp?.name || 'Cloud Edge'}
                                     </strong>
                                   </div>
                                   <div className="truncate flex items-center gap-1">
-                                    <span className="text-[9px] font-mono text-purple-400 font-bold">BE:</span>
-                                    <strong className="text-purple-300 truncate" title={backendCp?.name || 'Cloud Compute'}>
+                                    <span className="text-[9px] font-mono text-purple-700 dark:text-purple-400 font-bold">BE:</span>
+                                    <strong className="text-purple-800 dark:text-purple-300 truncate" title={backendCp?.name || 'Cloud Compute'}>
                                       {backendCp?.name || 'Co-Hosted Cloud'}
                                     </strong>
                                   </div>
@@ -1525,7 +1530,7 @@ CREATE TABLE audit_logs (
                                 <div className="text-[10px] text-muted font-mono space-y-0.5 pt-0.5 border-t border-border/40">
                                   <div className="truncate">Backend: <strong className="text-foreground">{backendCp?.category?.split('/')[0]?.trim() || 'API Server'}</strong></div>
                                   {(backendCp?.region || frontendCp?.region) && (
-                                    <div className="truncate">Region: <strong className="text-emerald-400">{backendCp?.region || frontendCp?.region}</strong></div>
+                                    <div className="truncate">Region: <strong className="text-emerald-700 dark:text-emerald-400">{backendCp?.region || frontendCp?.region}</strong></div>
                                   )}
                                   <div className="truncate">Evidence: <strong className="text-foreground">{(backendCp?.evidence?.[0] || frontendCp?.evidence?.[0])?.split('(')[0]?.trim() || 'Verified'}</strong></div>
                                 </div>
@@ -1554,21 +1559,145 @@ CREATE TABLE audit_logs (
                               </div>
                             </div>
 
-                            {/* Discovered Microservice Gateways if present */}
-                            {ts?.backend?.discoveredGateways?.length > 0 && (
-                              <div className="p-2 rounded-lg bg-surface-raised border border-border/60 flex items-center gap-2 flex-wrap text-[11px] font-mono">
-                                <span className="text-cyan-400 font-bold flex items-center gap-1">
-                                  <Network className="h-3 w-3" />
-                                  <span>Gateways:</span>
-                                </span>
-                                {ts.backend.discoveredGateways.map((domain, gIdx) => (
-                                  <span key={gIdx} className="px-1.5 py-0.5 rounded bg-surface border border-border text-foreground font-medium flex items-center gap-1">
-                                    <ExternalLink className="h-2.5 w-2.5 text-brand" />
-                                    <span>{domain}</span>
+                            {/* Digital Perimeter: Main Domain & All Discovered Subdomains */}
+                            {(() => {
+                              const landingSubdomainsList = (() => {
+                                const set = new Set();
+                                const add = (s) => {
+                                  if (!s || typeof s !== 'string') return;
+                                  let clean = s.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
+                                  if (clean.startsWith('www.')) clean = clean.slice(4);
+                                  if (clean) set.add(clean);
+                                };
+                                if (Array.isArray(analysisResult.subdomains)) analysisResult.subdomains.forEach(add);
+                                if (Array.isArray(analysisResult.crawlerTelemetry?.subdomains)) analysisResult.crawlerTelemetry.subdomains.forEach(add);
+                                if (Array.isArray(ts?.backend?.subdomains)) ts.backend.subdomains.forEach(add);
+                                if (Array.isArray(analysisResult.openApiSpec?.['x-subdomains'])) analysisResult.openApiSpec['x-subdomains'].forEach(add);
+                                if (Array.isArray(analysisResult.openApiSpec?.servers)) analysisResult.openApiSpec.servers.forEach(srv => srv?.url && add(srv.url));
+                                if (Array.isArray(analysisResult.crawlerTelemetry?.backendDomains)) analysisResult.crawlerTelemetry.backendDomains.forEach(add);
+                                if (Array.isArray(ts?.backend?.discoveredGateways)) ts.backend.discoveredGateways.forEach(add);
+                                if (Array.isArray(analysisResult.infra?.subdomains)) analysisResult.infra.subdomains.forEach(add);
+                                if (Array.isArray(analysisResult.code?.endpoints)) analysisResult.code.endpoints.forEach(e => e.subdomain && add(e.subdomain));
+
+                                const primaryCandidate = (() => {
+                                  const candidates = [analysisResult.projectPath, analysisResult.projectName, analysisResult.targetUrl, analysisResult.crawlerTelemetry?.targetUrl];
+                                  for (const c of candidates) {
+                                    if (c && typeof c === 'string') {
+                                      try {
+                                        const h = new URL(c.startsWith('http') ? c : `https://${c}`).hostname.toLowerCase().replace(/^www\./, '');
+                                        if (h) return h;
+                                      } catch {}
+                                    }
+                                  }
+                                  return null;
+                                })();
+
+                                if (primaryCandidate) add(primaryCandidate);
+
+                                const list = Array.from(set);
+                                if (primaryCandidate && list.includes(primaryCandidate)) {
+                                  return [primaryCandidate, ...list.filter(s => s !== primaryCandidate).sort()];
+                                }
+                                return list.sort();
+                              })();
+
+                              const landingMainDomain = landingSubdomainsList[0] || (function() {
+                                try {
+                                  const raw = analysisResult.targetUrl || analysisResult.projectPath || analysisResult.projectName || '';
+                                  return new URL(raw.startsWith('http') ? raw : `https://${raw}`).hostname.toLowerCase().replace(/^www\./, '');
+                                } catch {
+                                  return analysisResult.projectName || 'Origin Gateway';
+                                }
+                              })();
+
+                              if (landingSubdomainsList.length === 0) return null;
+
+                              return (
+                                <div className="p-3 rounded-xl bg-surface-raised border border-indigo-500/30 space-y-2 text-left">
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <div className="flex items-center gap-2">
+                                      <div className="h-6 w-6 rounded-md bg-indigo-50 dark:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-500/30 flex items-center justify-center text-indigo-700 dark:text-indigo-400">
+                                        <Globe className="h-3.5 w-3.5" />
+                                      </div>
+                                      <div>
+                                        <span className="text-xs font-bold text-foreground">Digital Perimeter & Discovered Subdomains</span>
+                                        <span className="text-[10px] font-mono ml-2 px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20 font-bold">
+                                          {landingSubdomainsList.length} {landingSubdomainsList.length === 1 ? 'Domain' : 'Domains / Subdomains'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="text-[10px] font-mono text-muted">
+                                      Main Apex Domain: <strong className="text-indigo-700 dark:text-indigo-400 font-bold">{landingMainDomain}</strong>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                    {(showAllSubdomains ? landingSubdomainsList : landingSubdomainsList.slice(0, 24)).map((sub, sIdx) => {
+                                      const isMain = sub === landingMainDomain;
+                                      return (
+                                        <span
+                                          key={sIdx}
+                                          className={`text-xs font-mono px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-colors ${
+                                            isMain
+                                              ? 'bg-indigo-50 text-indigo-950 border-indigo-300 dark:bg-indigo-500/20 dark:text-indigo-200 dark:border-indigo-400 font-bold shadow-xs'
+                                              : 'bg-surface text-foreground font-medium border-border hover:border-indigo-500/30'
+                                          }`}
+                                        >
+                                          <Globe className={`h-3 w-3 ${isMain ? 'text-indigo-700 dark:text-indigo-400' : 'text-muted'}`} />
+                                          <span>{sub}</span>
+                                          {isMain && (
+                                            <span className="text-[9px] font-sans px-1.5 py-0.2 rounded bg-indigo-200 text-indigo-900 dark:bg-indigo-500/40 dark:text-indigo-200 uppercase tracking-wider font-extrabold ml-0.5">
+                                              Main Domain
+                                            </span>
+                                          )}
+                                        </span>
+                                      );
+                                    })}
+                                    {landingSubdomainsList.length > 24 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowAllSubdomains(!showAllSubdomains)}
+                                        className="text-xs font-mono font-semibold px-2.5 py-1 rounded-lg border border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all cursor-pointer"
+                                      >
+                                        {showAllSubdomains
+                                          ? 'Show Less'
+                                          : `+${landingSubdomainsList.length - 24} more subdomains`}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {/* Discovered External Microservice Gateways if present */}
+                            {(() => {
+                              const externalGateways = (ts?.backend?.discoveredGateways || []).filter(g => {
+                                try {
+                                  const h = new URL(g).hostname.toLowerCase().replace(/^www\./, '');
+                                  return (
+                                    !Array.isArray(analysisResult.subdomains) ||
+                                    !analysisResult.subdomains.map(s => s.toLowerCase().replace(/^www\./, '')).includes(h)
+                                  );
+                                } catch {
+                                  return true;
+                                }
+                              });
+                              if (externalGateways.length === 0) return null;
+                              return (
+                                <div className="p-2 rounded-lg bg-surface-raised border border-border/60 flex items-center gap-2 flex-wrap text-[11px] font-mono">
+                                  <span className="text-cyan-400 font-bold flex items-center gap-1">
+                                    <Network className="h-3 w-3" />
+                                    <span>External Gateways:</span>
                                   </span>
-                                ))}
-                              </div>
-                            )}
+                                  {externalGateways.map((domain, gIdx) => (
+                                    <span key={gIdx} className="px-1.5 py-0.5 rounded bg-surface border border-border text-foreground font-medium flex items-center gap-1">
+                                      <ExternalLink className="h-2.5 w-2.5 text-brand" />
+                                      <span>{domain}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })()}
@@ -2417,7 +2546,7 @@ CREATE TABLE audit_logs (
                     </span>
                     <span className="flex items-center gap-1 font-mono">
                       <Cpu className="h-3 w-3 text-rose-500" />
-                      <span>{item.endpointsCount} APIs</span>
+                      <span>{item.endpointsCount} {item.endpointsCount === 1 ? 'endpoint' : 'endpoints'}</span>
                     </span>
                     <span className="text-brand font-medium text-xs group-hover:translate-x-0.5 transition-transform inline-flex items-center gap-0.5">
                       Open <ArrowRight className="h-3 w-3" />
@@ -2656,7 +2785,7 @@ CREATE TABLE audit_logs (
           {/* Bottom bar */}
           <div className="mt-6 lg:mt-8 pt-4 lg:pt-6 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-muted">
             <div className="flex flex-wrap items-center gap-4 text-[10px] font-mono">
-              <span className="inline-flex items-center gap-1.5"><Cpu className="h-3 w-3" /> v1.1.47</span>
+              <span className="inline-flex items-center gap-1.5"><Cpu className="h-3 w-3" /> v{process.env.NEXT_PUBLIC_APP_VERSION || '1.1.58'}</span>
               <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3 w-3 text-emerald-500" /> Local-first</span>
               <span className="inline-flex items-center gap-1.5"><Lock className="h-3 w-3" /> Private by default</span>
             </div>

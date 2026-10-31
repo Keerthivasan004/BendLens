@@ -4,7 +4,7 @@ import util from 'util';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { getEffectiveLatest, getLocalVersion, setLocalVersion } from '@/lib/releaseInfo';
+import { getEffectiveLatest, getLocalVersion, setLocalVersion, BASELINE_LATEST_VERSION } from '@/lib/releaseInfo';
 import appPaths from '@/lib/appPaths';
 
 export const dynamic = 'force-dynamic';
@@ -243,7 +243,7 @@ export async function POST(request) {
       effective = await getEffectiveLatest(projectRoot, { allowRemote: true });
     } catch {}
 
-    const targetVer = targetVersion || effective?.latestVersion || getLocalVersion(projectRoot) || '1.1.43';
+    const targetVer = targetVersion || effective?.latestVersion || getLocalVersion(projectRoot) || BASELINE_LATEST_VERSION;
     let setupArtifactName = effective?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
     if (!setupArtifactName.endsWith('.exe')) {
       setupArtifactName = `BendLens-Setup-${targetVer}.exe`;

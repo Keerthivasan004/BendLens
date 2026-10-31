@@ -308,6 +308,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               module: op['x-bundle-source'] || '',
               isLazyLoaded: op['x-lazy-loaded'] === true,
               crawlTier: op['x-crawl-tier'] || 'normal',
+              subdomain: op['x-subdomain'] || null,
+              origin: op['x-origin'] || null,
               routeType: op['x-route-type'] || 'API',
               isUiRoute: op['x-is-ui-route'] === true
             });
@@ -320,28 +322,111 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
   }, [data, rawAnalysisData]);
   const warnings = data?.breakingChangeWarnings || [];
 
-  const isUrl = isUrlScan || rawAnalysisData?.isUrlCrawl || !!rawAnalysisData?.crawlerTelemetry || (tables.length === 0 && endpoints.length > 0);
+  const isUrl = isUrlScan || rawAnalysisData?.isUrlCrawl || !!rawAnalysisData?.crawlerTelemetry || (
+    typeof rawAnalysisData?.projectPath === 'string' && (rawAnalysisData.projectPath.startsWith('http://') || rawAnalysisData.projectPath.startsWith('https://'))
+  ) || (
+    typeof data?.projectPath === 'string' && (data.projectPath.startsWith('http://') || data.projectPath.startsWith('https://'))
+  );
   const techStack = data?.techStack || rawAnalysisData?.techStack || data?.crawlerTelemetry?.techStack || rawAnalysisData?.crawlerTelemetry?.techStack;
 
   const frontendCp = useMemo(() => {
-    return techStack?.frontend?.cloudProvider ||
+    const direct = techStack?.frontend?.cloudProvider ||
       techStack?.cloudProvider?.frontend ||
       techStack?.cloudProvider ||
+      rawAnalysisData?.cloudProvider?.frontend ||
+      rawAnalysisData?.cloudProvider ||
+      data?.cloudProvider?.frontend ||
       data?.cloudProvider ||
-      rawAnalysisData?.cloudProvider;
-  }, [techStack, data, rawAnalysisData]);
+      rawAnalysisData?.crawlerTelemetry?.cloudProvider?.frontend ||
+      rawAnalysisData?.crawlerTelemetry?.cloudProvider;
+    if (direct && direct.name && direct.code !== 'unknown') return direct;
+
+    if (!isUrl) {
+      return {
+        name: 'Local Ingress / API Gateway',
+        code: 'local_ingress',
+        category: 'Local Ingress',
+        role: 'frontend_edge',
+        services: ['Headless Backend API / Local Web Ingress'],
+        evidence: ['Local Codebase AST']
+      };
+    }
+    return direct || null;
+  }, [techStack, data, rawAnalysisData, isUrl]);
 
   const backendCp = useMemo(() => {
-    if (techStack?.backend?.cloudProvider && techStack.backend.cloudProvider.role === 'backend_compute') {
-      return techStack.backend.cloudProvider;
+    // 1. Direct candidates from all possible storage locations
+    const candidates = [
+      techStack?.backend?.cloudProvider,
+      techStack?.cloudProvider?.backend,
+      rawAnalysisData?.cloudProvider?.backend,
+      data?.cloudProvider?.backend,
+      rawAnalysisData?.crawlerTelemetry?.cloudProvider?.backend,
+      data?.crawlerTelemetry?.cloudProvider?.backend,
+      rawAnalysisData?.crawlerTelemetry?.techStack?.backend?.cloudProvider,
+      data?.crawlerTelemetry?.techStack?.backend?.cloudProvider
+    ];
+    for (const c of candidates) {
+      if (c && c.name && c.code !== 'unknown') return c;
     }
-    if (techStack?.cloudProvider?.backend) {
-      return techStack.cloudProvider.backend;
+
+    if (techStack?.backend?.hosting && typeof techStack.backend.hosting === 'string' && techStack.backend.hosting !== 'Co-Hosted Cloud Engine' && techStack.backend.hosting !== 'Unreachable') {
+      return {
+        name: techStack.backend.hosting,
+        code: 'co_hosted',
+        category: 'Managed Backend Hosting',
+        role: 'backend_compute',
+        services: [techStack?.backend?.serverRuntime || 'API Engine'],
+        evidence: [techStack?.backend?.serverSoftware ? `Server: ${techStack.backend.serverSoftware}` : 'Verified Backend']
+      };
     }
-    if (techStack?.backend?.cloudProvider && techStack?.frontend?.cloudProvider && techStack.backend.cloudProvider !== techStack.frontend.cloudProvider) {
-      return techStack.backend.cloudProvider;
+
+    // 2. Local Codebase Analysis (Docker, Kubernetes, Process Runtime)
+    if (!isUrl) {
+      const infraServices = rawAnalysisData?.infra?.services || data?.infra?.services || [];
+      const infraConfigs = rawAnalysisData?.infra?.configs || data?.infra?.configs || [];
+      if (infraServices.length > 0) {
+        const svcNames = infraServices.map(s => s.name).filter(Boolean);
+        return {
+          name: `Docker Compose (${svcNames.slice(0, 2).join(', ')}${svcNames.length > 2 ? ' +' + (svcNames.length - 2) : ''})`,
+          code: 'docker_compose',
+          category: 'Containerized Microservices (Docker Compose)',
+          role: 'backend_compute',
+          services: svcNames.length > 0 ? svcNames : ['Containerized Services'],
+          evidence: ['docker-compose.yml']
+        };
+      }
+      const hasDocker = infraConfigs.some(c => c.type === 'Dockerfile') || (rawAnalysisData?.fileList || []).some(f => f.toLowerCase().includes('dockerfile'));
+      if (hasDocker) {
+        return {
+          name: 'Docker Container Runtime',
+          code: 'docker',
+          category: 'Containerized Backend (Dockerfile)',
+          role: 'backend_compute',
+          services: ['Containerized Application Process'],
+          evidence: ['Dockerfile']
+        };
+      }
+      const primaryLang = (rawAnalysisData?.code?.modules || []).find(m => m.extension)?.extension || '';
+      const runtimeName = primaryLang === '.py' ? 'Python Runtime (WSGI/ASGI)'
+        : (primaryLang === '.java' || primaryLang === '.kt') ? 'JVM / Spring Boot Runtime'
+        : (primaryLang === '.go') ? 'Go Binary Runtime'
+        : (primaryLang === '.php') ? 'PHP Server Runtime'
+        : (primaryLang === '.rb') ? 'Ruby on Rails Runtime'
+        : 'Node.js Engine (Server Runtime)';
+      return {
+        name: `Local / Self-Hosted (${runtimeName.split(' ')[0]})`,
+        code: 'local_process',
+        category: 'Self-Hosted Application Runtime',
+        role: 'backend_compute',
+        services: [runtimeName],
+        evidence: ['Source Code AST Analysis']
+      };
     }
+
+    // 3. Fallbacks based on frontend provider code
     const feCode = frontendCp?.code || '';
+    const runtime = techStack?.backend?.serverRuntime || '';
     if (feCode === 'vercel') {
       return {
         name: 'Vercel Serverless Functions',
@@ -373,12 +458,15 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       };
     }
     if (feCode === 'hostinger') {
+      const isWordpress = (rawAnalysisData?.crawlerTelemetry?.frameworksDetected || []).includes('WordPress') || (techStack?.frontend?.framework || '').includes('WordPress');
+      const isPhp = isWordpress || runtime.toLowerCase().includes('php');
+      const compLabel = isPhp ? 'Hostinger Cloud Compute (PHP-FPM / FastCGI)' : (runtime ? `Hostinger Cloud Compute (${runtime.split('(')[0].trim()})` : 'Hostinger Cloud Compute');
       return {
         name: 'Hostinger Cloud Server',
         code: 'hostinger',
         category: 'Managed Cloud & VPS Infrastructure',
         role: 'backend_compute',
-        services: ['Hostinger Cloud Compute (Node.js/PHP-FPM)', 'Hostinger Managed Server'],
+        services: [compLabel, 'Hostinger Managed Server / HPanel'],
         evidence: ['Hostinger Cloud Platform']
       };
     }
@@ -388,19 +476,20 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
         code: 'self_hosted',
         category: 'Dedicated / Virtual Private Server (VPS)',
         role: 'backend_compute',
-        services: [`Linux Host (${techStack?.backend?.serverRuntime || 'Node.js Engine'})`],
+        services: [`Linux Host (${runtime || 'Node.js Engine'})`],
         evidence: [techStack?.backend?.serverSoftware ? `Server Software: ${techStack.backend.serverSoftware}` : 'Self-Hosted Origin Server']
       };
     }
+
     return {
-      name: techStack?.backend?.hostingCdn?.split('·')[0]?.trim() || techStack?.backend?.serverRuntime?.split('(')[0]?.trim() || 'Co-Hosted Cloud Engine',
+      name: techStack?.backend?.hostingCdn?.split('·')[0]?.trim() || runtime.split('(')[0]?.trim() || 'Co-Hosted Cloud Compute',
       code: 'co_hosted',
       category: 'Unified Cloud Compute',
       role: 'backend_compute',
-      services: [techStack?.backend?.serverRuntime || 'Node.js / Cloud Serverless'],
+      services: [runtime || 'Node.js / Cloud Serverless'],
       evidence: ['Unified Origin Architecture']
     };
-  }, [techStack, frontendCp]);
+  }, [techStack, frontendCp, data, rawAnalysisData, isUrl]);
 
   const verifiedSignalsList = useMemo(() => {
     if (Array.isArray(techStack?.verifiedSignals) && techStack.verifiedSignals.length > 0) {
@@ -489,20 +578,61 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
     allEnrichedEndpoints.forEach((e) => {
       if (e.subdomain) addSub(e.subdomain);
     });
-    if (Array.isArray(rawAnalysisData?.crawlerTelemetry?.subdomains)) {
-      rawAnalysisData.crawlerTelemetry.subdomains.forEach(addSub);
+    const srcData = rawAnalysisData || data || {};
+    if (Array.isArray(srcData.crawlerTelemetry?.subdomains)) {
+      srcData.crawlerTelemetry.subdomains.forEach(addSub);
     }
-    if (Array.isArray(rawAnalysisData?.subdomains)) {
-      rawAnalysisData.subdomains.forEach(addSub);
+    if (Array.isArray(srcData.subdomains)) {
+      srcData.subdomains.forEach(addSub);
     }
-    if (Array.isArray(rawAnalysisData?.crawlerTelemetry?.backendDomains)) {
-      rawAnalysisData.crawlerTelemetry.backendDomains.forEach(addSub);
+    if (Array.isArray(srcData.techStack?.backend?.subdomains)) {
+      srcData.techStack.backend.subdomains.forEach(addSub);
     }
-    if (Array.isArray(rawAnalysisData?.openApiSpec?.servers)) {
-      rawAnalysisData.openApiSpec.servers.forEach((srv) => srv?.url && addSub(srv.url));
+    if (Array.isArray(data?.techStack?.backend?.subdomains)) {
+      data.techStack.backend.subdomains.forEach(addSub);
     }
-    return Array.from(subs);
-  }, [allEnrichedEndpoints, rawAnalysisData]);
+    if (Array.isArray(srcData.crawlerTelemetry?.backendDomains)) {
+      srcData.crawlerTelemetry.backendDomains.forEach(addSub);
+    }
+    if (Array.isArray(srcData.openApiSpec?.servers)) {
+      srcData.openApiSpec.servers.forEach((srv) => srv?.url && addSub(srv.url));
+    }
+    if (Array.isArray(srcData.openApiSpec?.['x-subdomains'])) {
+      srcData.openApiSpec['x-subdomains'].forEach(addSub);
+    }
+    if (Array.isArray(srcData.infra?.subdomains)) {
+      srcData.infra.subdomains.forEach(addSub);
+    }
+    if (Array.isArray(data?.infra?.subdomains)) {
+      data.infra.subdomains.forEach(addSub);
+    }
+    if (Array.isArray(data?.subdomains)) {
+      data.subdomains.forEach(addSub);
+    }
+
+    const primaryCandidate = (() => {
+      const candidates = [srcData.projectPath, srcData.projectName, srcData.targetUrl, srcData.crawlerTelemetry?.targetUrl, data?.projectPath, data?.projectName, data?.targetUrl];
+      for (const c of candidates) {
+        if (c && typeof c === 'string') {
+          try {
+            const h = new URL(c.startsWith('http') ? c : `https://${c}`).hostname.toLowerCase().replace(/^www\./, '');
+            if (h && h.includes('.')) return h;
+          } catch {}
+        }
+      }
+      return null;
+    })();
+
+    if (primaryCandidate) {
+      addSub(primaryCandidate);
+    }
+
+    const list = Array.from(subs);
+    if (primaryCandidate && list.includes(primaryCandidate)) {
+      return [primaryCandidate, ...list.filter((s) => s !== primaryCandidate).sort()];
+    }
+    return list.sort();
+  }, [allEnrichedEndpoints, rawAnalysisData, data]);
 
   const apiStats = useMemo(() => {
     const total = allEnrichedEndpoints.length;
@@ -1186,7 +1316,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                     <Code2 className="h-3.5 w-3.5" />
                     <span>Frontend Layer</span>
                   </span>
-                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-400 font-bold border border-cyan-500/20">
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 font-bold border border-cyan-200 dark:border-cyan-500/20">
                     UI Runtime
                   </span>
                 </div>
@@ -1220,11 +1350,11 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
             <div className="p-4 rounded-xl bg-surface border border-border flex flex-col justify-between space-y-3 shadow-xs">
               <div>
                 <div className="flex items-center justify-between gap-1 mb-2">
-                  <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1 font-mono">
+                  <span className="text-[10px] font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider flex items-center gap-1 font-mono">
                     <Server className="h-3.5 w-3.5" />
                     <span>Backend Runtime</span>
                   </span>
-                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-400 font-bold border border-purple-500/20">
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 font-bold border border-purple-200 dark:border-purple-500/20">
                     Execution
                   </span>
                 </div>
@@ -1245,7 +1375,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                 </div>
                 <div className="flex justify-between items-center text-muted">
                   <span>Backend Host:</span>
-                  <span className="font-semibold text-purple-400 truncate max-w-[130px]" title={backendCp?.name}>
+                  <span className="font-semibold text-purple-700 dark:text-purple-400 truncate max-w-[130px]" title={backendCp?.name}>
                     {backendCp?.name?.split('(')[0]?.trim() || 'Cloud Compute'}
                   </span>
                 </div>
@@ -1255,7 +1385,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                 </div>
                 <div className="flex justify-between items-center text-muted">
                   <span>Discovered Routes:</span>
-                  <span className="font-semibold text-emerald-400">{allEnrichedEndpoints.length} Endpoints</span>
+                  <span className="font-semibold text-emerald-700 dark:text-emerald-400">{allEnrichedEndpoints.length} Endpoints</span>
                 </div>
               </div>
             </div>
@@ -1264,11 +1394,11 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
             <div className="p-4 rounded-xl bg-surface border border-border flex flex-col justify-between space-y-3 shadow-xs">
               <div>
                 <div className="flex items-center justify-between gap-1 mb-2">
-                  <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1 font-mono">
+                  <span className="text-[10px] font-bold text-sky-700 dark:text-sky-400 uppercase tracking-wider flex items-center gap-1 font-mono">
                     <Cloud className="h-3.5 w-3.5" />
                     <span>Cloud & Hosting</span>
                   </span>
-                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-400 font-bold border border-sky-500/20">
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 font-bold border border-sky-200 dark:border-sky-500/20">
                     {frontendCp?.code !== backendCp?.code && backendCp?.code && backendCp.code !== 'unknown' && backendCp.code !== 'co_hosted'
                       ? 'MULTI-CLOUD'
                       : (frontendCp?.code ? frontendCp.code.toUpperCase() : 'CLOUD')}
@@ -1280,7 +1410,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                   {/* Tier 1: Frontend Edge Delivery */}
                   <div className="p-2 rounded-lg bg-surface-raised/70 border border-border/60">
                     <div className="flex items-center justify-between text-[10px] font-mono mb-0.5">
-                      <span className="text-cyan-400 font-bold flex items-center gap-1">
+                      <span className="text-cyan-700 dark:text-cyan-400 font-bold flex items-center gap-1">
                         <Globe className="h-3 w-3" />
                         <span>Frontend Edge:</span>
                       </span>
@@ -1296,7 +1426,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                   {/* Tier 2: Backend Cloud Compute */}
                   <div className="p-2 rounded-lg bg-surface-raised/70 border border-border/60">
                     <div className="flex items-center justify-between text-[10px] font-mono mb-0.5">
-                      <span className="text-purple-400 font-bold flex items-center gap-1">
+                      <span className="text-purple-700 dark:text-purple-400 font-bold flex items-center gap-1">
                         <Server className="h-3 w-3" />
                         <span>Backend Hosting:</span>
                       </span>
@@ -1304,7 +1434,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                         {backendCp?.category?.split('/')[0]?.trim() || 'API Server'}
                       </span>
                     </div>
-                    <div className="text-sm font-extrabold text-purple-300 truncate" title={backendCp?.name || 'Cloud Compute'}>
+                    <div className="text-sm font-extrabold text-purple-800 dark:text-purple-300 truncate" title={backendCp?.name || 'Cloud Compute'}>
                       {backendCp?.name || 'Co-Hosted Cloud Compute'}
                     </div>
                   </div>
@@ -1314,21 +1444,21 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               <div className="pt-2 border-t border-border/60 space-y-1.5 text-[11px] font-mono">
                 <div className="flex justify-between items-center text-muted">
                   <span>Backend Env:</span>
-                  <span className="font-semibold text-foreground truncate max-w-[130px]" title={backendCp?.services?.[0] || techStack?.backend?.serverRuntime}>
-                    {backendCp?.services?.[0] || techStack?.backend?.serverRuntime?.split('(')[0]?.trim() || 'Serverless APIs'}
+                  <span className="font-semibold text-foreground truncate max-w-[180px]" title={techStack?.backend?.serverRuntime || backendCp?.services?.[0]}>
+                    {techStack?.backend?.serverRuntime || backendCp?.services?.[0] || 'Standard API Runtime'}
                   </span>
                 </div>
                 {(backendCp?.region || frontendCp?.region) && (
                   <div className="flex justify-between items-center text-muted">
                     <span>Region / POP:</span>
-                    <span className="font-semibold text-emerald-400 truncate max-w-[130px]">
+                    <span className="font-semibold text-emerald-700 dark:text-emerald-400 truncate max-w-[180px]">
                       {backendCp?.region || frontendCp?.region}
                     </span>
                   </div>
                 )}
                 <div className="flex justify-between items-center text-muted">
                   <span>Evidence:</span>
-                  <span className="font-semibold text-cyan-400 truncate max-w-[130px]" title={backendCp?.evidence?.[0] || frontendCp?.evidence?.[0]}>
+                  <span className="font-semibold text-cyan-700 dark:text-cyan-400 truncate max-w-[180px]" title={backendCp?.evidence?.[0] || frontendCp?.evidence?.[0]}>
                     {(backendCp?.evidence?.[0] || frontendCp?.evidence?.[0])?.split('(')[0]?.trim() || 'HTTP Headers'}
                   </span>
                 </div>
@@ -1338,7 +1468,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               {((backendCp?.services?.length > 1 ? backendCp.services : []) || frontendCp?.services?.slice(1, 4))?.length > 0 && (
                 <div className="pt-1 flex flex-wrap gap-1">
                   {(backendCp?.services?.length > 1 ? backendCp.services.slice(1, 4) : frontendCp?.services?.slice(1, 4) || []).map((srv, sIdx) => (
-                    <span key={sIdx} className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-950/40 text-purple-300 border border-purple-500/20 font-medium">
+                    <span key={sIdx} className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-50 text-purple-900 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-500/20 font-medium">
                       {srv}
                     </span>
                   ))}
@@ -1380,31 +1510,102 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
             </div>
           </div>
 
-          {/* Discovered Backend Microservice Domains / Gateways */}
-          {techStack?.backend?.discoveredGateways?.length > 0 && (
-            <div className="p-3.5 rounded-xl bg-surface border border-border space-y-2">
+          {/* Discovered Perimeter: Main Domain & All Discovered Subdomains */}
+          {distinctSubdomains.length > 0 && (
+            <div className="p-3.5 rounded-xl bg-surface border border-indigo-500/30 space-y-2.5">
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                  <Network className="h-4 w-4 text-cyan-500" />
-                  <span>Discovered Microservice Gateways & External Backend Domains ({techStack.backend.discoveredGateways.length})</span>
-                </span>
-                <span className="text-[10px] text-muted font-mono">
-                  Backend Host: <strong className="text-purple-400 font-bold">{backendCp?.name?.split('(')[0]?.trim() || 'Remote Gateway'}</strong>
-                </span>
+                <div className="flex items-center gap-2">
+                  <div className="h-6 w-6 rounded-md bg-indigo-50 dark:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-500/30 flex items-center justify-center text-indigo-700 dark:text-indigo-400">
+                    <Globe className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-foreground">Digital Perimeter & Discovered Subdomains</span>
+                    <span className="text-[10px] font-mono ml-2 px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20 font-bold">
+                      {distinctSubdomains.length} {distinctSubdomains.length === 1 ? 'Domain' : 'Domains / Subdomains'}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-[10px] font-mono text-muted">
+                  Main Apex Domain: <strong className="text-indigo-700 dark:text-indigo-400 font-bold">{distinctSubdomains[0]}</strong>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2 pt-1">
-                {techStack.backend.discoveredGateways.map((domain, idx) => (
-                  <span
-                    key={idx}
-                    className="text-xs font-mono px-2.5 py-1 rounded-lg bg-surface-raised text-foreground font-medium border border-border flex items-center gap-1.5"
-                  >
-                    <ExternalLink className="h-3 w-3 text-brand" />
-                    <span>{domain}</span>
-                  </span>
-                ))}
+
+              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                {distinctSubdomains.map((sub, sIdx) => {
+                  const isMain = sIdx === 0;
+                  const count = allEnrichedEndpoints.filter(e => {
+                    const epSub = e.subdomain ? e.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : '';
+                    return epSub === sub || (!epSub && (distinctSubdomains.length === 1 || sub === distinctSubdomains[0]));
+                  }).length;
+                  const isActive = apiSubdomainFilter === sub;
+
+                  return (
+                    <button
+                      key={sIdx}
+                      type="button"
+                      onClick={() => setApiSubdomainFilter(isActive ? 'ALL' : sub)}
+                      className={`text-xs font-mono px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs ring-1 ring-indigo-500/30 dark:bg-indigo-500/25 dark:text-indigo-200 dark:border-indigo-400 font-bold'
+                          : isMain
+                            ? 'bg-indigo-50 text-indigo-950 border-indigo-300 dark:bg-indigo-500/15 dark:text-indigo-200 dark:border-indigo-500/40 font-bold'
+                            : 'bg-surface-raised text-foreground font-medium border-border hover:border-indigo-500/30'
+                      }`}
+                      title={`Click to filter API routes to ${sub} (${count} endpoints)`}
+                    >
+                      <Globe className={`h-3 w-3 ${isMain ? (isActive ? 'text-white dark:text-indigo-400' : 'text-indigo-700 dark:text-indigo-400') : 'text-muted'}`} />
+                      <span>{sub}</span>
+                      {isMain && (
+                        <span className={`text-[9px] font-sans px-1.5 py-0.2 rounded uppercase tracking-wider font-extrabold ${isActive ? 'bg-indigo-700 text-white dark:bg-indigo-500/40 dark:text-indigo-200' : 'bg-indigo-200 text-indigo-900 dark:bg-indigo-500/40 dark:text-indigo-200'}`}>
+                          Main Domain
+                        </span>
+                      )}
+                      <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold border ${isActive ? 'bg-indigo-700 text-white border-transparent' : 'bg-surface text-indigo-800 dark:text-indigo-300 border-indigo-500/20'}`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
+
+          {/* Discovered External Microservice Gateways if present */}
+          {(() => {
+            const externalGateways = (techStack?.backend?.discoveredGateways || []).filter(g => {
+              try {
+                const h = new URL(g).hostname.toLowerCase().replace(/^www\./, '');
+                return !distinctSubdomains.includes(h);
+              } catch {
+                return true;
+              }
+            });
+            if (externalGateways.length === 0) return null;
+            return (
+              <div className="p-3.5 rounded-xl bg-surface border border-border space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    <Network className="h-4 w-4 text-cyan-500" />
+                    <span>External Microservice Gateways ({externalGateways.length})</span>
+                  </span>
+                  <span className="text-[10px] text-muted font-mono">
+                    Backend Host: <strong className="text-purple-400 font-bold">{backendCp?.name?.split('(')[0]?.trim() || 'Remote Gateway'}</strong>
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {externalGateways.map((domain, idx) => (
+                    <span
+                      key={idx}
+                      className="text-xs font-mono px-2.5 py-1 rounded-lg bg-surface-raised text-foreground font-medium border border-border flex items-center gap-1.5"
+                    >
+                      <ExternalLink className="h-3 w-3 text-brand" />
+                      <span>{domain}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ========================================================================= */}
           {/* DISCOVERED API ENDPOINTS SHOWCASE & REAL-TIME EXPLORER                    */}
@@ -1591,13 +1792,13 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                         onClick={() => setStackMethodFilter(m)}
                         className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition-all border flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${isActive
                             ? m === 'GET'
-                              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                              ? 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-400'
                               : m === 'POST'
-                                ? 'bg-purple-500/15 border-purple-500/40 text-purple-400'
+                                ? 'bg-purple-50 dark:bg-purple-500/15 border-purple-300 dark:border-purple-500/40 text-purple-700 dark:text-purple-400'
                                 : m === 'PUT'
-                                  ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                                  ? 'bg-amber-50 dark:bg-amber-500/15 border-amber-300 dark:border-amber-500/40 text-amber-700 dark:text-amber-400'
                                   : m === 'DELETE'
-                                    ? 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+                                    ? 'bg-rose-50 dark:bg-rose-500/15 border-rose-300 dark:border-rose-500/40 text-rose-700 dark:text-rose-400'
                                     : 'bg-brand/15 border-brand/40 text-brand'
                             : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
                           }`}
@@ -1664,27 +1865,27 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                           </div>
 
                           <div className="flex items-center gap-2.5 shrink-0">
-                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-violet-500/10 text-violet-300 border border-violet-500/25">
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-500/25">
                               {grp.endpoints.length} {grp.endpoints.length === 1 ? 'Endpoint' : 'Endpoints'}
                             </span>
                             <div className="hidden sm:flex items-center gap-1 text-[10px] font-mono">
                               {grp.methodCounts.GET > 0 && (
-                                <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <span className="px-1.5 py-0.2 rounded bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
                                   {grp.methodCounts.GET} GET
                                 </span>
                               )}
                               {grp.methodCounts.POST > 0 && (
-                                <span className="px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                                <span className="px-1.5 py-0.2 rounded bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
                                   {grp.methodCounts.POST} POST
                                 </span>
                               )}
                               {grp.methodCounts.PUT > 0 && (
-                                <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                <span className="px-1.5 py-0.2 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
                                   {grp.methodCounts.PUT} PUT
                                 </span>
                               )}
                               {grp.methodCounts.DELETE > 0 && (
-                                <span className="px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                <span className="px-1.5 py-0.2 rounded bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20">
                                   {grp.methodCounts.DELETE} DEL
                                 </span>
                               )}
@@ -1705,11 +1906,11 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                               const isPending = fetchingEndpoint === key;
 
                               const methodColor =
-                                ep.method === 'GET' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25' :
-                                  ep.method === 'POST' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
-                                    ep.method === 'PUT' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' :
-                                      ep.method === 'DELETE' ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' :
-                                        'bg-cyan-500/10 text-cyan-400 border-cyan-500/25';
+                                ep.method === 'GET' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25' :
+                                  ep.method === 'POST' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/25' :
+                                    ep.method === 'PUT' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/25' :
+                                      ep.method === 'DELETE' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/25' :
+                                        'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25';
 
                               return (
                                 <div
@@ -1726,9 +1927,9 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                                           {ep.path}
                                         </span>
                                         {ep.level && (
-                                          <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${ep.level === 'HIGH' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
-                                              ep.level === 'MEDIUM' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/25' :
-                                                'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                                          <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${ep.level === 'HIGH' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/25' :
+                                              ep.level === 'MEDIUM' ? 'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25' :
+                                                'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
                                             }`}>
                                             {ep.level}
                                           </span>
@@ -1834,11 +2035,11 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                     const isPending = fetchingEndpoint === key;
 
                     const methodColor =
-                      ep.method === 'GET' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25' :
-                        ep.method === 'POST' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
-                          ep.method === 'PUT' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' :
-                            ep.method === 'DELETE' ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' :
-                              'bg-cyan-500/10 text-cyan-400 border-cyan-500/25';
+                      ep.method === 'GET' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25' :
+                        ep.method === 'POST' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/25' :
+                          ep.method === 'PUT' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/25' :
+                            ep.method === 'DELETE' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/25' :
+                              'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25';
 
                     return (
                       <div
@@ -1857,9 +2058,9 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                                 {ep.path}
                               </span>
                               {ep.level && (
-                                <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${ep.level === 'HIGH' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
-                                    ep.level === 'MEDIUM' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/25' :
-                                      'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                                <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${ep.level === 'HIGH' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/25' :
+                                    ep.level === 'MEDIUM' ? 'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25' :
+                                      'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
                                   }`}>
                                   {ep.level}
                                 </span>
@@ -2864,16 +3065,16 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
         {/* MULTI-SUBDOMAIN FILTER TABS                                              */}
         {/* ========================================================================= */}
         {distinctSubdomains.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 p-2.5 bg-surface-raised rounded-xl border border-indigo-500/20 text-xs">
-            <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
-              <Globe className="h-3 w-3 text-indigo-400" />
+          <div className="flex flex-wrap items-center gap-1.5 p-2.5 bg-surface-raised rounded-xl border border-indigo-500/20 text-xs max-h-48 overflow-y-auto">
+            <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
+              <Globe className="h-3 w-3 text-indigo-600 dark:text-indigo-400" />
               <span>Subdomains ({distinctSubdomains.length}):</span>
             </span>
             <button
               onClick={() => setApiSubdomainFilter('ALL')}
               className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
                 apiSubdomainFilter === 'ALL'
-                  ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-xs'
+                  ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-900 dark:text-indigo-300 border-indigo-300 dark:border-indigo-500/40 shadow-xs'
                   : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
               }`}
             >
@@ -2882,30 +3083,46 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                 {allEnrichedEndpoints.length}
               </span>
             </button>
-            {distinctSubdomains.map((sub) => {
-              const subCount = allEnrichedEndpoints.filter((e) => {
-                const epSub = e.subdomain ? e.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : '';
-                return epSub === sub || (!epSub && (distinctSubdomains.length === 1 || sub === distinctSubdomains[0]));
-              }).length;
-              const isActive = apiSubdomainFilter === sub;
-              return (
-                <button
-                  key={sub}
-                  onClick={() => setApiSubdomainFilter(sub)}
-                  className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-indigo-500/25 text-indigo-200 border-indigo-400 shadow-xs ring-1 ring-indigo-500/30'
-                      : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
-                  }`}
-                >
-                  <Globe className="h-3 w-3 text-indigo-400" />
-                  <span>{sub}</span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-surface-raised text-indigo-300 font-bold">
-                    {subCount}
-                  </span>
-                </button>
-              );
-            })}
+            {(() => {
+              // Sort subdomains with endpoints first, then alphabetically
+              const sortedByCount = [...distinctSubdomains].sort((a, b) => {
+                const countA = allEnrichedEndpoints.filter((e) => {
+                  const epSub = e.subdomain ? e.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : '';
+                  return epSub === a || (!epSub && (distinctSubdomains.length === 1 || a === distinctSubdomains[0]));
+                }).length;
+                const countB = allEnrichedEndpoints.filter((e) => {
+                  const epSub = e.subdomain ? e.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : '';
+                  return epSub === b || (!epSub && (distinctSubdomains.length === 1 || b === distinctSubdomains[0]));
+                }).length;
+                if (countB !== countA) return countB - countA;
+                return a.localeCompare(b);
+              });
+
+              return sortedByCount.map((sub) => {
+                const subCount = allEnrichedEndpoints.filter((e) => {
+                  const epSub = e.subdomain ? e.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : '';
+                  return epSub === sub || (!epSub && (distinctSubdomains.length === 1 || sub === distinctSubdomains[0]));
+                }).length;
+                const isActive = apiSubdomainFilter === sub;
+                return (
+                  <button
+                    key={sub}
+                    onClick={() => setApiSubdomainFilter(sub)}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs ring-1 ring-indigo-500/30 dark:bg-indigo-500/25 dark:text-indigo-200 dark:border-indigo-400'
+                        : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
+                    }`}
+                  >
+                    <Globe className={`h-3 w-3 ${isActive ? 'text-white dark:text-indigo-400' : 'text-indigo-600 dark:text-indigo-400'}`} />
+                    <span>{sub}</span>
+                    <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${isActive ? 'bg-indigo-700 text-white' : 'bg-surface-raised text-indigo-800 dark:text-indigo-300'}`}>
+                      {subCount}
+                    </span>
+                  </button>
+                );
+              });
+            })()}
           </div>
         )}
 
@@ -3128,8 +3345,17 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
 
                           {/* Route Path & Module */}
                           <div className="min-w-0 flex-1">
-                            <div className="font-mono text-xs text-foreground font-semibold truncate flex items-center gap-1.5">
+                            <div className="font-mono text-xs text-foreground font-semibold truncate flex items-center gap-1.5 flex-wrap">
                               <span>{ep.path}</span>
+                              {distinctSubdomains.length > 0 && (
+                                <span
+                                  className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 dark:text-indigo-300 border border-indigo-500/30 flex items-center gap-1 font-semibold shrink-0"
+                                  title={`Gateway Host: ${ep.subdomain || distinctSubdomains[0]}`}
+                                >
+                                  <Globe className="h-2.5 w-2.5 shrink-0" />
+                                  <span>{ep.subdomain || distinctSubdomains[0]}</span>
+                                </span>
+                              )}
                             </div>
                             <div className="text-[10px] text-muted font-mono truncate mt-0.5">
                               {ep.module}
@@ -3554,21 +3780,29 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
           {filteredApiEndpoints.length === 0 && (
             <div className="text-center py-12 px-4 rounded-xl border border-dashed border-border bg-surface-raised space-y-2">
               <Code2 className="h-8 w-8 text-muted mx-auto opacity-60" />
-              <div className="text-xs font-semibold text-foreground">No API endpoints match the selected filters</div>
+              <div className="text-xs font-semibold text-foreground">
+                {apiSubdomainFilter !== 'ALL'
+                  ? `No API endpoints discovered on ${apiSubdomainFilter}`
+                  : 'No API endpoints match the selected filters'}
+              </div>
               <p className="text-[11px] text-muted">
-                Try resetting tier, protocol kind, or database table filters to view all routes.
+                {apiSubdomainFilter !== 'ALL'
+                  ? 'This subdomain acts as a landing page or web gateway without direct exposed REST/RPC endpoints.'
+                  : 'Try resetting tier, protocol kind, or database table filters to view all routes.'}
               </p>
               <button
                 onClick={() => {
                   setApiLevelFilter('ALL');
                   setApiKindFilter('ALL');
+                  setApiCrawlScopeFilter('ALL');
+                  setApiSubdomainFilter('ALL');
                   setMethodFilter('ALL');
                   setApiTableFilter('ALL');
                   setApiSearchQuery('');
                 }}
                 className="mt-2 text-xs text-brand hover:underline font-medium cursor-pointer"
               >
-                Reset all API filters
+                Reset all filters & view all ({allEnrichedEndpoints.length}) routes
               </button>
             </div>
           )}

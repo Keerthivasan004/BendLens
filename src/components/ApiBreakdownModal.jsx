@@ -212,14 +212,14 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
           </div>
           <div className="px-3 py-1">
             <span className="text-[10px] uppercase font-semibold text-muted block">Average Density</span>
-            <div className="text-lg font-mono font-extrabold text-cyan-400 mt-0.5">
+            <div className="text-lg font-mono font-extrabold text-cyan-700 dark:text-cyan-400 mt-0.5">
               {breakdown.averageEndpointsPerApi}
               <span className="text-[10px] font-sans font-normal text-muted ml-1.5">endpoints/API</span>
             </div>
           </div>
           <div className="px-3 py-1">
             <span className="text-[10px] uppercase font-semibold text-muted block">Largest Service</span>
-            <div className="text-sm font-mono font-bold text-violet-400 truncate mt-0.5" title={breakdown.maxEndpointsApi?.name}>
+            <div className="text-sm font-mono font-bold text-violet-700 dark:text-violet-400 truncate mt-0.5" title={breakdown.maxEndpointsApi?.name}>
               {breakdown.maxEndpointsApi?.name || 'N/A'}
               {breakdown.maxEndpointsApi && (
                 <span className="text-[10px] font-normal text-muted ml-1">({breakdown.maxEndpointsApi.count})</span>
@@ -246,7 +246,7 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
                 onClick={() => setGroupBy(opt.id)}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border whitespace-nowrap cursor-pointer ${
                   groupBy === opt.id
-                    ? 'bg-violet-500/15 border-violet-500/40 text-violet-300 font-semibold shadow-xs'
+                    ? 'bg-violet-50 dark:bg-violet-500/15 border-violet-300 dark:border-violet-500/40 text-violet-800 dark:text-violet-300 font-semibold shadow-xs'
                     : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
                 }`}
               >
@@ -356,9 +356,9 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
                           </span>
                           {api.riskLevel && (
                             <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase font-semibold ${
-                              api.riskLevel === 'HIGH' ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' :
-                              api.riskLevel === 'MEDIUM' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' :
-                              'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                              api.riskLevel === 'HIGH' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/25' :
+                              api.riskLevel === 'MEDIUM' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/25' :
+                              'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
                             }`}>
                               {api.riskLevel} IMPACT
                             </span>
@@ -379,39 +379,39 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
                             onClose();
                             onOpenApiFlow(api.endpoints?.[0]);
                           }}
-                          className="px-2 py-1 rounded-md text-[11px] font-semibold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/25 flex items-center gap-1 cursor-pointer transition-colors"
+                          className="px-2 py-1 rounded-md text-[11px] font-semibold bg-cyan-50 dark:bg-cyan-500/10 hover:bg-cyan-100 dark:hover:bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-500/25 flex items-center gap-1 cursor-pointer transition-colors"
                           title="View this API service cluster in the interactive graph"
                         >
-                          <Workflow className="h-3 w-3 text-cyan-400" />
+                          <Workflow className="h-3 w-3 text-cyan-600 dark:text-cyan-400" />
                           <span className="hidden sm:inline">Graph</span>
                         </button>
                       )}
 
                       {/* Endpoints Count Glow Pill */}
-                      <div className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-violet-500/10 text-violet-300 border border-violet-500/30 flex items-center gap-1.5">
-                        <Sparkles className="h-3 w-3 text-violet-400" />
+                      <div className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-violet-50 dark:bg-violet-500/10 text-violet-800 dark:text-violet-300 border border-violet-200 dark:border-violet-500/30 flex items-center gap-1.5">
+                        <Sparkles className="h-3 w-3 text-violet-600 dark:text-violet-400" />
                         <span>{api.totalEndpoints} {api.totalEndpoints === 1 ? 'Endpoint' : 'Endpoints'}</span>
                       </div>
 
                       {/* Method breakdown chips */}
                       <div className="hidden sm:flex items-center gap-1 text-[10px] font-mono">
                         {api.methodCounts.GET > 0 && (
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
                             {api.methodCounts.GET} GET
                           </span>
                         )}
                         {api.methodCounts.POST > 0 && (
-                          <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                          <span className="px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
                             {api.methodCounts.POST} POST
                           </span>
                         )}
                         {api.methodCounts.PUT > 0 && (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          <span className="px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
                             {api.methodCounts.PUT} PUT
                           </span>
                         )}
                         {api.methodCounts.DELETE > 0 && (
-                          <span className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                          <span className="px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20">
                             {api.methodCounts.DELETE} DEL
                           </span>
                         )}
@@ -438,11 +438,11 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
                           const isCurlCopied = copiedKey === `curl_${epKey}`;
 
                           const methodColor =
-                            ep.method === 'GET' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25' :
-                            ep.method === 'POST' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
-                            ep.method === 'PUT' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' :
-                            ep.method === 'DELETE' ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' :
-                            'bg-cyan-500/10 text-cyan-400 border-cyan-500/25';
+                            ep.method === 'GET' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25' :
+                            ep.method === 'POST' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/25' :
+                            ep.method === 'PUT' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/25' :
+                            ep.method === 'DELETE' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/25' :
+                            'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25';
 
                           return (
                             <div
@@ -462,15 +462,15 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
                                     </span>
                                     {ep.level && (
                                       <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${
-                                        ep.level === 'HIGH' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
-                                        ep.level === 'MEDIUM' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/25' :
-                                        'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                                        ep.level === 'HIGH' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/25' :
+                                        ep.level === 'MEDIUM' ? 'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25' :
+                                        'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
                                       }`}>
                                         {ep.level}
                                       </span>
                                     )}
                                     {ep.isLazyLoaded && (
-                                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-50 dark:bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30">
                                         LAZY
                                       </span>
                                     )}

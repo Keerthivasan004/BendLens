@@ -66,8 +66,8 @@ export default function CrawlerAccuracyProofModal({ isOpen, onClose, analysisDat
       const ev = cp.evidence?.length > 0 ? ` (${cp.evidence[0]})` : '';
       fallback.push(`Frontend Cloud: ${cp.name}${ev}`);
     }
-    const beCp = ts?.backend?.cloudProvider;
-    if (beCp?.name && beCp.name !== cp?.name) {
+    const beCp = ts?.backend?.cloudProvider || cp?.backend || analysisData?.crawlerTelemetry?.cloudProvider?.backend;
+    if (beCp?.name && (beCp.code !== cp?.code || beCp.name !== cp?.name)) {
       const ev = beCp.evidence?.length > 0 ? ` (${beCp.evidence[0]})` : '';
       fallback.push(`Backend Cloud: ${beCp.name}${ev}`);
     }

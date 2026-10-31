@@ -326,7 +326,10 @@ Discovers and extracts authentic Privacy Policy and Terms of Service legal docum
 
 
 
-## Subdomain Crawler Contract
-- `/api/crawl` and `/api/analyze` telemetry output `subdomains` (Array of discovered subdomains) and `subdomainsCount`.
-- Discovered endpoints carry `subdomain` and `origin` metadata.
-- Canonical Subdomain Unification: subdomain values are normalized to strip redundant www. prefixes and merge apex aliases into their root domain (e.g. instackk.com + pp.finstackk.com = 2 distinct APIs).
+## Subdomain Crawler & Endpoint Count Contract
+- `/api/crawl`, `/api/analyze`, and `/api/git-clone` attach `result.subdomains` and `result.openApiSpec` with `servers` and `x-subdomains`.
+- Discovered endpoints carry `subdomain` and `origin` metadata, preserved across all derivation pipelines (`UniversalApiCrawler`, `ProjectAnalyzer`, `landingEndpointsList`, `DeveloperView.jsx`, and `getApiEndpointsBreakdown`).
+- **Endpoint Operations Parity**: Telemetry fields (`totalEndpointsCount`, `deepCrawlCount`, `normalCrawlCount`) and `code.endpoints.length` all compute total callable HTTP operations across all verbs (e.g. 1331 operations for `cyberxpertz.org`), matching OpenAPI specification paths and operations.
+- **Authentic API Services Breakdown**: `getApiServicesCount(data)` and `getApiEndpointsBreakdown(data, 'auto')` distinguish genuine API services (e.g. 32 WordPress plugin APIs or 6 Role APIs) from raw perimeter subdomains.
+- **No Phantom 0-Endpoint APIs**: Subdomains without exposed API endpoints (e.g. static portal `verify.cyberxpertz.org`) are preserved in `subdomains` lists and gateway cards, but are never counted as active API services.
+- **Canonical Subdomain Unification**: Subdomain values are normalized to strip redundant `www.` prefixes and merge apex aliases into their root domain (e.g., `finstackk.com` + `app.finstackk.com`).

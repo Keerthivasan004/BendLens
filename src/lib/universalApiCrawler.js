@@ -9,6 +9,7 @@
  */
 
 const ApiSpecSynthesizer = require('./apiSpecSynthesizer');
+const SubdomainScanner = require('./subdomainScanner');
 
 class UniversalApiCrawler {
   /**
@@ -210,6 +211,8 @@ class UniversalApiCrawler {
     const normalEndpoints = new Map(); // path -> Set of HTTP methods (Phase 1 / Normal Crawl snapshot)
     const verifiedApiRoutes = new Set(); // Routes confirmed to be HTTP callers / REST / RPC endpoints
     const backendDomains = new Set();
+    const endpointSubdomainMap = new Map(); // path -> subdomain
+    const discoveredSubdomainsList = [];
     const distinctEntities = new Set();
     const frameworksDetected = new Set();
     const visitedUrls = new Set();
@@ -1019,6 +1022,35 @@ class UniversalApiCrawler {
         }
       }
 
+      // =========================================================================
+      // STAGE 8: Multi-Signal Subdomain Perimeter Harvesting Engine
+      // =========================================================================
+      const baseCanonical = SubdomainScanner.canonicalize(hostname);
+      const apexDomain = SubdomainScanner.getApexDomain(hostname);
+      if (baseCanonical) {
+        if (!discoveredSubdomainsList.includes(baseCanonical)) discoveredSubdomainsList.push(baseCanonical);
+      } else if (apexDomain) {
+        if (!discoveredSubdomainsList.includes(apexDomain)) discoveredSubdomainsList.push(apexDomain);
+      }
+
+      try {
+        const harvested = await SubdomainScanner.discoverSubdomains(hostname, {
+          html,
+          headers: initRes?.headers
+        });
+        for (const sub of harvested) {
+          const cSub = SubdomainScanner.canonicalize(sub);
+          if (cSub && !discoveredSubdomainsList.includes(cSub)) {
+            discoveredSubdomainsList.push(cSub);
+          }
+          if (cSub && cSub !== baseCanonical && cSub !== apexDomain) {
+            backendDomains.add(`https://${cSub}`);
+          }
+        }
+      } catch (subErr) {
+        console.warn('Subdomain discovery skipped:', subErr?.message || String(subErr));
+      }
+
       // First-Party Application Portal Discovery (e.g. app.finstackk.com from finstackk.com)
       const origApex = this.getApexDomain(hostname);
       const appPortalOrigins = Array.from(backendDomains).filter(d => {
@@ -1099,6 +1131,15 @@ class UniversalApiCrawler {
           if (!scriptRes.ok) return;
           const code = scriptRes.text;
           scriptContents.set(url, code);
+
+          if (apexDomain) {
+            const codeSubs = SubdomainScanner.extractFromCode(code, apexDomain);
+            for (const cs of codeSubs) {
+              if (cs && !discoveredSubdomainsList.includes(cs)) {
+                discoveredSubdomainsList.push(cs);
+              }
+            }
+          }
 
           // Standard chunk discovery (resolved against origin) -> enqueued for Normal Crawl
           for (const pattern of chunkPatterns) {
@@ -1274,6 +1315,15 @@ class UniversalApiCrawler {
             const code = scriptRes.text;
             scriptContents.set(url, code);
 
+            if (apexDomain) {
+              const codeSubs = SubdomainScanner.extractFromCode(code, apexDomain);
+              for (const cs of codeSubs) {
+                if (cs && !discoveredSubdomainsList.includes(cs)) {
+                  discoveredSubdomainsList.push(cs);
+                }
+              }
+            }
+
             // Nested deep chunks
             deepTablePattern.lastIndex = 0;
             let dtm;
@@ -1380,11 +1430,49 @@ class UniversalApiCrawler {
 
       let extGatewayHeaders = {};
       const diagnosticEndpoints = ['/api/health', '/health', '/healthz'];
-      for (const extGateway of extGateways.slice(0, 3)) {
+      for (const extGateway of extGateways.slice(0, 5)) {
         try {
           const gwRes = await this.safeFetch(extGateway, { timeout: 2000, customHeaders });
           if (gwRes && gwRes.headers) {
             extGatewayHeaders = { ...extGatewayHeaders, ...gwRes.headers };
+          }
+        } catch {}
+
+        // 1. Probe WordPress REST API manifest (/wp-json/) on subdomain perimeter
+        try {
+          const wpSubUrl = new URL('/wp-json/', extGateway).href;
+          const wpSubRes = await this.safeFetch(wpSubUrl, { timeout: 4000, customHeaders });
+          if (wpSubRes && wpSubRes.ok && (wpSubRes.contentType?.includes('application/json') || wpSubRes.text?.trim().startsWith('{'))) {
+            const wpSubData = JSON.parse(wpSubRes.text);
+            if (wpSubData && wpSubData.routes && typeof wpSubData.routes === 'object') {
+              const gwHost = new URL(extGateway).hostname;
+              const gwCanonical = SubdomainScanner.canonicalize(gwHost);
+              const wpPrefix = '/wp-json';
+              for (const [rawRoute, routeInfo] of Object.entries(wpSubData.routes)) {
+                let fullRoute = rawRoute;
+                if (!fullRoute.startsWith(wpPrefix)) {
+                  fullRoute = rawRoute === '/' ? wpPrefix : `${wpPrefix}${rawRoute.startsWith('/') ? '' : '/'}${rawRoute}`;
+                }
+                const normalized = this.normalizeApiPath(fullRoute);
+                if (normalized) {
+                  let targetPath = normalized;
+                  if (allEndpoints.has(normalized)) {
+                    targetPath = `//${gwHost}${normalized}`;
+                  }
+                  endpointSubdomainMap.set(targetPath, gwCanonical);
+                  verifiedApiRoutes.add(targetPath);
+                  if (!allEndpoints.has(targetPath)) allEndpoints.set(targetPath, new Set());
+                  const methods = Array.isArray(routeInfo?.methods) ? routeInfo.methods : ['GET'];
+                  for (const m of methods) {
+                    allEndpoints.get(targetPath).add(String(m).toUpperCase());
+                  }
+                  if (!normalEndpoints.has(targetPath)) normalEndpoints.set(targetPath, new Set());
+                  for (const m of methods) {
+                    normalEndpoints.get(targetPath).add(String(m).toUpperCase());
+                  }
+                }
+              }
+            }
           }
         } catch {}
 
@@ -1408,11 +1496,13 @@ class UniversalApiCrawler {
                 // Low-level infrastructure diagnostic pings (/health, /healthz) are solely for header/tech-stack fingerprinting
                 if (diagPath.startsWith('/api/')) {
                   let targetPath = diagPath;
+                  const gwHost = new URL(gw).hostname;
+                  const gwCanonical = SubdomainScanner.canonicalize(gwHost);
                   if (allEndpoints.has(diagPath)) {
                     // Only apply collision prefix if identical route already exists on origin
-                    const gwHost = new URL(gw).hostname;
                     targetPath = `//${gwHost}${diagPath}`;
                   }
+                  endpointSubdomainMap.set(targetPath, gwCanonical);
                   if (!allEndpoints.has(targetPath)) {
                     allEndpoints.set(targetPath, new Set(['GET']));
                   } else {
@@ -1518,6 +1608,13 @@ class UniversalApiCrawler {
 
         for (const m of effectiveMethods) {
           const method = m.toLowerCase();
+          const epSubdomain = (ep.startsWith('//')
+            ? SubdomainScanner.canonicalize(ep.slice(2).split('/')[0])
+            : (endpointSubdomainMap.get(ep) || SubdomainScanner.canonicalize(hostname))) || null;
+          const epOrigin = (ep.startsWith('//')
+            ? `https://${ep.slice(2).split('/')[0]}`
+            : (epSubdomain ? `https://${epSubdomain}` : origin)) || origin;
+
           paths[ep][method] = {
             tags: [tag],
             summary: `${m} ${ep}`,
@@ -1527,6 +1624,8 @@ class UniversalApiCrawler {
             'x-discovery-scope': discoveryScope,
             'x-route-type': routeType,
             'x-is-ui-route': isUiRoute,
+            'x-subdomain': epSubdomain,
+            'x-origin': epOrigin,
             responses: {
               '200': { description: 'Successful execution' }
             }
@@ -1557,9 +1656,12 @@ class UniversalApiCrawler {
           description: `API Architecture reverse-engineered from ${targetUrl}`
         },
         servers: [
-          { url: origin, description: 'Live Origin Gateway' },
-          ...Array.from(backendDomains).map(d => ({ url: d, description: 'Discovered Microservice' }))
+          { url: origin, description: `Live Origin Gateway (${SubdomainScanner.canonicalize(hostname)})` },
+          ...discoveredSubdomainsList
+            .filter(s => s !== SubdomainScanner.canonicalize(hostname))
+            .map(d => ({ url: `https://${d}`, description: `Discovered Subdomain Gateway (${d})` }))
         ],
+        'x-subdomains': discoveredSubdomainsList,
         paths,
         components: {
           schemas
@@ -1572,8 +1674,14 @@ class UniversalApiCrawler {
         totalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
       }
 
-      const normalCount = Math.min(normalEndpoints.size, allEndpoints.size);
-      const deepCount = allEndpoints.size;
+      let normalApiOperationsCount = 0;
+      for (const [p, mSet] of normalEndpoints.entries()) {
+        normalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
+      }
+      normalApiOperationsCount = Math.min(normalApiOperationsCount || normalEndpoints.size, totalApiOperationsCount);
+
+      const normalCount = normalApiOperationsCount;
+      const deepCount = totalApiOperationsCount;
       const lazyCount = Math.max(0, deepCount - normalCount);
 
       const techStack = this.detectTechStack({
@@ -1619,6 +1727,7 @@ class UniversalApiCrawler {
         techStack,
         cloudProvider: techStack.cloudProvider,
         legalDocuments,
+        subdomains: discoveredSubdomainsList,
         telemetry: {
           targetUrl,
           crawlDurationMs,
@@ -1647,6 +1756,7 @@ class UniversalApiCrawler {
             lazyLoadedCount: lazyCount
           },
           backendDomains: Array.from(backendDomains),
+          subdomains: discoveredSubdomainsList,
           entitiesCount: 0,
           frameworksDetected: Array.from(frameworksDetected),
           techStack,
@@ -2380,7 +2490,12 @@ class UniversalApiCrawler {
       try {
         const u = new URL(d);
         const origU = origin ? new URL(origin) : null;
-        return origU ? u.hostname !== origU.hostname : true;
+        if (!origU) return true;
+        if (u.hostname === origU.hostname) return false;
+        const uApex = SubdomainScanner.getApexDomain(u.hostname);
+        const origApex = SubdomainScanner.getApexDomain(origU.hostname);
+        if (uApex && origApex && uApex === origApex) return false;
+        return true;
       } catch {
         return d !== (origin || '').toLowerCase();
       }
@@ -2523,16 +2638,27 @@ class UniversalApiCrawler {
     }
 
     // 2. Check Probed Backend API Response Headers
-    // Hostinger Cloud Server (Node.js/Next.js Container & HPanel Dynamic Upstream)
+    // Hostinger Cloud Server (Dynamic Upstream)
     if (headersMap['platform'] === 'hostinger' || headersMap['panel'] === 'hpanel' || serverHeader.includes('hcdn') || headersMap['x-hcdn-request-id'] || headersMap['x-hcdn-cache-status']) {
       const pop = headersMap['x-hcdn-request-id'] ? headersMap['x-hcdn-request-id'].split('-').pop()?.toUpperCase() : '';
+      const isWordpress = frameworksDetected.has('WordPress') || (serverSoftware || '').includes('wordpress') || (serverRuntime || '').includes('PHP');
+      const isPhp = isWordpress || (serverRuntime || '').toLowerCase().includes('php') || (serverSoftware || '').toLowerCase().includes('php') || (serverSoftware || '').toLowerCase().includes('litespeed');
+      const isPython = (serverRuntime || '').toLowerCase().includes('python');
+      const isNode = !isPhp && !isPython && ((serverRuntime || '').toLowerCase().includes('node') || (serverRuntime || '').toLowerCase().includes('next'));
+      const computeLabel = isPhp
+        ? (isWordpress ? 'Hostinger Managed WordPress Engine (PHP-FPM)' : 'Hostinger Cloud Compute (PHP-FPM / FastCGI)')
+        : isPython
+        ? 'Hostinger Cloud VPS (Python WSGI/ASGI Runtime)'
+        : isNode
+        ? 'Hostinger Cloud Compute (Node.js Container)'
+        : (serverRuntime ? `Hostinger Cloud Compute (${serverRuntime.split('(')[0].trim()})` : 'Hostinger Cloud Compute (Managed VPS)');
       return {
         name: 'Hostinger Cloud Server',
         code: 'hostinger',
         category: 'Managed Cloud & VPS Infrastructure',
         role: 'backend_compute',
         services: [
-          'Hostinger Cloud Compute (Node.js/Next.js Container)',
+          computeLabel,
           'Hostinger Managed Server / HPanel'
         ],
         evidence: [
@@ -2734,12 +2860,23 @@ class UniversalApiCrawler {
       };
     }
     if (feCode === 'hostinger') {
+      const isWordpress = frameworksDetected.has('WordPress') || (serverSoftware || '').includes('wordpress') || (serverRuntime || '').includes('PHP');
+      const isPhp = isWordpress || (serverRuntime || '').toLowerCase().includes('php') || (serverSoftware || '').toLowerCase().includes('php') || (serverSoftware || '').toLowerCase().includes('litespeed');
+      const isPython = (serverRuntime || '').toLowerCase().includes('python');
+      const isNode = !isPhp && !isPython && ((serverRuntime || '').toLowerCase().includes('node') || (serverRuntime || '').toLowerCase().includes('next'));
+      const computeLabel = isPhp
+        ? (isWordpress ? 'Hostinger Managed WordPress Engine (PHP-FPM)' : 'Hostinger Cloud Compute (PHP-FPM / FastCGI)')
+        : isPython
+        ? 'Hostinger Cloud VPS (Python WSGI/ASGI Runtime)'
+        : isNode
+        ? 'Hostinger Cloud Compute (Node.js Container)'
+        : (serverRuntime ? `Hostinger Cloud Compute (${serverRuntime.split('(')[0].trim()})` : 'Hostinger Cloud Compute (Managed VPS)');
       return {
         name: 'Hostinger Cloud Server',
         code: 'hostinger',
         category: 'Managed Cloud & VPS Infrastructure',
         role: 'backend_compute',
-        services: ['Hostinger Cloud Compute (Node.js/PHP-FPM)', 'Hostinger Managed Server'],
+        services: [computeLabel, 'Hostinger Managed Server / HPanel'],
         evidence: ['Hostinger Cloud Platform', ...(frontendCloudProvider?.evidence || [])],
         region: frontendCloudProvider?.region,
         badgeColor: 'purple',
@@ -3385,7 +3522,12 @@ class UniversalApiCrawler {
         serverSoftware,
         discoveredGateways: Array.from(backendDomains).filter(d => {
           try {
-            return new URL(d).hostname.toLowerCase() !== (effectiveHostname || '').toLowerCase();
+            const h = new URL(d).hostname.toLowerCase();
+            const apexH = SubdomainScanner.getApexDomain(h);
+            const apexOrig = SubdomainScanner.getApexDomain(effectiveHostname);
+            if (h === (effectiveHostname || '').toLowerCase()) return false;
+            if (apexH && apexOrig && apexH === apexOrig) return false;
+            return true;
           } catch {
             return false;
           }

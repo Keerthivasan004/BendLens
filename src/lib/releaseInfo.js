@@ -27,7 +27,7 @@ function resolveRoot(projectRoot) {
  * update signal for testing the notification UI end-to-end.
  */
 
-export const BASELINE_LATEST_VERSION = '1.1.51';
+export const BASELINE_LATEST_VERSION = (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_APP_VERSION) || '1.1.58';
 
 /** Extract a semver triple from an installer filename, or null. */
 export function parseArtifactVersion(filename) {
@@ -54,8 +54,9 @@ export function maxVersion(a, b) {
 }
 
 export function getLocalVersion(projectRoot) {
-  if (typeof process !== 'undefined' && process.env && process.env.BENDLENS_APP_VERSION) {
-    return String(process.env.BENDLENS_APP_VERSION);
+  if (typeof process !== 'undefined' && process.env) {
+    if (process.env.BENDLENS_APP_VERSION) return String(process.env.BENDLENS_APP_VERSION);
+    if (process.env.NEXT_PUBLIC_APP_VERSION) return String(process.env.NEXT_PUBLIC_APP_VERSION);
   }
   try {
     const root = resolveRoot(projectRoot);

@@ -267,7 +267,13 @@ export default function LensDashboard() {
               description: op?.description || '',
               parameters: op?.parameters || [],
               requestBody: op?.requestBody || null,
-              responses: op?.responses || {}
+              responses: op?.responses || {},
+              subdomain: op?.['x-subdomain'] || null,
+              origin: op?.['x-origin'] || null,
+              crawlTier: op?.['x-crawl-tier'] || 'normal',
+              isLazyLoaded: op?.['x-lazy-loaded'] === true,
+              routeType: op?.['x-route-type'] || 'API',
+              isUiRoute: op?.['x-is-ui-route'] === true
             });
           }
         });

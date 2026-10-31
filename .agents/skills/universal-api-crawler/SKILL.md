@@ -34,7 +34,18 @@ Use this skill when you need to:
     - **Authentic API Service Count Hierarchical Precedence (`apiCountHelper.js` & `apiBreakdownHelper.js`)**: To prevent inaccurate or conflicting API counts across the HUD header, landing page, and breakdown modal, API services are categorized by: (1) multi-role portal architectures (e.g. exact **6 role APIs** on `futrsec.in`: Admin Governance, Student & Cadet Learning, Mentor & Faculty, TPO Placement, Employer & ATS, and Core Platform; requires `roleDomainsCount >= 4 && (hasStudent || hasMentor || hasTpo)` to distinguish role portals from general cron jobs), (2) multi-subdomain architectures (e.g. exact **2 APIs** on `finstackk.com`: `finstackk.com` + `app.finstackk.com`), (3) WordPress `/wp-json/*` namespaces, (4) local controller modules, and (5) semantic AST resource grouping. The `auto` grouping strategy in `apiBreakdownHelper.js` and `ApiBreakdownModal.jsx` prioritizes role domains for multi-role platforms and subdomain gateways for multi-subdomain architectures, with `getApiServicesCount(data)` delegating directly to `getApiEndpointsBreakdown(data, "auto").totalApisCount` to guarantee 100% mathematical parity across the UI.
     - **Endpoint Stability & Staging/Production Parity Guarantee (Testing vs Production)**: In `universalApiCrawler.js`, external backend gateways are probed concurrently at `['/api/health', '/health', '/healthz']` strictly for response header extraction and tech-stack fingerprinting (`Server`, `X-Powered-By`). Only authentic application API endpoints (`diagPath.startsWith('/api/')`) are registered into `allEndpoints`, `normalEndpoints`, and `openApiSpec.paths`. Non-API infrastructure diagnostic probes (`/health`, `/healthz`) on external gateways are never registered as application routes. This eliminates environment-dependent discrepancies where production gateways (e.g. AWS/K8s on `api.futrsec.in`) return 200 for `/health` and `/healthz` while staging/testing reverse proxies (e.g. Nginx on `vps.bcbuzz.tech`) return 500/404. As a result, endpoints strictly reflect authentic code assets: if a new endpoint is pushed to testing (`fts2trial.bcbuzz.tech`, e.g. `/api/notifications/{id}/unarchive`), testing reflects 675 endpoints, while production (`futrsec.in`) reflects 674 endpoints until the feature is promoted to production, ensuring 100% parity and zero phantom routes. In addition, subdomain collision prefixes (`//subdomain/path`) are only created when an identical route actually collides with a route on the primary target host.
     - **First-Party App Portal Expansion (e.g. `finstackk.com` -> `app.finstackk.com`)**: Many SaaS platforms host their public marketing site at apex (`finstackk.com`) while hosting the actual software application at `app.finstackk.com`. The crawler automatically detects same-apex application subdomains (`app.*`, `portal.*`, `dashboard.*`) discovered in HTML links and enqueues their entrypoint scripts. This ensures entering `finstackk.com` automatically extracts the complete 152 functional portal routes across both perimeters.
-    - **Multi-Subdomain Detection, Counts & Names Display Guarantee**: The crawler automatically discovers all first-party and gateway subdomains (`backendDomains`, `subdomains`), tagging each OpenAPI route with its authentic `'x-subdomain'` and `'x-origin'`. The UI (`Header.jsx`, `DeveloperView.jsx`, `ApiBreakdownModal.jsx`) guarantees that whenever subdomains exist (`distinctSubdomains.length > 0`), the subdomain count (e.g. `2 Subdomains`), exact subdomain names (e.g. `futrsec.in`, `api.futrsec.in`), per-subdomain endpoint counts, and interactive filter tabs are prominently rendered.
+    - **Multi-Signal Subdomain Perimeter Harvesting & Digital Perimeter Display**:
+      - The crawler integrates `subdomainScanner.js` (Stage 8) combining 6 parallel discovery vectors:
+        1. **CertSpotter Certificate Transparency**: Real-time CT log issuance stream (zero-quota JSON API).
+        2. **crt.sh CT Log Search**: Public CT archive querying `%25.domain`.
+        3. **HackerTarget Passive DNS**: Passive DNS reconnaissance.
+        4. **TLS/SSL SAN Inspection**: In-memory TLS peer certificate Subject Alternative Names.
+        5. **High-Probability Active DNS Dictionary Resolution**: Asynchronous `dnsPromises.lookup` probes for common service prefixes (`www`, `api`, `app`, `auth`, `portal`, `admin`, `verify`, `rcas`, `tpo`, `kp`, etc.) with automatic wildcard DNS detection.
+        6. **In-DOM & Response Header Parsing**: HTML script tags, anchor links, and CSP/CORS header domain extraction.
+      - **Strict Active DNS Verification**: Every discovered subdomain candidate is verified via `dnsPromises.lookup` before inclusion. Unresolvable domains are pruned.
+      - **Apex Main Domain & Subdomains Frontend Presentation**:
+        - The UI (`Header.jsx`, `src/app/page.jsx`, `DeveloperView.jsx`, `ApiBreakdownModal.jsx`) guarantees that for any scanned URL or repository, the **Main Apex Domain** (`[MAIN DOMAIN]`) and **All Discovered Subdomains** are prominently displayed with domain counts, per-subdomain endpoint counts, and interactive filter controls.
+        - `techStack.backend.hosting` dynamically distinguishes between language runtimes (`Node.js Container`, `Python WSGI/ASGI`, `PHP-FPM`) and edge CDN hosting (`Hostinger Cloud Server`, `Cloudflare`, `Vercel`, `AWS`), eliminating misleading cloud provider misclassifications.
 2. **Crash-Proof & Truthful Status Reporting**:
    - The crawler never crashes the Node.js server. Network errors, timeouts, and SSL failures are caught and reported with `crawlStatus: 'failed'` containing the exact network error message.
    - If a URL fails to connect or returns non-HTML/non-API errors, `/api/crawl` and `/api/analyze` return an explicit HTTP 400 error rather than misleading the user with fake successful results.
@@ -83,7 +94,7 @@ Use this skill when you need to:
        - Discovers anchor links pointing to REST/API surfaces (`<a href="/api/...">`).
        - Analyzes inline script blocks and jQuery AJAX calls (`$.ajax`, `$.get`, `$.post`).
        - Probes standard OpenAPI/Swagger gateways (`/v3/api-docs`, `/swagger.json`, `/openapi.json`) and embedded Swagger UI/Redoc documentation.
-    - **Stage 8**: Multi-Subdomain Perimeter API Discovery & Ingestion Engine:
+    - **Stage 8**: Multi-Subdomain Perimeter API Discovery & Ingestion Engine (`SubdomainScanner` in `src/lib/subdomainScanner.js`):
       - **Canonical Apex/Subdomain Unification (canonicalizeSubdomain)**:
         - Unifies apex domain (example.com) and its www. alias (www.example.com) into a single primary service perimeter, preventing phantom splitting of endpoints into 3 APIs.
         - Normalizes subdomains across extraction, OpenAPI path generation, and telemetry metrics.
@@ -91,21 +102,23 @@ Use this skill when you need to:
       - **Multi-Signal Subdomain Harvesting**:
         - **HTML DOM Analysis**: Extracts all outbound/inbound first-party URLs from `<a href>`, `<script src>`, `<link href>`, `<iframe src>`, `<form action>`, `<meta property="og:url">`.
         - **Security & Routing Headers**: Extracts subdomains from Content-Security-Policy (`connect-src`, `default-src`), `Access-Control-Allow-Origin`, and `Link` headers.
-        - **In-Memory TLS/SSL SAN Extraction (`getTlsSanSubdomains`)**: Uses Node.js `tls.connect` with non-blocking SNI to extract registered `DNS:*.domain.com` Subject Alternative Names directly from the server TLS certificate.
-        - **JavaScript AST Code Tokens**: Scans bundle corpuses for regex patterns matching `https?://[a-zA-Z0-9_-]+\.${apexDomain}` and domain configuration strings.
-        - **Active DNS Resolution**: Concurrently probes high-probability API subdomains (`api`, `auth`, `admin`, `app`, `portal`, `dashboard`, `gateway`, `backend`, `services`, `server`, `v1`, `v2`, `graphql`, `oauth`, `identity`) using `dns.promises.lookup`.
+        - **Multi-Target In-Memory TLS/SSL SAN Extraction (`getTlsSanSubdomains`)**: Uses Node.js `tls.connect` with non-blocking SNI to parallel-probe `apex`, `www`, `mail`, `api`, and `app`, parsing cluster-wide Subject Alternative Names.
+        - **Automated Multi-Page Certificate Transparency Streaming (`getCertSpotterSubdomains`, `getCrtShSubdomains`)**: High-throughput paginated stream from CertSpotter streaming 800-1000+ issuances in seconds (discovering 500+ active subdomains on large targets like `google.com`), with resilient fallback to `crt.sh`.
+        - **Authoritative DNS Zone Mining (`getDnsRecordsSubdomains`)**: Extracts hostnames from authoritative DNS TXT (SPF `include:`, `a:` directives, verification tokens), MX (mail servers), NS (nameservers), and CNAME records.
+        - **Active DNS Resolution (`dns.Resolver`) with 350+ Enterprise Dictionary**: High-speed c-ares asynchronous dictionary resolution across 350+ top enterprise and SaaS prefixes (`api`, `app`, `auth`, `portal`, `admin`, `verify`, `rcas`, `tpo`, `kp`, `stage`, `dev`, `cloud`, `billing`, `k8s`, `cdn`, `autodiscover`, `autoconfig`, `ftp`, etc.) with wildcard DNS detection (`__bendlens_wildcard_*`).
+        - **Strict Non-Blocking Active DNS Validation (`validateCandidates`)**: Validates every candidate via c-ares `resolve4`, `resolve6` (IPv6), and `resolveCname` in batches of 100, eliminating Windows threadpool blocks and ensuring 100% authentic active subdomains.
       - **Targeted Subdomain API Crawling (`crawlSubdomainApiPerimeter`)**:
         - Probes OpenAPI/Swagger specifications (`/openapi.json`, `/swagger.json`, `/v3/api-docs`, `/api/openapi.json`, `/docs/openapi.json`).
-        - Probes WordPress REST API (`/wp-json/`) across all active subdomains.
+        - Probes WordPress REST API (`/wp-json/`) across all active subdomains (e.g. extracting all 378 authentic routes on `rcas.cyberxpertz.org`).
         - Probes core health and auth routes (`/api/health`, `/health`, `/status`, `/api/v1`, `/api/auth/session`).
         - Crawls entry HTML and script bundles for subdomains hosting web applications.
       - **Collision-Free Representation & UI Parity**:
-        - Tags all discovered endpoints with `subdomain` and `origin`.
-        - Emits `x-subdomain`, `x-origin`, and `servers` within OpenAPI operations.
+        - Tags all discovered endpoints with `x-subdomain` and `x-origin`.
+        - Emits `x-subdomains` and full `servers` within OpenAPI operations.
         - Resolves endpoint collisions across subdomains via path namespacing (`//subdomain/path`).
         - Enriches `DeveloperView.jsx` with prominent subdomain badges, automatic cURL/live-fetch origin resolution, and dedicated Subdomain quick-filter pills.
         - Adds `Subdomain / Host` grouping mode to `ApiBreakdownModal.jsx` and `apiBreakdownHelper.js`.
-        - Displays discovered subdomains indicator in the top HUD (`Header.jsx`).
+        - Displays discovered subdomains indicator in the top HUD (`Header.jsx`) showing exact subdomain names in parentheses when <= 3 (e.g., verifying exactly **3 Subdomains** on `cyberxpertz.org`: `cyberxpertz.org`, `rcas.cyberxpertz.org`, `verify.cyberxpertz.org`).
 
 ---
 

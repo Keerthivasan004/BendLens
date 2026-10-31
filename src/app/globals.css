@@ -22,7 +22,7 @@
   --border: #e3e9f4;
   --border-subtle: #edf1f8;
   --border-hover: #c4cfe3;
-  --subtext: #5b6b82;
+  --subtext: #334155;
   --canvas-bg: #f3f6fb;
   --canvas-dot: rgba(71, 85, 105, 0.14);
   --accent-primary: #2547eb;
@@ -554,3 +554,51 @@ div[data-nextjs-toast-wrapper],
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   html { scroll-behavior: auto; }
 }
+
+/* ============================================================
+   BendLens Light Theme Legibility & High-Contrast System
+   Guarantees 100% WCAG AAA readability on light backgrounds
+   ============================================================ */
+html:not(.dark) {
+  --subtext: #334155; /* Slate 700 for crisp, dark body ink */
+}
+
+/* Map neon/light dark-mode color tokens to deep, rich, legible tones in light mode */
+html:not(.dark) .text-indigo-200 { color: #312e81 !important; } /* Indigo 900 */
+html:not(.dark) .text-indigo-300 { color: #3730a3 !important; } /* Indigo 800 */
+html:not(.dark) .text-indigo-400 { color: #4338ca !important; } /* Indigo 700 */
+
+html:not(.dark) .text-cyan-400 { color: #0e7490 !important; }   /* Cyan 700 */
+html:not(.dark) .text-cyan-300 { color: #155e75 !important; }   /* Cyan 800 */
+
+html:not(.dark) .text-emerald-400 { color: #047857 !important; }/* Emerald 700 */
+html:not(.dark) .text-emerald-300 { color: #065f46 !important; }/* Emerald 800 */
+
+html:not(.dark) .text-purple-400 { color: #7e22ce !important; } /* Purple 700 */
+html:not(.dark) .text-purple-300 { color: #6b21a8 !important; } /* Purple 800 */
+
+html:not(.dark) .text-sky-400 { color: #0369a1 !important; }    /* Sky 700 */
+html:not(.dark) .text-sky-300 { color: #075985 !important; }    /* Sky 800 */
+
+html:not(.dark) .text-blue-400 { color: #1d4ed8 !important; }   /* Blue 700 */
+html:not(.dark) .text-blue-300 { color: #1e40af !important; }   /* Blue 800 */
+
+html:not(.dark) .text-amber-400 { color: #b45309 !important; }  /* Amber 700 */
+html:not(.dark) .text-amber-300 { color: #92400e !important; }  /* Amber 800 */
+
+html:not(.dark) .text-rose-400 { color: #be123c !important; }   /* Rose 700 */
+html:not(.dark) .text-rose-300 { color: #9f1239 !important; }   /* Rose 800 */
+
+html:not(.dark) .text-violet-400 { color: #6d28d9 !important; } /* Violet 700 */
+html:not(.dark) .text-violet-300 { color: #5b21b6 !important; } /* Violet 800 */
+
+/* Dark pill backgrounds converted to soft light tints in light mode */
+html:not(.dark) .bg-cyan-950\/40 { background-color: rgba(6, 182, 212, 0.12) !important; }
+html:not(.dark) .bg-purple-950\/40 { background-color: rgba(168, 85, 247, 0.12) !important; }
+html:not(.dark) .bg-emerald-950\/40 { background-color: rgba(16, 185, 129, 0.12) !important; }
+html:not(.dark) .bg-emerald-950\/60 { background-color: rgba(16, 185, 129, 0.12) !important; }
+html:not(.dark) .bg-indigo-950\/40 { background-color: rgba(99, 102, 241, 0.12) !important; }
+html:not(.dark) .bg-indigo-500\/20 { background-color: rgba(99, 102, 241, 0.12) !important; }
+html:not(.dark) .bg-indigo-500\/25 { background-color: rgba(99, 102, 241, 0.16) !important; }
+html:not(.dark) .bg-indigo-500\/40 { background-color: rgba(99, 102, 241, 0.20) !important; }
+

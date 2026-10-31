@@ -508,11 +508,11 @@ export default function UpdateShowcaseModal({
                         Update Downloaded &amp; Verified!
                       </h4>
                       <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-bold">
-                        v{updateInfo?.latestVersion || '1.1.47'}
+                        v{updateInfo?.latestVersion || process.env.NEXT_PUBLIC_APP_VERSION || '1.1.58'}
                       </span>
                     </div>
                     <p className="text-xs text-emerald-300/80 mt-0.5">
-                      BendLens v{updateInfo?.latestVersion || '1.1.51'} is verified and ready. Auto-applying update and restarting in {autoApplyCountdown !== null ? autoApplyCountdown : 0}s with zero prompts.
+                      BendLens v{updateInfo?.latestVersion || process.env.NEXT_PUBLIC_APP_VERSION || '1.1.58'} is verified and ready. Auto-applying update and restarting in {autoApplyCountdown !== null ? autoApplyCountdown : 0}s with zero prompts.
                     </p>
                   </div>
                 </div>
@@ -572,11 +572,11 @@ export default function UpdateShowcaseModal({
                         {updateStep?.includes('launched') ? 'Installer Launched Successfully!' : updateStep?.includes('Download') || updateStep?.includes('download') ? 'Installer Download Ready!' : 'Software Update Ready!'}
                       </h4>
                       <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-bold">
-                        v{updateInfo?.latestVersion || '1.1.47'}
+                        v{updateInfo?.latestVersion || process.env.NEXT_PUBLIC_APP_VERSION || '1.1.58'}
                       </span>
                     </div>
                     <p className="text-xs text-emerald-300/80 mt-0.5">
-                      {updateStep || `BendLens Studio v${updateInfo?.latestVersion || '1.1.47'} is ready. Complete setup to finish updating.`}
+                      {updateStep || `BendLens Studio v${updateInfo?.latestVersion || process.env.NEXT_PUBLIC_APP_VERSION || '1.1.58'} is ready. Complete setup to finish updating.`}
                     </p>
                   </div>
                 </div>
@@ -606,7 +606,7 @@ export default function UpdateShowcaseModal({
             ) : (
               <div className="flex items-center gap-1.5 text-emerald-400 font-mono">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                <span>Installed: <strong>v{updateInfo?.currentVersion || '1.1.48'} (Latest Release)</strong></span>
+                <span>Installed: <strong>v{updateInfo?.currentVersion || process.env.NEXT_PUBLIC_APP_VERSION || '1.1.58'} (Latest Release)</strong></span>
               </div>
             )}
           </div>
@@ -628,7 +628,7 @@ export default function UpdateShowcaseModal({
                 className="flex items-center justify-center gap-2 px-5 py-2 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm cursor-pointer hover:bg-emerald-500/30 transition-all"
               >
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                <span>Already Up to Date (v{updateInfo?.currentVersion || '1.1.48'})</span>
+                <span>Already Up to Date (v{updateInfo?.currentVersion || process.env.NEXT_PUBLIC_APP_VERSION || '1.1.58'})</span>
               </button>
             ) : autoUpdateStatus === 'ready' ? (
               <button

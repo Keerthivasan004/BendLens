@@ -157,6 +157,15 @@ class InfraParser {
           }
         }
 
+        if (Array.isArray(spec['x-subdomains'])) {
+          for (const s of spec['x-subdomains']) {
+            if (s && typeof s === 'string') {
+              let h = s.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '');
+              if (h && !this.subdomains.includes(h)) this.subdomains.push(h);
+            }
+          }
+        }
+
         const basePath = (spec.basePath && spec.basePath !== '/') ? spec.basePath.replace(/\/+$/, '') : '';
         for (const [pathUrl, methods] of Object.entries(spec.paths)) {
           let fullPath = basePath ? `${basePath}${pathUrl.startsWith('/') ? pathUrl : '/' + pathUrl}` : pathUrl;
@@ -172,7 +181,8 @@ class InfraParser {
 
           for (const [method, details] of Object.entries(methods)) {
             if (['get', 'post', 'put', 'delete', 'patch', 'options', 'head'].includes(method.toLowerCase())) {
-              const rawSub = details?.['x-subdomain'] || inferredSubdomain || (details?.servers?.[0]?.url ? (function() { try { return new URL(details.servers[0].url).hostname; } catch { return null; } })() : null) || (specServerHosts.length === 1 ? specServerHosts[0] : null);
+              const primaryHost = specServerHosts[0] || (this.subdomains.length > 0 ? this.subdomains[0] : null);
+              const rawSub = details?.['x-subdomain'] || inferredSubdomain || (details?.servers?.[0]?.url ? (function() { try { return new URL(details.servers[0].url).hostname; } catch { return null; } })() : null) || primaryHost;
               const sub = rawSub ? rawSub.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : null;
               const orig = details?.['x-origin'] || inferredOrigin || (details?.servers?.[0]?.url || (sub ? `https://${sub}` : null));
               if (sub && !this.subdomains.includes(sub)) this.subdomains.push(sub);

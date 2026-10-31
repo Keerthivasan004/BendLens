@@ -11,9 +11,10 @@ export default function UpdateIndicator() {
   // a downloaded-desktop-app-only surface. Render nothing on the web.
   const isDesktop = useIsDesktop();
   const [mounted, setMounted] = useState(false);
+  const currentAppVersion = (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_APP_VERSION) || '1.1.58';
   const [updateInfo, setUpdateInfo] = useState({
-    currentVersion: '1.1.51',
-    latestVersion: '1.1.51',
+    currentVersion: currentAppVersion,
+    latestVersion: currentAppVersion,
     hasUpdate: false,
     releaseNotes: []
   });
@@ -327,7 +328,7 @@ export default function UpdateIndicator() {
     setUpdateElapsedTime(0);
     setUpdateFinalDuration('');
 
-    const targetVer = updateInfo?.latestVersion || '1.1.48';
+    const targetVer = updateInfo?.latestVersion || currentAppVersion;
     const targetArtifact = updateInfo?.updateArtifact || `BendLens-Setup-${targetVer}.exe`;
     const directDownloadUrl = updateInfo?.downloadUrl || `https://github.com/Keerthivasan004/BendLens/releases/download/v${targetVer}/${targetArtifact}`;
 

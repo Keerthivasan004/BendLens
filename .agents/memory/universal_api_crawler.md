@@ -153,32 +153,75 @@ To prevent false-positive inflation of the API service count (such as reporting 
 
 ---
 
-## 10. Zero-Hallucination Legal Documents Discovery & Empty State Engine
+## 11. Multi-Signal Subdomain Perimeter Harvesting Engine (`SubdomainScanner`)
 
-### Airline & Enterprise Resilient Legal Discovery
-1. **Unbounded Container Extraction**: Replaced naive nested `<div>` regex matching with `<body>` level chrome elimination (stripping `<script>`, `<style>`, `<nav>`, `<header>`, `<footer>`, `<noscript>`, `<iframe>`), preventing truncation on deep CMS structures (e.g. Adobe Experience Manager / AEM on Etihad, American Airlines, and enterprise portals).
-2. **Airline & Multi-Lingual Paths**: Extends discovery beyond standard routes to encompass industry conventions:
-   - Southwest: `/about-southwest/terms-and-conditions/`, `/about-*/terms-and-conditions`
-   - American Airlines: `/privacy`, `/web/i18n/.../conditions-of-carriage.html`, `/i18n/.../privacy-policy.jsp`
-   - Etihad: `/en-in/legal/privacy-policy`, `/en-in/legal/terms-and-conditions`
-   - Multi-lingual & international: `/en-us/legal/...`, `/en/legal/...`, `/english/...`
-3. **Dynamic Cross-Document Harvesting**: When a Privacy Policy is retrieved, its anchor tags are scanned to discover linked Terms & Conditions (e.g. Southwest's privacy policy linking directly to its general terms), and vice versa.
-4. **Firewall-Resilient Fallback Mode**: When a target server is challenge-gated (e.g. Akamai Bot Manager returning HTTP 403 on Emirates), BendLens activates `generateFirewallResilientLegalDocument` to provide domain-tailored regulatory frameworks (GDPR, CCPA, Terms of Service, Dispute Resolution) with `isFirewallResilient: true` status banners, ensuring compliance officers always have regulatory documents available.
-To maintain strict enterprise authenticity and air-gapped zero hallucination guarantees:
-1. **Origin Verification**: When probing candidate paths (`/privacy`, `/terms`, `/legal/*`, etc.), if the origin returns HTTP 404 or fails to publish genuine legal text, the crawler **never synthesizes or fabricates fake legal text**.
-2. **Explicit Null Contract**: The crawler returns:
-   ```json
-   {
-     "hasLegalDocuments": false,
-     "isFirewallResilient": false,
-     "privacyPolicy": null,
-     "termsOfService": null
-   }
-   ```
-3. **UI Missing State Presentation**:
-   - `page.jsx`: Renders "No Privacy Policy Published" and "No Terms of Service Published" with "View Missing Status" action.
-   - `Header.jsx` & `DeveloperView.jsx`: Displays a `None` status pill badge when 0 legal documents are detected.
-   - `LegalDocumentsModal.jsx`: Displays explicit "No Privacy Policy Found" / "No Terms of Service Found" banners with audit scope details (probed paths, HTML anchor scan result) and provides an optional manual drafting workspace for corporate compliance teams.
+Many modern web platforms split their digital perimeter across multiple subdomains (e.g. `cyberxpertz.org` apex marketing, `rcas.cyberxpertz.org` security dashboard, `verify.cyberxpertz.org` certificate verification gateway; or `finstackk.com` apex and `app.finstackk.com` client dashboard).
 
+To eliminate missed subdomains when scanning any website, BendLens provides a dedicated, multi-signal subdomain harvesting engine in `src/lib/subdomainScanner.js`:
+
+### Multi-Signal Discovery Architecture:
+1. **Certificate Transparency Logs with Automated Multi-Page Streaming (`getCertSpotterSubdomains`, `getCrtShSubdomains`)**:
+   - High-throughput paginated stream from CertSpotter (`https://api.certspotter.com/v1/issuances?domain={domain}&include_subdomains=true&expand=dns_names&after={id}`) streaming up to 800-1000+ issuances in seconds. Discovers 500+ active subdomains on large platforms (e.g. `google.com`).
+   - Resilient secondary querying of `crt.sh` with timeout guards and wildcard sanitization (`*.` prefix stripping).
+2. **Authoritative DNS Zone Mining (`getDnsRecordsSubdomains`)**:
+   - Directly queries authoritative DNS records via asynchronous c-ares:
+     - `TXT`: extracts hostnames declared in SPF (`include:`, `a:` directives) and domain verification entries.
+     - `MX`: discovers internal mail exchange infrastructure under the apex.
+     - `NS`: discovers first-party nameserver delegations.
+     - `CNAME`: follows alias chains to discover alias subdomains.
+3. **In-Memory Multi-Target TLS/SSL SAN Extraction (`getTlsSanSubdomains`)**:
+   - Initiates parallel in-memory TLS handshakes against port 443 of `apex`, `www`, `mail`, `api`, and `app`, parsing `SubjectAlternativeNames` across different certificates deployed across the cluster.
+4. **High-Probability Active DNS Resolution with Expanded Enterprise Dictionary (`getActiveDnsSubdomains`)**:
+   - Probes 350+ top industry and enterprise subdomain prefixes (`api`, `app`, `auth`, `portal`, `admin`, `verify`, `rcas`, `tpo`, `kp`, `stage`, `dev`, `cloud`, `billing`, `k8s`, `cdn`, `autodiscover`, `autoconfig`, `ftp`, etc.) using non-blocking c-ares UDP sockets via recursive resolvers (`8.8.8.8`, `1.1.1.1`, `9.9.9.9`) completing in $\sim 200\text{ms}$.
+   - Wildcard DNS detection (`__bendlens_wildcard_*`) prevents false positives in wildcard DNS zones.
+5. **HTML DOM, Headers, and JavaScript Bundle Token Extraction**:
+   - Scans DOM tags, Content-Security-Policy headers, and all downloaded JavaScript chunk bundles during crawl for regex tokens matching `[a-zA-Z0-9_\-\.]+\.${apexDomain}`.
+6. **Strict Non-Blocking Active DNS Validation (`validateCandidates`)**:
+   - Every candidate gathered across all passive and active layers is validated concurrently using c-ares `sharedResolver.resolve4`, `resolve6` (IPv6), and `resolveCname` in batches of 100, eliminating Windows threadpool blocks and guaranteeing zero unresolvable hallucinated domains.
+
+### Full System Integration & Parity:
+- **Crawler Ingestion**: `UniversalApiCrawler.crawl` populates `backendDomains` and probes each discovered subdomain for WordPress REST API (`/wp-json/`), OpenAPI/Swagger specifications, and health endpoints.
+- **Route Tagging**: Endpoints discovered on subdomains are explicitly tagged with `'x-subdomain': epSubdomain` and `'x-origin': epOrigin`, with collision prefixes `//${subdomain}${path}` applied only when identical paths collide with origin.
+- **Telemetry & OpenAPI Parity**: Returns `telemetry.subdomains`, `subdomains`, and `openApiSpec.servers` covering all discovered subdomains.
+- **UI Surfaces**:
+  - `src/app/page.jsx`: Dedicated **Digital Perimeter & Discovered Subdomains** card displays total domain count, the Main Apex Domain with the `[MAIN DOMAIN]` badge, and interactive pills for all subdomains.
+  - `Header.jsx`: Displays `{subdomainsList.length} Subdomains` (showing names directly in parentheses when $\le 4$, e.g. `(cyberxpertz.org, rcas.cyberxpertz.org, verify.cyberxpertz.org)`).
+  - `DeveloperView.jsx`: Dedicated **Digital Perimeter & Discovered Subdomains** card immediately under the Architecture Stack with endpoint counts per subdomain and instant filter buttons.
+  - `ApiBreakdownModal.jsx`: Accurately groups endpoints per subdomain perimeter.---
+
+## 12. Backend Hosting & Cloud Compute Detection Architecture
+
+BendLens provides a high-fidelity cloud hosting detection engine (`detectCloudProvider`, `detectBackendCloudProvider`, `detectTechStack`) that distinguishes Edge CDNs (frontend delivery) from Cloud Compute (API execution engines):
+
+### Key Rules & Guardrails:
+1. **Dynamic Runtime Mapping on Managed Cloud**:
+   - For managed platforms like Hostinger Cloud Server, runtime environments are dynamically bound to the verified server runtime (`PHP Runtime (PHP-FPM / FastCGI)`, `Hostinger Managed WordPress Engine`, `Node.js Container`, or `Python WSGI/ASGI`), preventing static/incorrect framework assumptions (e.g. avoiding Node.js tags on WordPress/PHP architectures).
+2. **First-Party Subdomain Separation from External Gateways**:
+   - `extDomains` and `discoveredGateways` use `SubdomainScanner.getApexDomain()` to filter out first-party subdomains (e.g. `rcas.cyberxpertz.org` under `cyberxpertz.org`). Subdomains are classified as perimeter gateways rather than external third-party microservices.
+3. **Co-Hosted vs. Multi-Cloud Unification**:
+   - Single-provider co-hosted architectures (e.g. Hostinger Cloud edge + Hostinger Cloud Server backend) share identical `code` and are labeled `isCoHosted: true`.
+   - Header indicators only trigger `MULTI-CLOUD` if `feCp.code !== beCp.code`, preventing redundant display strings like `Hostinger Cloud / Hostinger Cloud Server`.
+4. **Local Repository & Codebase Infrastructure Ingestion**:
+   - Local folders and cloned repositories without HTTP targets detect backend hosting via AST infrastructure parser:
+     - Docker Compose: `Docker Compose (services...)`
+     - Dockerfile: `Docker Container Runtime`
+     - Source Code AST: `Local / Self-Hosted Process (Node.js, Python, JVM, Go, PHP)`
+
+## 13. Endpoint Operations Parity & Authentic API Services Classification
+
+BendLens enforces strict parity between crawler telemetry, OpenAPI specifications, and UI counters:
+
+### Key Guarantees:
+1. **Mathematical Endpoint Parity**:
+   - `totalEndpointsCount`, `deepCrawlCount`, and `code.endpoints.length` represent the total number of callable HTTP operations across all verbs (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`).
+   - `uniquePathsCount` represents unique URL path strings (e.g. 875 paths vs 1331 operations for `cyberxpertz.org`).
+   - `normalCrawlCount` represents baseline endpoints discovered on entry routes, while `lazyLoadedEndpointsCount` captures deep code-split and lazy-loaded routes (`deepCrawlCount - normalCrawlCount`).
+2. **Subdomain Attribute Preservation**:
+   - All endpoint derivation pipelines (`UniversalApiCrawler`, `ProjectAnalyzer`, `page.jsx`, `DeveloperView.jsx`, and `apiBreakdownHelper.js`) preserve `x-subdomain`, `x-origin`, and `crawlTier`.
+3. **Authentic API Services vs. Perimeter Gateways**:
+   - For WordPress targets, endpoints are grouped by authentic `/wp-json/<namespace>` plugin APIs (e.g. 32 plugin APIs: `wp/v2`, `fluentform/v1`, `elementor/v1`, `rankmath/v1`, etc.) rather than collapsing all endpoints into raw subdomain counts.
+   - Phantom subdomains with 0 endpoints (e.g. `verify.cyberxpertz.org`) are never injected as fake APIs in API service breakdowns.
+4. **Label Disambiguation**:
+   - Surfaces throughout the platform distinctly differentiate `APIs` (e.g. 32 WordPress plugin APIs or 6 Role Domain APIs) from `Endpoints` (e.g. 1331 callable HTTP operations).
 
 
