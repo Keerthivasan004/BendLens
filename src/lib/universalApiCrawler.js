@@ -229,8 +229,8 @@ class UniversalApiCrawler {
 
     const crawlDepth = options.crawlDepth || 'deep';
     const isNormalOnly = crawlDepth === 'normal';
-    const maxChunks = options.maxChunks ? Math.min(options.maxChunks, 100) : 80;
-    const maxCrawlTimeMs = options.maxCrawlDurationMs || 50000;
+    const maxChunks = options.maxChunks || 500;
+    const maxCrawlTimeMs = options.maxCrawlDurationMs || 60000;
     const concurrency = options.concurrency || 20;
     const allEndpoints = new Map(); // path -> Set of HTTP methods
     const normalEndpoints = new Map(); // path -> Set of HTTP methods (Phase 1 / Normal Crawl snapshot)
@@ -1339,7 +1339,7 @@ class UniversalApiCrawler {
         }
 
         // Exhaustively process all dynamic code-split chunks up to bounded deep limit
-        const maxDeepChunks = Math.min(maxChunks + 30, 90);
+        const maxDeepChunks = maxChunks + 150;
         while (deepQueue.length > 0 && visitedUrls.size < maxDeepChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
           const batch = deepQueue.splice(0, concurrency);
 

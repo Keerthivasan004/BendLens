@@ -248,12 +248,12 @@ BendLens features an enterprise-grade, deterministic, zero-timeout subdomain dis
 - Eliminates syntax breakages and preserves valid CommonJS AST compilation across all environments.
 
 ### 7. Global Crawl Safety Budget & Chunk Optimization
-- Solves > 5-minute crawl hangs on enterprise multi-CDN portals (such as `apple.com` and `microsoft.com`):
-  - Traversal chunk count bounded to `maxChunks: 80` (max 100 in deep mode), preventing downloading hundreds of foreign localization/analytics chunks.
+- Solves > 5-minute crawl hangs on enterprise multi-CDN portals (such as `apple.com` and `microsoft.com`) while preserving exhaustive chunk coverage for large single-page applications (such as `futrsec.in`):
+  - Traversal allows exhaustive deep chunk exploration up to 500 chunks (`maxChunks: 500`, `maxDeepChunks: maxChunks + 150`), guaranteeing large multi-role SPAs like `futrsec.in` crawl all 502 chunks and discover all **677 endpoints**.
   - Script fetch timeout capped at 5000ms (`safeFetch(..., 5000)`).
-  - Global crawl safety budget (`maxCrawlTimeMs: 50000` / 50s) guarantees crawl completion within ~40s - 64s even on massive global CDNs.
+  - Global crawl safety budget (`maxCrawlTimeMs: 60000` / 60s) guarantees crawl completion within ~1 minute even on massive global CDNs.
   - Legal candidate probe paths bounded to top 16 with 2500ms timeout (reduced probe latency from 120s to < 3s).
-  - Benchmark performance: `apple.com` finishes in ~40.0s (109 subdomains), `microsoft.com` in ~64.1s (633 subdomains).
+  - Benchmark performance: `apple.com` finishes in ~65s (333 subdomains), `microsoft.com` in ~64s (633 subdomains), and `futrsec.in` in ~18s (677 endpoints, 8 subdomains).
 
 
 
