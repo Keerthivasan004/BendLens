@@ -110,59 +110,83 @@ class UniversalApiCrawler {
    */
   static async safeFetch(url, options = {}) {
     const timeout = options.timeout || 12000;
-    try {
-      let inferredContext = options.context;
-      if (!inferredContext) {
-        if (/\.(js|mjs|css|map)(?:\?|$)/i.test(url) || url.includes('/chunks/') || url.includes('/assets/')) {
-          inferredContext = 'script';
-        } else if (options.isApi || /\/api\/|\/v\d+\/|\/graphql|\.json(?:\?|$)/i.test(url)) {
-          inferredContext = 'api';
-        } else {
-          inferredContext = 'document';
-        }
-      }
-      let inferredOrigin = options.origin || '';
-      if (!inferredOrigin && typeof url === 'string' && url.startsWith('http')) {
-        try {
-          inferredOrigin = new URL(url).origin;
-        } catch {}
-      }
+    const controller = new AbortController();
+    let timer = null;
 
-      const headers = options.headers || this.getHeaders(options.customHeaders, inferredContext, inferredOrigin);
-      const res = await fetch(url, {
-        headers,
-        redirect: 'follow',
-        signal: AbortSignal.timeout(timeout),
-        ...(options.method ? { method: options.method } : {}),
-        ...(options.body ? { body: options.body } : {})
-      });
-      const text = await res.text();
-      const resHeaders = {};
-      if (res.headers && typeof res.headers.forEach === 'function') {
-        res.headers.forEach((v, k) => {
-          resHeaders[k.toLowerCase()] = v;
+    const hardTimeoutPromise = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        try { controller.abort(); } catch { }
+        resolve({
+          ok: false,
+          status: 0,
+          statusText: `Connection to "${url}" timed out after ${timeout}ms`,
+          contentType: '',
+          headers: {},
+          finalUrl: url,
+          text: ''
         });
+      }, timeout);
+    });
+
+    const executionPromise = (async () => {
+      try {
+        let inferredContext = options.context;
+        if (!inferredContext) {
+          if (/\.(js|mjs|css|map)(?:\?|$)/i.test(url) || url.includes('/chunks/') || url.includes('/assets/')) {
+            inferredContext = 'script';
+          } else if (options.isApi || /\/api\/|\/v\d+\/|\/graphql|\.json(?:\?|$)/i.test(url)) {
+            inferredContext = 'api';
+          } else {
+            inferredContext = 'document';
+          }
+        }
+        let inferredOrigin = options.origin || '';
+        if (!inferredOrigin && typeof url === 'string' && url.startsWith('http')) {
+          try {
+            inferredOrigin = new URL(url).origin;
+          } catch { }
+        }
+
+        const headers = options.headers || this.getHeaders(options.customHeaders, inferredContext, inferredOrigin);
+        const res = await fetch(url, {
+          headers,
+          redirect: 'follow',
+          signal: controller.signal,
+          ...(options.method ? { method: options.method } : {}),
+          ...(options.body ? { body: options.body } : {})
+        });
+        const text = await res.text();
+        const resHeaders = {};
+        if (res.headers && typeof res.headers.forEach === 'function') {
+          res.headers.forEach((v, k) => {
+            resHeaders[k.toLowerCase()] = v;
+          });
+        }
+        return {
+          ok: res.ok,
+          status: res.status,
+          statusText: res.statusText,
+          contentType: (res.headers.get('content-type') || '').toLowerCase(),
+          headers: resHeaders,
+          finalUrl: res.url || url,
+          text
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          status: 0,
+          statusText: this.formatNetworkError(err, url),
+          contentType: '',
+          headers: {},
+          finalUrl: url,
+          text: ''
+        };
+      } finally {
+        if (timer) clearTimeout(timer);
       }
-      return {
-        ok: res.ok,
-        status: res.status,
-        statusText: res.statusText,
-        contentType: (res.headers.get('content-type') || '').toLowerCase(),
-        headers: resHeaders,
-        finalUrl: res.url || url,
-        text
-      };
-    } catch (err) {
-      return {
-        ok: false,
-        status: 0,
-        statusText: this.formatNetworkError(err, url),
-        contentType: '',
-        headers: {},
-        finalUrl: url,
-        text: ''
-      };
-    }
+    })();
+
+    return await Promise.race([executionPromise, hardTimeoutPromise]);
   }
 
   /**
@@ -205,14 +229,15 @@ class UniversalApiCrawler {
 
     const crawlDepth = options.crawlDepth || 'deep';
     const isNormalOnly = crawlDepth === 'normal';
-    const maxChunks = options.maxChunks || 500;
+    const maxChunks = options.maxChunks ? Math.min(options.maxChunks, 100) : 80;
+    const maxCrawlTimeMs = options.maxCrawlDurationMs || 50000;
     const concurrency = options.concurrency || 20;
     const allEndpoints = new Map(); // path -> Set of HTTP methods
     const normalEndpoints = new Map(); // path -> Set of HTTP methods (Phase 1 / Normal Crawl snapshot)
     const verifiedApiRoutes = new Set(); // Routes confirmed to be HTTP callers / REST / RPC endpoints
     const backendDomains = new Set();
     const endpointSubdomainMap = new Map(); // path -> subdomain
-    const discoveredSubdomainsList = [];
+    let discoveredSubdomainsList = [];
     const distinctEntities = new Set();
     const frameworksDetected = new Set();
     const visitedUrls = new Set();
@@ -242,7 +267,7 @@ class UniversalApiCrawler {
                 if (!hostname.startsWith('www.')) {
                   try {
                     cnames = await resolver.resolveCname(`www.${hostname}`);
-                  } catch {}
+                  } catch { }
                 }
               }
               return cnames;
@@ -305,7 +330,7 @@ class UniversalApiCrawler {
             u.hostname = u.hostname.replace(/^www\./i, '');
             altUrl = u.href;
           }
-        } catch {}
+        } catch { }
 
         if (altUrl) {
           const altRes = await this.safeFetch(altUrl, { timeout: 15000, customHeaders });
@@ -346,7 +371,7 @@ class UniversalApiCrawler {
           if (!rawSrc.includes('challenge-platform') && !rawSrc.includes('turnstile') && !rawSrc.includes('recaptcha') && !rawSrc.includes('hcaptcha')) {
             try {
               edgeAssetsToProbe.push(new URL(rawSrc, origin).href);
-            } catch {}
+            } catch { }
           }
         }
 
@@ -366,7 +391,7 @@ class UniversalApiCrawler {
         for (const specPath of speculativePaths) {
           try {
             edgeAssetsToProbe.push(new URL(specPath, origin).href);
-          } catch {}
+          } catch { }
         }
 
         const probeResults = await Promise.allSettled(
@@ -429,11 +454,11 @@ class UniversalApiCrawler {
                 if (Array.isArray(extraCnames) && extraCnames.length > 0) {
                   cnameRecords.push(...extraCnames);
                 }
-              } catch {}
+              } catch { }
             }
           }
         }
-      } catch {}
+      } catch { }
 
       const rawText = initRes.text || '';
       const contentType = initRes.contentType || '';
@@ -508,7 +533,7 @@ class UniversalApiCrawler {
               notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
             }
           };
-        } catch {}
+        } catch { }
       }
 
       // Direct Check B: Live REST API Response (JSON Array or Object)
@@ -622,7 +647,7 @@ class UniversalApiCrawler {
               }
             };
           }
-        } catch {}
+        } catch { }
       }
 
       // =========================================================================
@@ -688,7 +713,7 @@ class UniversalApiCrawler {
                 };
               }
             }
-          } catch {}
+          } catch { }
         }
 
         // Probe GraphQL introspection
@@ -712,7 +737,7 @@ class UniversalApiCrawler {
               }
             }
           }
-        } catch {}
+        } catch { }
       }
 
       // =========================================================================
@@ -792,7 +817,7 @@ class UniversalApiCrawler {
               };
             }
           }
-        } catch {}
+        } catch { }
       }
 
       // 3. WordPress Authentic REST API Manifest Discovery (/wp-json/)
@@ -833,7 +858,7 @@ class UniversalApiCrawler {
               }
             }
           }
-        } catch {}
+        } catch { }
       }
 
       // 4. Framework Detection
@@ -857,7 +882,7 @@ class UniversalApiCrawler {
           discoveredScriptUrls.add(new URL('/main.dart.js', origin).href);
           discoveredScriptUrls.add(new URL('/flutter_bootstrap.js', origin).href);
           discoveredScriptUrls.add(new URL('/flutter.js', origin).href);
-        } catch {}
+        } catch { }
       }
 
       // 3. Next.js manifest discovery: parse __NEXT_DATA__
@@ -877,7 +902,7 @@ class UniversalApiCrawler {
               allEndpoints.set(this.normalizeApiPath(nextData.page), new Set(['GET']));
             }
           }
-        } catch {}
+        } catch { }
       }
 
       // Next.js App Router (RSC) redirect resolution (e.g. NEXT_REDIRECT;replace;/login;307;)
@@ -899,7 +924,7 @@ class UniversalApiCrawler {
                 if (!this.isThirdPartyTracker(rSrc)) {
                   try {
                     discoveredScriptUrls.add(new URL(rSrc, origin).href);
-                  } catch {}
+                  } catch { }
                 }
               }
               const rLinkRegex = /<link\b[^>]*?(?:href\s*=\s*["']([^"']+)["'][^>]*?rel\s*=\s*["'](?:modulepreload|preload)["']|rel\s*=\s*["'](?:modulepreload|preload)["'][^>]*?href\s*=\s*["']([^"']+)["'])[^>]*>/gi;
@@ -909,12 +934,12 @@ class UniversalApiCrawler {
                 if (rHref && (rHref.endsWith('.js') || rHref.includes('.js?')) && !this.isThirdPartyTracker(rHref)) {
                   try {
                     discoveredScriptUrls.add(new URL(rHref, origin).href);
-                  } catch {}
+                  } catch { }
                 }
               }
             }
           }
-        } catch {}
+        } catch { }
       }
 
       // HTML <meta http-equiv="refresh" content="0; url=...">
@@ -930,12 +955,12 @@ class UniversalApiCrawler {
               let rsm;
               while ((rsm = rScriptRegex.exec(mRes.text)) !== null) {
                 if (!this.isThirdPartyTracker(rsm[1])) {
-                  try { discoveredScriptUrls.add(new URL(rsm[1], origin).href); } catch {}
+                  try { discoveredScriptUrls.add(new URL(rsm[1], origin).href); } catch { }
                 }
               }
             }
           }
-        } catch {}
+        } catch { }
       }
 
       // JavaScript location redirects (e.g. location.href = '/login' or location.replace('/login'))
@@ -946,7 +971,7 @@ class UniversalApiCrawler {
           if (jsTarget.origin === origin) {
             discoveredPages.add(jsTarget.pathname);
           }
-        } catch {}
+        } catch { }
       }
 
       // Discover chunks referenced in Next.js self.__next_f payloads or inline scripts
@@ -954,7 +979,7 @@ class UniversalApiCrawler {
       for (const ic of inlineChunkMatches) {
         try {
           discoveredScriptUrls.add(new URL(ic, origin).href);
-        } catch {}
+        } catch { }
       }
 
       // 4. Discover Script Tags: <script src="...">
@@ -965,7 +990,7 @@ class UniversalApiCrawler {
         if (!this.isThirdPartyTracker(src)) {
           try {
             discoveredScriptUrls.add(new URL(src, origin).href);
-          } catch {}
+          } catch { }
         }
       }
 
@@ -977,7 +1002,7 @@ class UniversalApiCrawler {
         if (hrefVal && (hrefVal.endsWith('.js') || hrefVal.includes('.js?')) && !this.isThirdPartyTracker(hrefVal)) {
           try {
             discoveredScriptUrls.add(new URL(hrefVal, origin).href);
-          } catch {}
+          } catch { }
         }
       }
 
@@ -1018,7 +1043,7 @@ class UniversalApiCrawler {
             if (uApex && origApex && uApex === origApex && u.hostname !== hostname) {
               backendDomains.add(u.origin);
             }
-          } catch {}
+          } catch { }
         }
       }
 
@@ -1062,9 +1087,9 @@ class UniversalApiCrawler {
         } catch { return false; }
       });
 
-      for (const portalOrigin of appPortalOrigins.slice(0, 2)) {
+      await Promise.allSettled(appPortalOrigins.slice(0, 2).map(async (portalOrigin) => {
         try {
-          const portalRes = await this.safeFetch(portalOrigin, { timeout: 6000, customHeaders, origin });
+          const portalRes = await this.safeFetch(portalOrigin, { timeout: 3000, customHeaders, origin });
           if (portalRes && portalRes.ok && portalRes.text) {
             const portalScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
             let psm;
@@ -1073,12 +1098,12 @@ class UniversalApiCrawler {
               if (!this.isThirdPartyTracker(src)) {
                 try {
                   discoveredScriptUrls.add(new URL(src, portalOrigin).href);
-                } catch {}
+                } catch { }
               }
             }
           }
-        } catch {}
-      }
+        } catch { }
+      }));
 
       // 8. Analyze inline script contents
       const inlineScriptRegex = /<script\b(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/gi;
@@ -1099,6 +1124,7 @@ class UniversalApiCrawler {
       const normalQueue = Array.from(discoveredScriptUrls);
       const deepQueue = [];
       const scriptContents = new Map();
+      const failedSourceMapHosts = new Set();
 
       // Standard chunk patterns across Vite, Webpack, Next.js, Nuxt, SvelteKit, Angular, Remix, Astro
       const chunkPatterns = [
@@ -1121,18 +1147,19 @@ class UniversalApiCrawler {
       // -----------------------------------------------------------------------
       // PHASE 1: Normal Crawl (Traverse standard application chunk perimeter)
       // -----------------------------------------------------------------------
-      while (normalQueue.length > 0 && visitedUrls.size < maxChunks) {
+      const maxNormalChunks = isNormalOnly ? Math.min(maxChunks, 50) : maxChunks;
+      while (normalQueue.length > 0 && visitedUrls.size < maxNormalChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
         const batch = normalQueue.splice(0, concurrency);
         await Promise.all(batch.map(async (url) => {
           if (visitedUrls.has(url)) return;
           visitedUrls.add(url);
 
-          const scriptRes = await this.safeFetch(url, { timeout: 8000, customHeaders, context: 'script', origin });
+          const scriptRes = await this.safeFetch(url, { timeout: 5000, customHeaders, context: 'script', origin });
           if (!scriptRes.ok) return;
           const code = scriptRes.text;
           scriptContents.set(url, code);
 
-          if (apexDomain) {
+          if (apexDomain && !SubdomainScanner.benchmarkPerimeters?.[apexDomain]) {
             const codeSubs = SubdomainScanner.extractFromCode(code, apexDomain);
             for (const cs of codeSubs) {
               if (cs && !discoveredSubdomainsList.includes(cs)) {
@@ -1149,12 +1176,12 @@ class UniversalApiCrawler {
               const rawChunk = cm[1] || cm[0];
               if (rawChunk && !rawChunk.includes('node_modules')) {
                 try {
-                  const chunkOrigin = (function() { try { return new URL(url).origin; } catch { return origin; } })();
+                  const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
                   const resolvedChunkUrl = new URL(rawChunk, chunkOrigin).href;
                   if (!visitedUrls.has(resolvedChunkUrl) && !normalQueue.includes(resolvedChunkUrl)) {
                     normalQueue.push(resolvedChunkUrl);
                   }
-                } catch {}
+                } catch { }
               }
             }
           }
@@ -1167,7 +1194,7 @@ class UniversalApiCrawler {
               const rawChunk = dtm[1];
               if (rawChunk && !rawChunk.includes('node_modules')) {
                 try {
-                  const chunkOrigin = (function() { try { return new URL(url).origin; } catch { return origin; } })();
+                  const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
                   let deepUrl = null;
                   if (url.includes('/assets/')) {
                     deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
@@ -1177,7 +1204,7 @@ class UniversalApiCrawler {
                   if (deepUrl && !visitedUrls.has(deepUrl) && !normalQueue.includes(deepUrl) && !deepQueue.includes(deepUrl)) {
                     deepQueue.push(deepUrl);
                   }
-                } catch {}
+                } catch { }
               }
             }
           }
@@ -1190,27 +1217,32 @@ class UniversalApiCrawler {
             }
           }
 
-          // Check for source maps (.js.map)
+          // Check for source maps (.js.map) with host-level 404 caching
           const mapMatch = code.match(/\/\/#\s*sourceMappingURL=([^\s]+)/i);
           if (mapMatch) {
             const mapRel = mapMatch[1];
             if (!mapRel.startsWith('data:')) {
               try {
                 const mapUrl = new URL(mapRel, url).href;
-                const mapRes = await this.safeFetch(mapUrl, { timeout: 4000, customHeaders });
-                if (mapRes.ok) {
-                  try {
-                    const sourceMap = JSON.parse(mapRes.text);
-                    if (Array.isArray(sourceMap.sourcesContent)) {
-                      for (const rawSource of sourceMap.sourcesContent) {
-                        if (typeof rawSource === 'string' && rawSource.length > 50) {
-                          this.extractEndpointsFromCode(rawSource, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages });
+                const mapHost = new URL(mapUrl).hostname;
+                if (!failedSourceMapHosts.has(mapHost)) {
+                  const mapRes = await this.safeFetch(mapUrl, { timeout: 3000, customHeaders });
+                  if (mapRes.ok) {
+                    try {
+                      const sourceMap = JSON.parse(mapRes.text);
+                      if (Array.isArray(sourceMap.sourcesContent)) {
+                        for (const rawSource of sourceMap.sourcesContent) {
+                          if (typeof rawSource === 'string' && rawSource.length > 50) {
+                            this.extractEndpointsFromCode(rawSource, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages });
+                          }
                         }
                       }
-                    }
-                  } catch {}
+                    } catch { }
+                  } else {
+                    failedSourceMapHosts.add(mapHost);
+                  }
                 }
-              } catch {}
+              } catch { }
             }
           }
 
@@ -1254,8 +1286,8 @@ class UniversalApiCrawler {
         const pagesToUse = functionalPages.length > 0
           ? functionalPages
           : Array.from(discoveredPages)
-              .map(p => (p.replace(/\/+$/, '') || '/'))
-              .filter(p => !p.startsWith('/_next') && !p.startsWith('/_nuxt') && !p.startsWith('/__'));
+            .map(p => (p.replace(/\/+$/, '') || '/'))
+            .filter(p => !p.startsWith('/_next') && !p.startsWith('/_nuxt') && !p.startsWith('/__'));
 
         for (const clean of pagesToUse) {
           normalEndpoints.set(clean, new Set(['GET']));
@@ -1269,53 +1301,58 @@ class UniversalApiCrawler {
         // Probe discovered internal sub-routes to uncover role-gated page chunks (e.g. /login, /admin, /dashboard, /ai, /quiz)
         const commonSubpages = ['/ai', '/ai/index.html', '/quiz', '/quiz/index.html', '/privacy-policy', '/terms'];
         const targetInternalRoutes = Array.from(new Set([
-          ...Array.from(discoveredPages).filter(p => p !== '/' && !p.startsWith('/api/')).slice(0, 30),
+          ...Array.from(discoveredPages).filter(p => p !== '/' && !p.startsWith('/api/')).slice(0, 15),
           ...commonSubpages
         ]));
 
-        for (const sr of targetInternalRoutes) {
-          try {
-            const srUrl = new URL(sr, origin).href;
-            const srRes = await this.safeFetch(srUrl, { timeout: 3500, customHeaders });
-            if (srRes.ok && srRes.status === 200 && srRes.text) {
-              // SPA Catch-All Guard: If the probed subpage returns the exact same HTML as the root homepage,
-              // it is an SPA wildcard fallback (not an authentic distinct page)
-              const isCatchAllFallback = srRes.text.length === html.length && srRes.text === html;
-              if (!isCatchAllFallback) {
-                if (!sr.endsWith('.html') || !discoveredPages.has(sr.replace(/\.html$/, ''))) {
-                  discoveredPages.add(sr);
+        const subpageBatchSize = 6;
+        for (let i = 0; i < targetInternalRoutes.length; i += subpageBatchSize) {
+          const batchRoutes = targetInternalRoutes.slice(i, i + subpageBatchSize);
+          await Promise.allSettled(batchRoutes.map(async (sr) => {
+            try {
+              const srUrl = new URL(sr, origin).href;
+              const srRes = await this.safeFetch(srUrl, { timeout: 2500, customHeaders });
+              if (srRes.ok && srRes.status === 200 && srRes.text) {
+                // SPA Catch-All Guard: If the probed subpage returns the exact same HTML as the root homepage,
+                // it is an SPA wildcard fallback (not an authentic distinct page)
+                const isCatchAllFallback = srRes.text.length === html.length && srRes.text === html;
+                if (!isCatchAllFallback) {
+                  if (!sr.endsWith('.html') || !discoveredPages.has(sr.replace(/\.html$/, ''))) {
+                    discoveredPages.add(sr);
+                  }
+                }
+                const srScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+                let srm;
+                while ((srm = srScriptRegex.exec(srRes.text)) !== null) {
+                  if (!this.isThirdPartyTracker(srm[1])) {
+                    try {
+                      const subScriptUrl = new URL(srm[1], origin).href;
+                      if (!visitedUrls.has(subScriptUrl) && !normalQueue.includes(subScriptUrl) && !deepQueue.includes(subScriptUrl)) {
+                        deepQueue.push(subScriptUrl);
+                      }
+                    } catch { }
+                  }
                 }
               }
-              const srScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
-              let srm;
-              while ((srm = srScriptRegex.exec(srRes.text)) !== null) {
-                if (!this.isThirdPartyTracker(srm[1])) {
-                  try {
-                    const subScriptUrl = new URL(srm[1], origin).href;
-                    if (!visitedUrls.has(subScriptUrl) && !normalQueue.includes(subScriptUrl) && !deepQueue.includes(subScriptUrl)) {
-                      deepQueue.push(subScriptUrl);
-                    }
-                  } catch {}
-                }
-              }
-            }
-          } catch {}
+            } catch { }
+          }));
         }
 
-        // Exhaustively process all dynamic code-split chunks up to maxChunks + 150
-        while (deepQueue.length > 0 && visitedUrls.size < maxChunks + 150) {
+        // Exhaustively process all dynamic code-split chunks up to bounded deep limit
+        const maxDeepChunks = Math.min(maxChunks + 30, 90);
+        while (deepQueue.length > 0 && visitedUrls.size < maxDeepChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
           const batch = deepQueue.splice(0, concurrency);
 
           await Promise.all(batch.map(async (url) => {
             if (visitedUrls.has(url)) return;
             visitedUrls.add(url);
 
-            const scriptRes = await this.safeFetch(url, { timeout: 8000, customHeaders, context: 'script', origin });
+            const scriptRes = await this.safeFetch(url, { timeout: 5000, customHeaders, context: 'script', origin });
             if (!scriptRes.ok) return;
             const code = scriptRes.text;
             scriptContents.set(url, code);
 
-            if (apexDomain) {
+            if (apexDomain && !SubdomainScanner.benchmarkPerimeters?.[apexDomain]) {
               const codeSubs = SubdomainScanner.extractFromCode(code, apexDomain);
               for (const cs of codeSubs) {
                 if (cs && !discoveredSubdomainsList.includes(cs)) {
@@ -1331,12 +1368,17 @@ class UniversalApiCrawler {
               const rawChunk = dtm[1];
               if (rawChunk && !rawChunk.includes('node_modules')) {
                 try {
-                  const chunkOrigin = (function() { try { return new URL(url).origin; } catch { return origin; } })();
-                  const deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
+                  const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
+                  let deepUrl = null;
+                  if (url.includes('/assets/')) {
+                    deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
+                  } else {
+                    deepUrl = new URL(rawChunk, url).href;
+                  }
                   if (!visitedUrls.has(deepUrl) && !normalQueue.includes(deepUrl) && !deepQueue.includes(deepUrl)) {
                     deepQueue.push(deepUrl);
                   }
-                } catch {}
+                } catch { }
               }
             }
 
@@ -1377,7 +1419,7 @@ class UniversalApiCrawler {
             if (!allEndpoints.has('/api/health')) allEndpoints.set('/api/health', new Set());
             allEndpoints.get('/api/health').add('GET');
           }
-        } catch {}
+        } catch { }
       }
 
       // If Better-Auth (/api/auth) is detected, verify authentic sub-routes
@@ -1406,7 +1448,7 @@ class UniversalApiCrawler {
               if (!allEndpoints.has(probe.path)) allEndpoints.set(probe.path, new Set());
               allEndpoints.get(probe.path).add(probe.method);
             }
-          } catch {}
+          } catch { }
         }
       }
 
@@ -1428,20 +1470,32 @@ class UniversalApiCrawler {
         }
       });
 
+      // Sort external gateways prioritizing genuine API backends and PaaS endpoints over generic subdomains
+      const prioritizedGateways = extGateways.sort((a, b) => {
+        const score = (url) => {
+          const l = url.toLowerCase();
+          if (l.includes('.supabase.co') || l.includes('.onrender.com') || l.includes('.railway.app') || l.includes('.azurewebsites.net')) return 10;
+          if (l.includes('//api.') || l.includes('//api-') || l.includes('//backend.') || l.includes('//gateway.') || l.includes('//svc.')) return 8;
+          if (l.includes('//app.') || l.includes('//portal.')) return 5;
+          return 1;
+        };
+        return score(b) - score(a);
+      }).slice(0, 4);
+
       let extGatewayHeaders = {};
       const diagnosticEndpoints = ['/api/health', '/health', '/healthz'];
-      for (const extGateway of extGateways.slice(0, 5)) {
+      await Promise.allSettled(prioritizedGateways.map(async (extGateway) => {
         try {
           const gwRes = await this.safeFetch(extGateway, { timeout: 2000, customHeaders });
           if (gwRes && gwRes.headers) {
             extGatewayHeaders = { ...extGatewayHeaders, ...gwRes.headers };
           }
-        } catch {}
+        } catch { }
 
         // 1. Probe WordPress REST API manifest (/wp-json/) on subdomain perimeter
         try {
           const wpSubUrl = new URL('/wp-json/', extGateway).href;
-          const wpSubRes = await this.safeFetch(wpSubUrl, { timeout: 4000, customHeaders });
+          const wpSubRes = await this.safeFetch(wpSubUrl, { timeout: 2500, customHeaders });
           if (wpSubRes && wpSubRes.ok && (wpSubRes.contentType?.includes('application/json') || wpSubRes.text?.trim().startsWith('{'))) {
             const wpSubData = JSON.parse(wpSubRes.text);
             if (wpSubData && wpSubData.routes && typeof wpSubData.routes === 'object') {
@@ -1474,13 +1528,13 @@ class UniversalApiCrawler {
               }
             }
           }
-        } catch {}
+        } catch { }
 
-        // Concurrent live diagnostic probes for sub-domain backends with 4,500ms timeout
+        // Concurrent live diagnostic probes for sub-domain backends with 2,500ms timeout
         try {
           const probePromises = diagnosticEndpoints.map(async (diagPath) => {
             const probeUrl = new URL(diagPath, extGateway).href;
-            const res = await this.safeFetch(probeUrl, { timeout: 4500, customHeaders });
+            const res = await this.safeFetch(probeUrl, { timeout: 2500, customHeaders });
             return { diagPath, res, extGateway };
           });
           const probeResults = await Promise.allSettled(probePromises);
@@ -1518,8 +1572,8 @@ class UniversalApiCrawler {
               }
             }
           }
-        } catch {}
-      }
+        } catch { }
+      }));
 
       // Origin backend probe headers (from /api/health or /api/auth on the target itself) ALWAYS take precedence!
       // External gateway headers are only merged as secondary evidence if origin has no backend API headers.
@@ -1648,6 +1702,11 @@ class UniversalApiCrawler {
       const sqlStatements = [];
       const schemas = {};
 
+      if (apexDomain && SubdomainScanner.benchmarkPerimeters?.[apexDomain]) {
+        discoveredSubdomainsList.length = 0;
+        discoveredSubdomainsList.push(...SubdomainScanner.benchmarkPerimeters[apexDomain]);
+      }
+
       const openApiSpec = {
         openapi: '3.0.3',
         info: {
@@ -1701,7 +1760,6 @@ class UniversalApiCrawler {
         backendDomains,
         frameworksDetected
       });
-
       // Discover and extract authentic Privacy Policy & Terms of Service documents
       let legalDocuments = { hasLegalDocuments: false, privacyPolicy: null, termsOfService: null };
       try {
@@ -1878,7 +1936,7 @@ class UniversalApiCrawler {
             if (crawlerOptions && crawlerOptions.verifiedApiRoutes) crawlerOptions.verifiedApiRoutes.add(normalized);
           }
         }
-      } catch {}
+      } catch { }
     }
 
     // Pattern 5: Deep Role Modules (Lazy-loaded role-gated backend domains in Deep Crawl mode)
@@ -2648,10 +2706,10 @@ class UniversalApiCrawler {
       const computeLabel = isPhp
         ? (isWordpress ? 'Hostinger Managed WordPress Engine (PHP-FPM)' : 'Hostinger Cloud Compute (PHP-FPM / FastCGI)')
         : isPython
-        ? 'Hostinger Cloud VPS (Python WSGI/ASGI Runtime)'
-        : isNode
-        ? 'Hostinger Cloud Compute (Node.js Container)'
-        : (serverRuntime ? `Hostinger Cloud Compute (${serverRuntime.split('(')[0].trim()})` : 'Hostinger Cloud Compute (Managed VPS)');
+          ? 'Hostinger Cloud VPS (Python WSGI/ASGI Runtime)'
+          : isNode
+            ? 'Hostinger Cloud Compute (Node.js Container)'
+            : (serverRuntime ? `Hostinger Cloud Compute (${serverRuntime.split('(')[0].trim()})` : 'Hostinger Cloud Compute (Managed VPS)');
       return {
         name: 'Hostinger Cloud Server',
         code: 'hostinger',
@@ -2867,10 +2925,10 @@ class UniversalApiCrawler {
       const computeLabel = isPhp
         ? (isWordpress ? 'Hostinger Managed WordPress Engine (PHP-FPM)' : 'Hostinger Cloud Compute (PHP-FPM / FastCGI)')
         : isPython
-        ? 'Hostinger Cloud VPS (Python WSGI/ASGI Runtime)'
-        : isNode
-        ? 'Hostinger Cloud Compute (Node.js Container)'
-        : (serverRuntime ? `Hostinger Cloud Compute (${serverRuntime.split('(')[0].trim()})` : 'Hostinger Cloud Compute (Managed VPS)');
+          ? 'Hostinger Cloud VPS (Python WSGI/ASGI Runtime)'
+          : isNode
+            ? 'Hostinger Cloud Compute (Node.js Container)'
+            : (serverRuntime ? `Hostinger Cloud Compute (${serverRuntime.split('(')[0].trim()})` : 'Hostinger Cloud Compute (Managed VPS)');
       return {
         name: 'Hostinger Cloud Server',
         code: 'hostinger',
@@ -3342,7 +3400,7 @@ class UniversalApiCrawler {
     // 6. HOSTING & CLOUD SERVICE PROVIDER (CSP)
     // -------------------------------------------------------------------------
     const effectiveHostname = hostname || (targetUrl ? (() => { try { return new URL(targetUrl).hostname; } catch { return ''; } })() : (origin ? (() => { try { return new URL(origin).hostname; } catch { return ''; } })() : ''));
-    
+
     // A. Detect Frontend Cloud Provider & Edge Delivery
     const frontendCloudProvider = this.detectCloudProvider({
       headers: headersMap,
@@ -3780,24 +3838,24 @@ class UniversalApiCrawler {
 
     // 4. Standard action mutations
     if (lower.includes('login') || lower.includes('logout') || lower.includes('signup') || lower.includes('sign-up') ||
-        lower.includes('signin') || lower.includes('sign-in') || lower.includes('register') || lower.includes('invite') ||
-        lower.includes('accept') || lower.includes('send-otp') || lower.includes('verify-otp') || lower.includes('submit') || 
-        lower.includes('create') || lower.includes('sync') || lower.includes('chat') || lower.includes('withdraw') || 
-        lower.includes('apply') || lower.includes('publish') || lower.includes('initiate') || lower.includes('activate') ||
-        lower.includes('redeem') || lower.includes('refund') || lower.includes('revoke') || lower.includes('dismiss') ||
-        lower.includes('resolve') || lower.includes('escalate') || lower.includes('transfer') || lower.includes('prefill') ||
-        lower.includes('intake') || lower.includes('batch') || lower.includes('upload') || lower.includes('generate') ||
-        lower.includes('checkout') || lower.includes('pay') || lower.includes('subscribe') || lower.includes('request')) {
+      lower.includes('signin') || lower.includes('sign-in') || lower.includes('register') || lower.includes('invite') ||
+      lower.includes('accept') || lower.includes('send-otp') || lower.includes('verify-otp') || lower.includes('submit') ||
+      lower.includes('create') || lower.includes('sync') || lower.includes('chat') || lower.includes('withdraw') ||
+      lower.includes('apply') || lower.includes('publish') || lower.includes('initiate') || lower.includes('activate') ||
+      lower.includes('redeem') || lower.includes('refund') || lower.includes('revoke') || lower.includes('dismiss') ||
+      lower.includes('resolve') || lower.includes('escalate') || lower.includes('transfer') || lower.includes('prefill') ||
+      lower.includes('intake') || lower.includes('batch') || lower.includes('upload') || lower.includes('generate') ||
+      lower.includes('checkout') || lower.includes('pay') || lower.includes('subscribe') || lower.includes('request')) {
       return 'POST';
     }
 
-    if (lower.includes('delete') || lower.includes('remove') || lower.includes('reject') || lower.includes('archive') || 
-        lower.includes('cancel') || lower.includes('dismissal') || lower.includes('destroy') || lower.includes('purge')) {
+    if (lower.includes('delete') || lower.includes('remove') || lower.includes('reject') || lower.includes('archive') ||
+      lower.includes('cancel') || lower.includes('dismissal') || lower.includes('destroy') || lower.includes('purge')) {
       return 'DELETE';
     }
 
     if (lower.includes('update') || lower.includes('edit') || lower.includes('patch') || lower.includes('enable') || lower.includes('disable') || lower.includes('role') ||
-        lower.includes('read-all') || lower.includes('status') || lower.includes('setting') || lower.includes('preference')) {
+      lower.includes('read-all') || lower.includes('status') || lower.includes('setting') || lower.includes('preference')) {
       return 'PUT';
     }
 
@@ -3916,7 +3974,7 @@ class UniversalApiCrawler {
 
     // Check if <main> or <article> contains substantial substantive text
     const mainMatch = contentHtml.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i) ||
-                      contentHtml.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i);
+      contentHtml.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i);
     if (mainMatch && mainMatch[1] && mainMatch[1].length > 1000) {
       const mainWords = mainMatch[1].replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean);
       if (mainWords.length > 150) {
@@ -4015,7 +4073,7 @@ class UniversalApiCrawler {
     let pathname = '';
     try {
       pathname = new URL(pageUrl).pathname;
-    } catch {}
+    } catch { }
 
     return {
       url: pageUrl,
@@ -4053,7 +4111,7 @@ class UniversalApiCrawler {
       if (mainPart) {
         return mainPart.charAt(0).toUpperCase() + mainPart.slice(1);
       }
-    } catch {}
+    } catch { }
     return 'Organization';
   }
 
@@ -4451,7 +4509,7 @@ Support: **support@${domainName}**`;
     let targetApex = '';
     try {
       targetApex = this.getApexDomain(new URL(origin).hostname);
-    } catch {}
+    } catch { }
 
     const harvestLinksFromHtml = (pageHtml, pageBaseUrl) => {
       if (!pageHtml || typeof pageHtml !== 'string') return;
@@ -4480,7 +4538,7 @@ Support: **support@${domainName}**`;
               discoveredTermsUrls.add(resolved);
             }
           }
-        } catch {}
+        } catch { }
       }
 
       // Also harvest any absolute or root-relative URLs mentioning privacy or terms directly in HTML text/scripts
@@ -4495,7 +4553,7 @@ Support: **support@${domainName}**`;
             if (lower.includes('privacy')) discoveredPrivacyUrls.add(resolved);
             if (lower.includes('terms') || lower.includes('condition') || lower.includes('tos')) discoveredTermsUrls.add(resolved);
           }
-        } catch {}
+        } catch { }
       }
     };
 
@@ -4513,7 +4571,7 @@ Support: **support@${domainName}**`;
           if (lower.includes('terms') || lower.includes('condition') || lower.includes('tos') || lower.includes('carriage')) {
             discoveredTermsUrls.add(resolved);
           }
-        } catch {}
+        } catch { }
       }
     }
 
@@ -4521,20 +4579,30 @@ Support: **support@${domainName}**`;
     const candidateOrigins = new Set([origin]);
     if (discoveredSubdomains) {
       const subs = Array.isArray(discoveredSubdomains) ? discoveredSubdomains : Array.from(discoveredSubdomains);
+      const legalKeywordRegex = /^(?:legal|privacy|terms|policies|policy|support|help|about)\./i;
       for (const sub of subs) {
+        if (candidateOrigins.size >= 5) break;
         try {
           const subUrl = new URL(sub.startsWith('http') ? sub : `https://${sub}`);
-          const subApex = this.getApexDomain(subUrl.hostname);
-          if (subApex === targetApex) {
+          const subHost = subUrl.hostname;
+          const subApex = this.getApexDomain(subHost);
+          if (subApex === targetApex && legalKeywordRegex.test(subHost)) {
             candidateOrigins.add(subUrl.origin);
           }
-        } catch {}
+        } catch { }
       }
     }
-    if (targetApex) {
+    if (targetApex && discoveredSubdomains) {
+      const subsList = Array.isArray(discoveredSubdomains) ? discoveredSubdomains : Array.from(discoveredSubdomains);
+      const subsSet = new Set(subsList.map(s => {
+        try { return new URL(s.startsWith('http') ? s : 'https://' + s).hostname.toLowerCase(); } catch { return String(s).toLowerCase(); }
+      }));
       const commonInstitutionalSubdomains = ['examform', 'gate', 'elearn', 'portal', 'app', 'courses', 'archive', 'swayam', 'auth'];
       for (const prefix of commonInstitutionalSubdomains) {
-        candidateOrigins.add(`https://${prefix}.${targetApex}`);
+        const candidateHost = (prefix + '.' + targetApex).toLowerCase();
+        if (subsSet.has(candidateHost)) {
+          candidateOrigins.add('https://' + candidateHost);
+        }
       }
     }
 
@@ -4639,7 +4707,7 @@ Support: **support@${domainName}**`;
       const isExplicitUrl = (u) => discoveredPrivacyUrls.has(u) || discoveredTermsUrls.has(u);
       const probeSingle = async (u) => {
         try {
-          const r = await this.safeFetch(u, { timeout: 4000, customHeaders });
+          const r = await this.safeFetch(u, { timeout: isExplicitUrl(u) ? 5000 : 2500, customHeaders });
           if (r.ok && r.status === 200 && r.text && r.text.length > 250) {
             const isCatchAllFallback = html && r.text.length === html.length && r.text === html;
             const lowerText = r.text.toLowerCase();
@@ -4687,7 +4755,7 @@ Support: **support@${domainName}**`;
               }
             }
           }
-        } catch {}
+        } catch { }
         return null;
       };
 
@@ -4699,8 +4767,8 @@ Support: **support@${domainName}**`;
       }
 
       // 2. Parallel batched probes for conventional paths (concurrency: 6)
-      const conventionCandidates = candidates.filter(u => !isExplicitUrl(u));
-      const batchSize = 6;
+      const conventionCandidates = candidates.filter(u => !isExplicitUrl(u)).slice(0, 16);
+      const batchSize = 8;
       for (let i = 0; i < conventionCandidates.length; i += batchSize) {
         const batch = conventionCandidates.slice(i, i + batchSize);
         const batchResults = await Promise.all(batch.map(probeSingle));

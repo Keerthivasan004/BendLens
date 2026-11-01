@@ -1562,23 +1562,6 @@ CREATE TABLE audit_logs (
                             {/* Digital Perimeter: Main Domain & All Discovered Subdomains */}
                             {(() => {
                               const landingSubdomainsList = (() => {
-                                const set = new Set();
-                                const add = (s) => {
-                                  if (!s || typeof s !== 'string') return;
-                                  let clean = s.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
-                                  if (clean.startsWith('www.')) clean = clean.slice(4);
-                                  if (clean) set.add(clean);
-                                };
-                                if (Array.isArray(analysisResult.subdomains)) analysisResult.subdomains.forEach(add);
-                                if (Array.isArray(analysisResult.crawlerTelemetry?.subdomains)) analysisResult.crawlerTelemetry.subdomains.forEach(add);
-                                if (Array.isArray(ts?.backend?.subdomains)) ts.backend.subdomains.forEach(add);
-                                if (Array.isArray(analysisResult.openApiSpec?.['x-subdomains'])) analysisResult.openApiSpec['x-subdomains'].forEach(add);
-                                if (Array.isArray(analysisResult.openApiSpec?.servers)) analysisResult.openApiSpec.servers.forEach(srv => srv?.url && add(srv.url));
-                                if (Array.isArray(analysisResult.crawlerTelemetry?.backendDomains)) analysisResult.crawlerTelemetry.backendDomains.forEach(add);
-                                if (Array.isArray(ts?.backend?.discoveredGateways)) ts.backend.discoveredGateways.forEach(add);
-                                if (Array.isArray(analysisResult.infra?.subdomains)) analysisResult.infra.subdomains.forEach(add);
-                                if (Array.isArray(analysisResult.code?.endpoints)) analysisResult.code.endpoints.forEach(e => e.subdomain && add(e.subdomain));
-
                                 const primaryCandidate = (() => {
                                   const candidates = [analysisResult.projectPath, analysisResult.projectName, analysisResult.targetUrl, analysisResult.crawlerTelemetry?.targetUrl];
                                   for (const c of candidates) {
@@ -1591,6 +1574,34 @@ CREATE TABLE audit_logs (
                                   }
                                   return null;
                                 })();
+
+                                const targetApex = primaryCandidate ? (function() {
+                                  const parts = primaryCandidate.split('.');
+                                  if (parts.length <= 2) return primaryCandidate;
+                                  const secondLevelTlds = ['co.uk', 'org.uk', 'gov.uk', 'ac.uk', 'co.in', 'net.in', 'org.in', 'gen.in', 'gov.in', 'com.au', 'net.au', 'org.au'];
+                                  const lastTwo = parts.slice(-2).join('.');
+                                  return secondLevelTlds.includes(lastTwo) ? parts.slice(-3).join('.') : parts.slice(-2).join('.');
+                                })() : null;
+
+                                const set = new Set();
+                                const add = (s) => {
+                                  if (!s || typeof s !== 'string') return;
+                                  let clean = s.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
+                                  if (clean.startsWith('www.')) clean = clean.slice(4);
+                                  if (!clean) return;
+                                  if (targetApex && clean !== targetApex && !clean.endsWith('.' + targetApex)) return;
+                                  set.add(clean);
+                                };
+
+                                if (Array.isArray(analysisResult.subdomains)) analysisResult.subdomains.forEach(add);
+                                if (Array.isArray(analysisResult.crawlerTelemetry?.subdomains)) analysisResult.crawlerTelemetry.subdomains.forEach(add);
+                                if (Array.isArray(ts?.backend?.subdomains)) ts.backend.subdomains.forEach(add);
+                                if (Array.isArray(analysisResult.openApiSpec?.['x-subdomains'])) analysisResult.openApiSpec['x-subdomains'].forEach(add);
+                                if (Array.isArray(analysisResult.openApiSpec?.servers)) analysisResult.openApiSpec.servers.forEach(srv => srv?.url && add(srv.url));
+                                if (Array.isArray(analysisResult.crawlerTelemetry?.backendDomains)) analysisResult.crawlerTelemetry.backendDomains.forEach(add);
+                                if (Array.isArray(ts?.backend?.discoveredGateways)) ts.backend.discoveredGateways.forEach(add);
+                                if (Array.isArray(analysisResult.infra?.subdomains)) analysisResult.infra.subdomains.forEach(add);
+                                if (Array.isArray(analysisResult.code?.endpoints)) analysisResult.code.endpoints.forEach(e => e.subdomain && add(e.subdomain));
 
                                 if (primaryCandidate) add(primaryCandidate);
 
@@ -2785,7 +2796,7 @@ CREATE TABLE audit_logs (
           {/* Bottom bar */}
           <div className="mt-6 lg:mt-8 pt-4 lg:pt-6 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-muted">
             <div className="flex flex-wrap items-center gap-4 text-[10px] font-mono">
-              <span className="inline-flex items-center gap-1.5"><Cpu className="h-3 w-3" /> v{process.env.NEXT_PUBLIC_APP_VERSION || '1.1.58'}</span>
+              <span className="inline-flex items-center gap-1.5"><Cpu className="h-3 w-3" /> v{process.env.NEXT_PUBLIC_APP_VERSION || '1.1.59'}</span>
               <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3 w-3 text-emerald-500" /> Local-first</span>
               <span className="inline-flex items-center gap-1.5"><Lock className="h-3 w-3" /> Private by default</span>
             </div>
