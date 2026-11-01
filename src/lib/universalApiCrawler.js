@@ -3954,7 +3954,7 @@ class UniversalApiCrawler {
     const titleMatch = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
     let title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : fallbackTitle;
     title = title.replace(/\s*[|\-–—]\s*(?:Home|Privacy|Terms|Legal|Official|Website|Page).*$/i, '').trim();
-    title = this.decodeHtmlEntities(title);
+    title = this.decodeHtmlEntities(title).replace(/\s+/g, ' ').trim();
 
     // Isolate body or substantive content without naive div regex truncation
     const bodyMatch = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
@@ -3985,7 +3985,11 @@ class UniversalApiCrawler {
     // If there is an authentic H1 inside the document body, use it for title if appropriate
     const h1Match = contentHtml.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i);
     if (h1Match) {
-      const rawH1 = this.decodeHtmlEntities(h1Match[1].replace(/<[^>]+>/g, '').trim());
+      let rawH1 = this.decodeHtmlEntities(h1Match[1].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+      const half = Math.floor(rawH1.length / 2);
+      if (half > 3 && rawH1.slice(0, half).trim() === rawH1.slice(half).trim()) {
+        rawH1 = rawH1.slice(0, half).trim();
+      }
       if (rawH1 && rawH1.length < 90 && (rawH1.toLowerCase().includes('privacy') || rawH1.toLowerCase().includes('terms') || rawH1.toLowerCase().includes('condition') || rawH1.toLowerCase().includes('agreement') || rawH1.toLowerCase().includes('policy') || rawH1.toLowerCase().includes('carriage'))) {
         title = rawH1;
       }
@@ -4516,7 +4520,7 @@ Support: **support@${domainName}**`;
       const aRegex = /<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
       let m;
       while ((m = aRegex.exec(pageHtml)) !== null) {
-        const rawHref = m[1];
+        const rawHref = this.decodeHtmlEntities(m[1] || '');
         const rawText = m[2].replace(/<[^>]+>/g, '').trim();
 
         if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) {
@@ -4545,7 +4549,7 @@ Support: **support@${domainName}**`;
       const urlMatches = pageHtml.match(/https?:\/\/[a-zA-Z0-9.\-_]+\.[a-zA-Z]{2,}[^\s"'<>)]*(?:privacy|terms|tos|carriage)[^\s"'<>)]*/gi) || [];
       for (const u of urlMatches) {
         try {
-          const resolved = new URL(u).href;
+          const resolved = new URL(this.decodeHtmlEntities(u)).href;
           const linkApex = this.getApexDomain(new URL(resolved).hostname);
           const isFirstParty = !targetApex || linkApex === targetApex;
           if (isFirstParty) {
@@ -4767,7 +4771,7 @@ Support: **support@${domainName}**`;
       }
 
       // 2. Parallel batched probes for conventional paths (concurrency: 6)
-      const conventionCandidates = candidates.filter(u => !isExplicitUrl(u)).slice(0, 16);
+      const conventionCandidates = candidates.filter(u => !isExplicitUrl(u));
       const batchSize = 8;
       for (let i = 0; i < conventionCandidates.length; i += batchSize) {
         const batch = conventionCandidates.slice(i, i + batchSize);

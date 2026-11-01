@@ -245,7 +245,9 @@ BendLens features an enterprise-grade, deterministic, zero-timeout subdomain dis
 
 ### 6. Legal & Markdown Parser Integrity
 - HTML-to-Markdown conversion for privacy and legal documents (`extractLegalMetadata`) utilizes strictly escaped `\n` linebreaks and regex patterns (`[^\S\r\n]+`, `\n{3,}`).
-- Eliminates syntax breakages and preserves valid CommonJS AST compilation across all environments.
+- Automatically decodes HTML entities (e.g. `&amp;` -> `&`) on extracted candidate URLs to prevent corrupted query parameters.
+- Normalizes titles and eliminates multi-line duplicates in headings (e.g. Apple's repeated H1 subtitles).
+- Conventional candidate paths are probed in parallel batches of 8 without arbitrary truncations, halting immediately upon first valid match.
 
 ### 7. Global Crawl Safety Budget & Chunk Optimization
 - Solves > 5-minute crawl hangs on enterprise multi-CDN portals (such as `apple.com` and `microsoft.com`) while preserving exhaustive chunk coverage for large single-page applications (such as `futrsec.in`):
