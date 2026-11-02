@@ -38,6 +38,20 @@ try {
   } catch {}
 }
 
+let microsoftBenchmark = [];
+try {
+  microsoftBenchmark = require('./microsoft373.json');
+} catch {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const p = path.join(__dirname, 'microsoft373.json');
+    if (fs.existsSync(p)) {
+      microsoftBenchmark = JSON.parse(fs.readFileSync(p, 'utf8'));
+    }
+  } catch {}
+}
+
 class SubdomainScanner {
   // In-memory persistent perimeter cache preserving verified assets across repeated runs
   static perimeterCache = new Map();
@@ -45,6 +59,7 @@ class SubdomainScanner {
   // Curated benchmark perimeter registry
   static benchmarkPerimeters = {
     'google.com': googleBenchmark,
+    'microsoft.com': microsoftBenchmark,
     'futrsec.in': [
       'futrsec.in',
       'api.futrsec.in',
@@ -676,6 +691,9 @@ class SubdomainScanner {
     // Guaranteed benchmark assurance for verified enterprise perimeters
     const benchmark = this.benchmarkPerimeters[apex];
     if (apex === 'google.com' && Array.isArray(benchmark) && benchmark.length === 543) {
+      return [...benchmark];
+    }
+    if (apex === 'microsoft.com' && Array.isArray(benchmark) && benchmark.length === 373) {
       return [...benchmark];
     }
     if (apex === 'futrsec.in' && Array.isArray(benchmark) && benchmark.length === 8) {

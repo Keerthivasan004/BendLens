@@ -97,15 +97,6 @@ export default function LegalDocumentsModal({
     }
   };
 
-  // If modal opened without documents prop at all, auto-trigger on-demand fetch
-  useEffect(() => {
-    const hasExisting = Boolean(liveDocs?.privacyPolicy || liveDocs?.termsOfService || legalDocuments?.privacyPolicy || legalDocuments?.termsOfService);
-    const isValidUrl = targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://') || /^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(targetUrl)) && !targetUrl.includes(' ');
-    if (isOpen && !hasExisting && isValidUrl && !isLoading && !loadError) {
-      fetchOnDemand();
-    }
-  }, [isOpen, liveDocs, legalDocuments, targetUrl, isLoading, loadError]);
-
   const privacyDoc = liveDocs?.privacyPolicy || null;
   const termsDoc = liveDocs?.termsOfService || null;
 
@@ -115,6 +106,28 @@ export default function LegalDocumentsModal({
     if (activeTab === 'terms') return termsDoc;
     return null;
   }, [activeTab, privacyDoc, termsDoc]);
+
+  // Detect if document content or URL was corrupted by a CSS stylesheet file
+  const isDocCss = useMemo(() => {
+    if (!currentDoc) return false;
+    if (currentDoc.url && /\.css(?:\?.*)?$/i.test(currentDoc.url)) return true;
+    if (currentDoc.content) {
+      const trimmed = currentDoc.content.trim();
+      if (/^\/\*[\s\S]*?\*\//.test(trimmed) && (trimmed.includes('@package') || trimmed.includes('{') || trimmed.includes('@import'))) return true;
+      const cssProps = (trimmed.match(/\b(?:margin|padding|background|color|display|position|font-family|font-size|z-index|box-shadow)\s*:\s*[^;]+;/gi) || []).length;
+      if (cssProps >= 4) return true;
+    }
+    return false;
+  }, [currentDoc]);
+
+  // If modal opened without documents prop at all or with corrupted CSS, auto-trigger on-demand fetch
+  useEffect(() => {
+    const hasExisting = Boolean(liveDocs?.privacyPolicy || liveDocs?.termsOfService || legalDocuments?.privacyPolicy || legalDocuments?.termsOfService);
+    const isValidUrl = targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://') || /^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(targetUrl)) && !targetUrl.includes(' ');
+    if (isOpen && (!hasExisting || isDocCss) && isValidUrl && !isLoading && !loadError) {
+      fetchOnDemand();
+    }
+  }, [isOpen, liveDocs, legalDocuments, targetUrl, isLoading, loadError, isDocCss]);
 
   // Handle copy text
   const handleCopy = () => {

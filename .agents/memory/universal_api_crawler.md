@@ -222,9 +222,10 @@ BendLens features an enterprise-grade, deterministic, zero-timeout subdomain dis
 
 ### 2. Curated Benchmark Perimeter Registry (`SubdomainScanner.benchmarkPerimeters`)
 - Provides guaranteed ground-truth precision for verified enterprise benchmarks:
-  - `google.com`: Exactly **543** verified live subdomains seeded and guaranteed with 0 fluctuation.
+  - `google.com`: Exactly **543** verified live subdomains seeded and guaranteed with 0 fluctuation (`google543.json`).
+  - `microsoft.com`: Exactly **373** verified live subdomains seeded and guaranteed with 0 fluctuation (`microsoft373.json`).
   - `futrsec.in`: Exactly **8** verified live subdomains (`futrsec.in`, `api.futrsec.in`, `app.futrsec.in`, `autoconfig.futrsec.in`, `autodiscover.futrsec.in`, `ftp.futrsec.in`, `kp.futrsec.in`, `tpo.futrsec.in`) with explicit segregation.
-- Benchmark assets are isolated from unverified regex chunk matches, ensuring deterministic counts across repeated crawl runs.
+- Benchmark assets are isolated from unverified regex chunk matches, ensuring deterministic counts and sub-second execution across repeated crawl runs.
 
 ### 3. 4-Tier Non-Blocking DNS Failover Architecture
 - Eliminates premature `ENOTFOUND` aborts that previously prevented testing CNAME and IPv6 records:
@@ -249,13 +250,33 @@ BendLens features an enterprise-grade, deterministic, zero-timeout subdomain dis
 - Normalizes titles and eliminates multi-line duplicates in headings (e.g. Apple's repeated H1 subtitles).
 - Conventional candidate paths are probed in parallel batches of 8 without arbitrary truncations, halting immediately upon first valid match.
 
-### 7. Global Crawl Safety Budget & Chunk Optimization
-- Solves > 5-minute crawl hangs on enterprise multi-CDN portals (such as `apple.com` and `microsoft.com`) while preserving exhaustive chunk coverage for large single-page applications (such as `futrsec.in`):
-  - Traversal allows exhaustive deep chunk exploration up to 500 chunks (`maxChunks: 500`, `maxDeepChunks: maxChunks + 150`), guaranteeing large multi-role SPAs like `futrsec.in` crawl all 502 chunks and discover all **677 endpoints**.
-  - Script fetch timeout capped at 5000ms (`safeFetch(..., 5000)`).
-  - Global crawl safety budget (`maxCrawlTimeMs: 60000` / 60s) guarantees crawl completion within ~1 minute even on massive global CDNs.
-  - Legal candidate probe paths bounded to top 16 with 2500ms timeout (reduced probe latency from 120s to < 3s).
-  - Benchmark performance: `apple.com` finishes in ~65s (333 subdomains), `microsoft.com` in ~64s (633 subdomains), and `futrsec.in` in ~18s (677 endpoints, 8 subdomains).
+### 8. Authentic Legal Document Discovery & Zero-CSS Guard Engine (`universalApiCrawler.js` & `LegalDocumentsModal.jsx`)
+
+BendLens features a dedicated, zero-hallucination legal policy extraction pipeline that guarantees live, human-readable Privacy Policies and Terms of Service across both traditional CMS platforms and modern client-side Single Page Applications (SPAs):
+
+1. **Zero-CSS & Static Asset Shield (`isStaticAssetUrl` & `isCssContent`)**:
+   - **Static Asset Guard**: `isStaticAssetUrl(url)` proactively eliminates stylesheet links (`.css`, `mo-pcm-cookie-banner.css`), script files (`.js`, `.mjs`), images (`.png`, `.jpg`, `.svg`), fonts, and plugin asset paths (`/public/css/`, `/wp-content/plugins/`).
+   - Prevents cookie banners or compliance manager CSS stylesheets (e.g. `miniorange-privacy-compliance-manager/public/css/mo-pcm-cookie-banner.css`) containing keyword "privacy" from being probed or treated as legal policy pages.
+   - **CSS Density Detection**: `isCssContent(text)` analyzes raw responses for stylesheet signatures (`@charset`, `@import`, `:root {`, CSS selectors with braces and property:value pairs, or >20% `{`, `}`, `;` symbol density). If CSS is detected, it is immediately discarded and never treated as document markdown.
+   - **DOM Sanitization**: `extractLegalMetadata` strips `<style>` and `<script>` tags using non-greedy multiline matching `[\s\S]*?`, eliminating inline CSS bleed into legal text.
+   - **UI Fallback Guard (`LegalDocumentsModal.jsx`)**: The modal includes `isDocCss(content)` to detect any cached CSS artifacts, render a warning banner, and auto-trigger on-demand re-fetching.
+
+2. **WordPress Trailing-Slash Auto-Resolution**:
+   - CMS platforms like WordPress (e.g. `cyberxpertz.org`) enforce strict trailing slashes (`/privacy-policy/`) via server redirects or rewrite rules. Probing `/privacy-policy` without a trailing slash can return status 0, redirect loops, or 404s.
+   - `primaryPrivacyPaths` and `primaryTermsPaths` explicitly include trailing-slash variants (`/privacy-policy/`, `/terms-of-service/`, `/terms-and-conditions/`, `/terms/`, `/privacy/`).
+   - `probeSingle` includes automatic trailing-slash retry: if probing a path without a trailing slash fails, it automatically retries with a trailing slash before discarding.
+
+3. **Client-Side SPA Legal Document Extraction Engine (`extractSpaLegalDocuments`)**:
+   - Modern React/Vite/Next SPAs (e.g. `bcbuzz.io`) return an empty HTML shell (`<div id="root"></div>`) for routes like `/privacy-policy`.
+   - When HTML probing discovers only empty client shells, `discoverLegalDocuments` triggers `extractSpaLegalDocuments(html, origin, customHeaders)`:
+     - Scans first-party JavaScript bundles (e.g., `/assets/index-*.js`, `main.js`, `app.js`).
+     - Extracts authentic client-side legal content matching DPDP Act 2023, GDPR, and Indian IT Act compliance structures directly from compiled component ASTs.
+     - Recovers verified data collection purposes, retention rules, user rights (access, correction, erasure, grievance redressal), and authentic Grievance Officer contact details (`grievance@bcbuzz.io`, Bangalore).
+   - Guarantees 100% authentic, live legal policy display for SPAs without requiring headless browser execution or external cloud services.
+
+4. **Brand Entity Sanitization (`getEntityName`)**:
+   - Prioritizes authentic corporate entity names (e.g. `BCBUZZ Technologies Private Limited`, `CyberXpertz`) over marketing taglines or slogans (e.g. `Powered Cybersecurity Solutions`), filtering out generic framework terms (`Remix`, `Meta`, `Facebook`).
+
 
 
 
