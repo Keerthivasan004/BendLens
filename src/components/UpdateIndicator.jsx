@@ -11,7 +11,7 @@ export default function UpdateIndicator() {
   // a downloaded-desktop-app-only surface. Render nothing on the web.
   const isDesktop = useIsDesktop();
   const [mounted, setMounted] = useState(false);
-  const currentAppVersion = (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_APP_VERSION) || '1.1.59';
+  const currentAppVersion = (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_APP_VERSION) || '1.1.61';
   const [updateInfo, setUpdateInfo] = useState({
     currentVersion: currentAppVersion,
     latestVersion: currentAppVersion,

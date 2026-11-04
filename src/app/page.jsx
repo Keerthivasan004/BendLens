@@ -2826,7 +2826,7 @@ CREATE TABLE audit_logs (
           {/* Bottom bar */}
           <div className="mt-6 lg:mt-8 pt-4 lg:pt-6 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-muted">
             <div className="flex flex-wrap items-center gap-4 text-[10px] font-mono">
-              <span className="inline-flex items-center gap-1.5"><Cpu className="h-3 w-3" /> v{process.env.NEXT_PUBLIC_APP_VERSION || '1.1.59'}</span>
+              <span className="inline-flex items-center gap-1.5"><Cpu className="h-3 w-3" /> v{process.env.NEXT_PUBLIC_APP_VERSION || '1.1.61'}</span>
               <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3 w-3 text-emerald-500" /> Local-first</span>
               <span className="inline-flex items-center gap-1.5"><Lock className="h-3 w-3" /> Private by default</span>
             </div>

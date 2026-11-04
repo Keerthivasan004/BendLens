@@ -422,7 +422,7 @@ function startBackendServer(projectDir, port, onReady = null) {
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
           BENDLENS_APP_DIR: projectDir,
-          BENDLENS_APP_VERSION: app.getVersion() || '1.1.59',
+          BENDLENS_APP_VERSION: app.getVersion() || '1.1.61',
           PORT: String(port)
         }
       });
@@ -1159,7 +1159,7 @@ ipcMain.on('app-quit-and-update', () => {
 });
 
 ipcMain.on('get-app-version', (event) => {
-  event.returnValue = app.getVersion() || '1.1.59';
+  event.returnValue = app.getVersion() || '1.1.61';
 });
 
 app.whenReady().then(() => {
