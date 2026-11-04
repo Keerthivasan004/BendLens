@@ -59,9 +59,10 @@ export async function POST(request) {
     const concurrency = body.concurrency || 24;
     const customHeaders = body.headers || body.customHeaders || {};
     const crawlDepth = body.crawlDepth || 'deep';
+    const preloadedHtml = body.preloadedHtml || body.html || null;
 
     // Execute Enterprise Universal Crawler
-    const crawlResult = await UniversalApiCrawler.crawl(targetUrl, { maxChunks, concurrency, customHeaders, crawlDepth });
+    const crawlResult = await UniversalApiCrawler.crawl(targetUrl, { maxChunks, concurrency, customHeaders, crawlDepth, preloadedHtml });
 
     if (crawlResult?.telemetry?.crawlStatus === 'failed') {
       return NextResponse.json(

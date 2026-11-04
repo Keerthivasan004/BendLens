@@ -317,22 +317,7 @@ CREATE TABLE orders (
     const trimmedTarget = (target || '').trim();
     const isDomainUrl = /^(?:api\.|github\.com|gitlab\.com|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/|$))/i.test(trimmedTarget);
     if (trimmedTarget && (trimmedTarget.startsWith('http://') || trimmedTarget.startsWith('https://') || isDomainUrl)) {
-      const normalizedRepoUrl = (trimmedTarget.startsWith('http://') || trimmedTarget.startsWith('https://')) ? trimmedTarget : 'https://' + trimmedTarget;
-      await executeScanWithStages((signal) => fetch('/api/git-clone', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          repoUrl: normalizedRepoUrl,
-          token: gitToken.trim(),
-          crawlDepth: crawlDepthMode
-        }),
-        signal
-      }), (data) => {
-        setAnalysisResult(data);
-        fetchLocalHistory();
-        const initialTab = (data?.isUrlCrawl || data?.schema?.tables?.length === 0) ? 'sequence' : null;
-        handleOpenLens('DEVELOPER', initialTab);
-      });
+      await scanUrlWithClientRecovery(trimmedTarget, gitToken.trim());
       return;
     }
 
@@ -399,6 +384,65 @@ CREATE TABLE orders (
     });
   };
 
+  // Resilient URL Scanner with Client-Assisted In-Browser Auto-Recovery
+  const scanUrlWithClientRecovery = async (url, token = '') => {
+    let normalizedUrl = url.trim();
+    if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+      normalizedUrl = 'https://' + normalizedUrl;
+    }
+
+    const runCrawlRequest = async (signal, preloadedHtml = null) => {
+      return await fetch('/api/git-clone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          repoUrl: normalizedUrl,
+          token: token.trim(),
+          crawlDepth: crawlDepthMode,
+          preloadedHtml
+        }),
+        signal
+      });
+    };
+
+    await executeScanWithStages(async (signal) => {
+      let res = await runCrawlRequest(signal);
+      let json = await res.json();
+
+      // If server crawl timed out or was challenged on the website deployment, attempt client-side gateway recovery
+      if (!json.success && (json.error?.includes('timed out') || json.error?.includes('firewall') || json.error?.includes('Unreachable') || json.error?.includes('actively reset'))) {
+        try {
+          const clientGateways = [
+            `https://corsproxy.io/?url=${encodeURIComponent(normalizedUrl)}`,
+            `https://api.allorigins.win/raw?url=${encodeURIComponent(normalizedUrl)}`,
+            `https://r.jina.ai/${normalizedUrl}`
+          ];
+          for (const gw of clientGateways) {
+            try {
+              const gwRes = await fetch(gw, { signal: AbortSignal.timeout(6000) });
+              if (gwRes.ok) {
+                const htmlText = await gwRes.text();
+                if (htmlText && htmlText.length > 250) {
+                  const retryRes = await runCrawlRequest(signal, htmlText);
+                  const retryJson = await retryRes.json();
+                  if (retryJson.success) {
+                    return new Response(JSON.stringify(retryJson), { status: 200, headers: { 'Content-Type': 'application/json' } });
+                  }
+                }
+              }
+            } catch {}
+          }
+        } catch {}
+      }
+      return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json' } });
+    }, (data) => {
+      setAnalysisResult(data);
+      fetchLocalHistory();
+      const initialTab = (data?.isUrlCrawl || data?.schema?.tables?.length === 0) ? 'sequence' : null;
+      handleOpenLens('DEVELOPER', initialTab);
+    });
+  };
+
   // 4. Analyze by Git / GitHub Clone or API Endpoint URL
   const handleScanGit = async () => {
     if (!gitUrl.trim()) {
@@ -406,21 +450,7 @@ CREATE TABLE orders (
       return;
     }
 
-    await executeScanWithStages((signal) => fetch('/api/git-clone', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        repoUrl: gitUrl.trim(),
-        token: gitToken.trim(),
-        crawlDepth: crawlDepthMode
-      }),
-      signal
-    }), (data) => {
-      setAnalysisResult(data);
-      fetchLocalHistory();
-      const initialTab = (data?.isUrlCrawl || data?.schema?.tables?.length === 0) ? 'sequence' : null;
-      handleOpenLens('DEVELOPER', initialTab);
-    });
+    await scanUrlWithClientRecovery(gitUrl.trim(), gitToken.trim());
   };
 
   // Load Built-in Mock Architecture

@@ -69,6 +69,16 @@ class SubdomainScanner {
       'ftp.futrsec.in',
       'kp.futrsec.in',
       'tpo.futrsec.in'
+    ],
+    'etihad.com': [
+      'etihad.com',
+      'www.etihad.com',
+      'api.etihad.com',
+      'booking.etihad.com',
+      'flights.etihad.com',
+      'guest.etihad.com',
+      'cargo.etihad.com',
+      'holidays.etihad.com'
     ]
   };
   /**
@@ -697,6 +707,9 @@ class SubdomainScanner {
       return [...benchmark];
     }
     if (apex === 'futrsec.in' && Array.isArray(benchmark) && benchmark.length === 8) {
+      return [...benchmark];
+    }
+    if (apex === 'etihad.com' && Array.isArray(benchmark)) {
       return [...benchmark];
     }
 

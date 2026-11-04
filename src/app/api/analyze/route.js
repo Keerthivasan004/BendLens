@@ -45,7 +45,8 @@ export async function POST(request) {
       }
       const UniversalApiCrawler = require('@/lib/universalApiCrawler');
       const crawlDepth = body.crawlDepth || 'deep';
-      const crawlResult = await UniversalApiCrawler.crawl(targetPath, { maxChunks: 500, concurrency: 24, crawlDepth });
+      const preloadedHtml = body.preloadedHtml || body.html || null;
+      const crawlResult = await UniversalApiCrawler.crawl(targetPath, { maxChunks: 500, concurrency: 24, crawlDepth, preloadedHtml });
       if (crawlResult?.telemetry?.crawlStatus === 'failed') {
         return NextResponse.json(
           { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetPath}. Please verify the target URL and network connection.` },

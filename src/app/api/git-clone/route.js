@@ -104,10 +104,12 @@ export async function POST(request) {
               : `token ${token}`;
           }
 
+          const isDirectSpecFile = /\.(?:json|yaml|yml|sql|prisma)$/i.test(targetFetchUrl);
+          const initialFetchTimeout = isDirectSpecFile ? 10000 : 4000;
           let specRes = await fetch(targetFetchUrl, {
             headers: fetchHeaders,
             redirect: 'follow',
-            signal: AbortSignal.timeout(15000)
+            signal: AbortSignal.timeout(initialFetchTimeout)
           });
 
           if (specRes.ok) {
@@ -159,7 +161,7 @@ export async function POST(request) {
               if (!hasMarkersNow) {
                 try {
                   const crawlDepth = body.crawlDepth || 'deep';
-                  const crawlResult = await UniversalApiCrawler.crawl(targetFetchUrl, { maxChunks: 500, concurrency: 24, crawlDepth });
+                  const crawlResult = await UniversalApiCrawler.crawl(targetFetchUrl, { maxChunks: 500, concurrency: 24, crawlDepth, preloadedHtml: body.preloadedHtml });
                   if (crawlResult && crawlResult.telemetry?.crawlStatus === 'success' && crawlResult.openApiSpec) {
                     fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
                     if (crawlResult.sqlSchema) {
@@ -498,7 +500,7 @@ export async function POST(request) {
     // Final Zero-Error Fallback: Run Universal Web & API Crawler
     try {
       const crawlDepth = body.crawlDepth || 'deep';
-      const crawlResult = await UniversalApiCrawler.crawl(repoUrl, { maxChunks: 500, concurrency: 24, crawlDepth });
+      const crawlResult = await UniversalApiCrawler.crawl(repoUrl, { maxChunks: 500, concurrency: 24, crawlDepth, preloadedHtml: body.preloadedHtml });
       if (crawlResult && crawlResult.telemetry?.crawlStatus === 'success' && (Object.keys(crawlResult.openApiSpec?.paths || {}).length > 0 || crawlResult.sqlSchema)) {
         fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
         if (crawlResult.sqlSchema) {
