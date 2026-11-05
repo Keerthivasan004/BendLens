@@ -6,6 +6,7 @@ import os from 'os';
 import path from 'path';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 export const revalidate = 0;
 
 const HISTORY_FILE = path.join(os.tmpdir(), '.bendlens_history.json');

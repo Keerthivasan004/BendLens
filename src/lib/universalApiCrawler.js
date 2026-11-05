@@ -70,9 +70,6 @@ class UniversalApiCrawler {
       'Sec-Fetch-Site': 'none',
       'Sec-Fetch-User': '?1',
       'Upgrade-Insecure-Requests': '1',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache',
-      ...(origin ? { 'Referer': origin.endsWith('/') ? origin : `${origin}/` } : {}),
       ...customHeaders
     };
     return docHeaders;
@@ -246,6 +243,21 @@ class UniversalApiCrawler {
     let pageTitle = '';
     let discoveryStrategy = isNormalOnly ? 'standard_chunk_crawler' : 'deep_chunk_crawler';
 
+    let preloadedInitRes = null;
+    if (options.preloadedHtml && typeof options.preloadedHtml === 'string' && options.preloadedHtml.trim().length > 50) {
+      preloadedInitRes = {
+        ok: true,
+        status: 200,
+        statusText: 'OK (Client-Assisted Relay)',
+        contentType: 'text/html; charset=utf-8',
+        headers: {},
+        finalUrl: href,
+        text: options.preloadedHtml,
+        wasChallengeResilient: true
+      };
+      discoveryStrategy = 'client_assisted_edge_crawler';
+    }
+
     try {
       // Safe, Air-Gapped Multi-Signal DNS & IP Subnet Resolution (Non-blocking, bounded by 1500ms timeout)
       let resolvedIp = null;
@@ -259,7 +271,9 @@ class UniversalApiCrawler {
             dns.lookup(hostname, { all: true }),
             (async () => {
               const resolver = new (require('dns').promises.Resolver)();
-              resolver.setServers(['8.8.8.8', '1.1.1.1']);
+              if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+                try { resolver.setServers(['8.8.8.8', '1.1.1.1']); } catch {}
+              }
               let cnames = [];
               try {
                 cnames = await resolver.resolveCname(hostname);
@@ -274,7 +288,9 @@ class UniversalApiCrawler {
             })(),
             (async () => {
               const resolver = new (require('dns').promises.Resolver)();
-              resolver.setServers(['8.8.8.8', '1.1.1.1']);
+              if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+                try { resolver.setServers(['8.8.8.8', '1.1.1.1']); } catch {}
+              }
               try {
                 return await resolver.resolveNs(hostname);
               } catch {
@@ -307,36 +323,80 @@ class UniversalApiCrawler {
       // =========================================================================
       // STAGE 1: Target Ingestion & Direct Spec / API Sniffing
       // =========================================================================
-      let initRes = await this.safeFetch(href, { timeout: 15000, customHeaders, origin });
-
-      // Protocol fallback if https fails on local/custom domains
-      if (!initRes.ok && href.startsWith('https://')) {
-        const httpHref = href.replace(/^https:\/\//i, 'http://');
-        const httpRes = await this.safeFetch(httpHref, { timeout: 10000, customHeaders, origin });
-        if (httpRes.ok) {
-          initRes = httpRes;
-        }
-      }
-
-      // Canonical Subdomain / Apex Fallback (e.g., goindigo.in -> www.goindigo.in or vice versa)
-      if (!initRes.ok || (initRes.status >= 400 && initRes.status <= 503)) {
-        let altUrl = null;
+      let initRes = preloadedInitRes;
+      if (!initRes) {
+        // Parallel Dual-Domain Racing (Happy Eyeballs for Apex vs www)
+        const candidateUrls = [href];
         try {
           const u = new URL(href);
           if (!u.hostname.startsWith('www.') && !/^(?:\d{1,3}\.){3}\d{1,3}$/.test(u.hostname) && !u.hostname.includes('localhost')) {
-            u.hostname = `www.${u.hostname}`;
-            altUrl = u.href;
+            const wwwUrl = new URL(href);
+            wwwUrl.hostname = `www.${u.hostname}`;
+            candidateUrls.push(wwwUrl.href);
           } else if (u.hostname.startsWith('www.')) {
-            u.hostname = u.hostname.replace(/^www\./i, '');
-            altUrl = u.href;
+            const apexUrl = new URL(href);
+            apexUrl.hostname = u.hostname.replace(/^www\./i, '');
+            candidateUrls.push(apexUrl.href);
           }
         } catch { }
 
-        if (altUrl) {
-          const altRes = await this.safeFetch(altUrl, { timeout: 15000, customHeaders });
-          if (altRes.ok || (altRes.status === 200) || (altRes.text && altRes.text.length > (initRes.text || '').length)) {
-            initRes = altRes;
+        // Concurrently race candidate URLs with a 7000ms budget
+        try {
+          const racePromises = candidateUrls.map(cUrl =>
+            this.safeFetch(cUrl, { timeout: 7000, customHeaders, origin })
+          );
+          const candidateResults = await Promise.allSettled(racePromises);
+          for (const cr of candidateResults) {
+            if (cr.status === 'fulfilled' && cr.value && (cr.value.ok || (cr.value.status >= 200 && cr.value.status < 400))) {
+              initRes = cr.value;
+              break;
+            }
           }
+          if (!initRes) {
+            for (const cr of candidateResults) {
+              if (cr.status === 'fulfilled' && cr.value?.text && cr.value.text.length > 200) {
+                initRes = cr.value;
+                break;
+              }
+            }
+          }
+          if (!initRes && candidateResults[0]?.status === 'fulfilled') {
+            initRes = candidateResults[0].value;
+          }
+        } catch { }
+
+        if (!initRes) {
+          initRes = await this.safeFetch(href, { timeout: 7000, customHeaders, origin });
+        }
+
+        // Protocol fallback if https fails on local/custom domains
+        if (!initRes.ok && href.startsWith('https://')) {
+          const httpHref = href.replace(/^https:\/\//i, 'http://');
+          const httpRes = await this.safeFetch(httpHref, { timeout: 5000, customHeaders, origin });
+          if (httpRes.ok) {
+            initRes = httpRes;
+          }
+        }
+
+        // Resilient Public Gateway Relay for enterprise targets protected by datacenter WAF IP tarpits
+        if (!initRes.ok || initRes.status === 403 || initRes.status === 503 || (initRes.status === 0 && initRes.statusText?.includes('timed out'))) {
+          try {
+            const jinaUrl = `https://r.jina.ai/${href}`;
+            const jinaRes = await this.safeFetch(jinaUrl, { timeout: 8000, customHeaders: {} });
+            if (jinaRes.ok && jinaRes.text && jinaRes.text.length > 200) {
+              initRes = {
+                ok: true,
+                status: 200,
+                statusText: 'OK (Gateway Relay)',
+                contentType: 'text/html; charset=utf-8',
+                headers: {},
+                finalUrl: href,
+                text: jinaRes.text,
+                wasChallengeResilient: true
+              };
+              discoveryStrategy = 'gateway_resilient_crawler';
+            }
+          } catch { }
         }
       }
 
@@ -448,7 +508,9 @@ class UniversalApiCrawler {
             projectName = finalHost;
             if (cnameRecords.length === 0) {
               const resolver = new (require('dns').promises.Resolver)();
-              resolver.setServers(['8.8.8.8', '1.1.1.1']);
+              if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+                try { resolver.setServers(['8.8.8.8', '1.1.1.1']); } catch {}
+              }
               try {
                 const extraCnames = await resolver.resolveCname(finalHost);
                 if (Array.isArray(extraCnames) && extraCnames.length > 0) {
@@ -1042,6 +1104,41 @@ class UniversalApiCrawler {
             const origApex = this.getApexDomain(hostname);
             if (uApex && origApex && uApex === origApex && u.hostname !== hostname) {
               backendDomains.add(u.origin);
+            }
+          } catch { }
+        }
+      }
+
+      // Discover Markdown Links ([Text](url)) when rendered via gateway or reader
+      const mdRegex = /\[([^\]]*)\]\((https?:\/\/[^\s\)]+|\/[^\s\)]+)\)/g;
+      let mdMatch;
+      while ((mdMatch = mdRegex.exec(html)) !== null) {
+        const linkUrl = mdMatch[2];
+        if (linkUrl.startsWith('/') && !linkUrl.startsWith('//') && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(linkUrl)) {
+          discoveredPages.add(linkUrl.split('?')[0]);
+          const normalized = this.normalizeApiPath(linkUrl);
+          if (normalized) {
+            if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set(['GET']));
+            this.extractEntitiesFromPath(normalized, distinctEntities);
+          }
+        } else if (linkUrl.startsWith('http://') || linkUrl.startsWith('https://')) {
+          try {
+            const u = new URL(linkUrl);
+            const uApex = this.getApexDomain(u.hostname);
+            const origApex = this.getApexDomain(hostname);
+            if (uApex && origApex && uApex === origApex) {
+              if (u.hostname !== hostname) {
+                backendDomains.add(u.origin);
+              }
+              const relPath = u.pathname;
+              if (relPath && relPath !== '/' && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(relPath)) {
+                discoveredPages.add(relPath);
+                const normalized = this.normalizeApiPath(relPath);
+                if (normalized) {
+                  if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set(['GET']));
+                  this.extractEntitiesFromPath(normalized, distinctEntities);
+                }
+              }
             }
           } catch { }
         }

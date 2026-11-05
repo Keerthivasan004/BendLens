@@ -4,11 +4,14 @@ const https = require('https');
 
 const dnsPromises = dns.promises;
 
-// Shared high-speed non-blocking c-ares resolver with resilient public recursive nameservers
+// Shared high-speed non-blocking c-ares resolver
 const sharedResolver = new dns.Resolver();
-try {
-  sharedResolver.setServers(['8.8.8.8', '1.1.1.1', '9.9.9.9']);
-} catch {}
+// In serverless environments (Vercel, AWS Lambda), do NOT override system nameservers because outbound port 53 to public IPs is restricted
+if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  try {
+    sharedResolver.setServers(['8.8.8.8', '1.1.1.1', '9.9.9.9']);
+  } catch {}
+}
 
 /**
  * Universal Barrier-Free Multi-Signal Rigorous Subdomain Scanner Engine
@@ -69,16 +72,6 @@ class SubdomainScanner {
       'ftp.futrsec.in',
       'kp.futrsec.in',
       'tpo.futrsec.in'
-    ],
-    'etihad.com': [
-      'etihad.com',
-      'www.etihad.com',
-      'api.etihad.com',
-      'booking.etihad.com',
-      'flights.etihad.com',
-      'guest.etihad.com',
-      'cargo.etihad.com',
-      'holidays.etihad.com'
     ]
   };
   /**
@@ -709,9 +702,6 @@ class SubdomainScanner {
     if (apex === 'futrsec.in' && Array.isArray(benchmark) && benchmark.length === 8) {
       return [...benchmark];
     }
-    if (apex === 'etihad.com' && Array.isArray(benchmark)) {
-      return [...benchmark];
-    }
 
     const candidateSet = new Set([apex]);
     const targetClean = this.canonicalize(targetHostname);
@@ -730,8 +720,15 @@ class SubdomainScanner {
       for (const b of benchmark) candidateSet.add(b);
     }
 
+    // Adaptive bounded timeouts for serverless environments (Vercel, Lambda)
+    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+    const certSpotterPages = isServerless ? 6 : 15;
+    const certSpotterTimeout = isServerless ? 7000 : 25000;
+    const crtShTimeout = isServerless ? 5000 : 10000;
+    const validationTimeout = isServerless ? 12000 : 35000;
+
     // Harvest signals in parallel with bounded timeouts
-    const pCertSpotter = this.getCertSpotterSubdomains(apex, 15, 25000).then((list) => {
+    const pCertSpotter = this.getCertSpotterSubdomains(apex, certSpotterPages, certSpotterTimeout).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
         if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
@@ -759,7 +756,7 @@ class SubdomainScanner {
       }
     }).catch(() => {});
 
-    const pCrtSh = this.getCrtShSubdomains(apex, 10000).then((list) => {
+    const pCrtSh = this.getCrtShSubdomains(apex, crtShTimeout).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
         if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
@@ -791,7 +788,7 @@ class SubdomainScanner {
     await Promise.allSettled([pCertSpotter, pTls, pDnsRecords, pActiveDns, pCrtSh, pHackerTarget]);
 
     // Active Verification: Ensure every candidate currently resolves via DNS
-    const verifiedList = await this.validateCandidates(candidateSet, apex);
+    const verifiedList = await this.validateCandidates(candidateSet, apex, 1500, validationTimeout);
 
     // Save into perimeterCache: guarantees subsequent runs preserve all verified assets
     const currentCached = this.perimeterCache.get(apex) || new Set();

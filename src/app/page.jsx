@@ -268,7 +268,16 @@ CREATE TABLE orders (
 
     try {
       const res = typeof fetchFn === 'function' ? await fetchFn(controller.signal) : await fetchFn;
-      const result = await res.json();
+      let result = null;
+      try {
+        const text = await res.text();
+        result = JSON.parse(text);
+      } catch {
+        result = {
+          success: false,
+          error: res.status ? `Server error (HTTP ${res.status})` : 'Invalid server response'
+        };
+      }
       clearInterval(interval);
       clearInterval(timerInterval);
 
@@ -407,25 +416,39 @@ CREATE TABLE orders (
 
     await executeScanWithStages(async (signal) => {
       let res = await runCrawlRequest(signal);
-      let json = await res.json();
+      let json = null;
+      let rawText = '';
+      try {
+        rawText = await res.text();
+        json = JSON.parse(rawText);
+      } catch {
+        json = {
+          success: false,
+          error: res.status === 504 ? 'Connection timed out after 15000ms' : (rawText?.slice(0, 200) || `Server error (${res.status})`)
+        };
+      }
 
       // If server crawl timed out or was challenged on the website deployment, attempt client-side gateway recovery
-      if (!json.success && (json.error?.includes('timed out') || json.error?.includes('firewall') || json.error?.includes('Unreachable') || json.error?.includes('actively reset'))) {
+      if (!json.success && (json.error?.includes('timed out') || json.error?.includes('firewall') || json.error?.includes('Unreachable') || json.error?.includes('actively reset') || res.status === 504)) {
         try {
           const clientGateways = [
+            `https://r.jina.ai/${normalizedUrl}`,
             `https://corsproxy.io/?url=${encodeURIComponent(normalizedUrl)}`,
-            `https://api.allorigins.win/raw?url=${encodeURIComponent(normalizedUrl)}`,
-            `https://r.jina.ai/${normalizedUrl}`
+            `https://api.allorigins.win/raw?url=${encodeURIComponent(normalizedUrl)}`
           ];
           for (const gw of clientGateways) {
             try {
-              const gwRes = await fetch(gw, { signal: AbortSignal.timeout(6000) });
+              const gwRes = await fetch(gw, { signal: AbortSignal.timeout(7000) });
               if (gwRes.ok) {
                 const htmlText = await gwRes.text();
-                if (htmlText && htmlText.length > 250) {
+                if (htmlText && htmlText.length > 200) {
                   const retryRes = await runCrawlRequest(signal, htmlText);
-                  const retryJson = await retryRes.json();
-                  if (retryJson.success) {
+                  let retryJson = null;
+                  try {
+                    const rt = await retryRes.text();
+                    retryJson = JSON.parse(rt);
+                  } catch {}
+                  if (retryJson && retryJson.success) {
                     return new Response(JSON.stringify(retryJson), { status: 200, headers: { 'Content-Type': 'application/json' } });
                   }
                 }
