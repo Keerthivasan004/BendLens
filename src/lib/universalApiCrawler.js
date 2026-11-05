@@ -1194,7 +1194,7 @@ class UniversalApiCrawler {
       try {
         const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
         const elapsedSoFar = Date.now() - startTime;
-        const maxSubdomainBudgetMs = isServerless ? Math.max(1500, 8500 - elapsedSoFar) : 25000;
+        const maxSubdomainBudgetMs = isServerless ? Math.max(1500, 8500 - elapsedSoFar) : 35000;
         const harvested = await Promise.race([
           pSubdomainDiscovery || SubdomainScanner.discoverSubdomains(hostname, {
             html,

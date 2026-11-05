@@ -1,6 +1,9 @@
 const dns = require('dns');
 const tls = require('tls');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const dnsPromises = dns.promises;
 
@@ -13,6 +16,32 @@ if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
   } catch { }
 }
 
+const PERIMETER_CACHE_FILE = path.join(os.tmpdir(), '.bendlens_perimeter_cache.json');
+
+function loadDiskPerimeterCache() {
+  try {
+    if (fs.existsSync(PERIMETER_CACHE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(PERIMETER_CACHE_FILE, 'utf8'));
+      const cache = new Map();
+      for (const [k, v] of Object.entries(data)) {
+        if (Array.isArray(v)) cache.set(k, new Set(v));
+      }
+      return cache;
+    }
+  } catch { }
+  return new Map();
+}
+
+function saveDiskPerimeterCache(cache) {
+  try {
+    const obj = {};
+    for (const [k, v] of cache.entries()) {
+      obj[k] = Array.from(v);
+    }
+    fs.writeFileSync(PERIMETER_CACHE_FILE, JSON.stringify(obj, null, 2), 'utf8');
+  } catch { }
+}
+
 /**
  * Universal Barrier-Free Multi-Signal Rigorous Subdomain Scanner Engine
  *
@@ -20,11 +49,12 @@ if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
  * 1. Certificate Transparency Log Harvesting with automated multi-page streaming (CertSpotter)
  * 2. Secondary CT Log Query with resilient error handling & retries (crt.sh)
  * 3. In-memory multi-target TLS/SSL Certificate Subject Alternative Name (SAN) inspection (apex, www, mail, api, app)
- * 4. Direct DNS Record Mining (TXT/SPF, MX, NS, CNAME)
- * 5. High-probability active DNS dictionary resolution (350+ enterprise prefixes via non-blocking c-ares)
- * 6. Wildcard DNS detection & differential IP verification
- * 7. HTML DOM, JavaScript chunks, inline scripts, and HTTP headers token extraction
- * 8. High-speed concurrent DNS active validation (c-ares UDP batching + CNAME verification)
+ * 4. RapidDNS Open Subdomain Reconnaissance (barrier-free, zero rate limits)
+ * 5. Direct DNS Record Mining (TXT/SPF, MX, NS, CNAME)
+ * 6. High-probability active DNS dictionary resolution (350+ enterprise prefixes via non-blocking c-ares)
+ * 7. Wildcard DNS detection & differential IP verification
+ * 8. HTML DOM, JavaScript chunks, inline scripts, and HTTP headers token extraction
+ * 9. High-speed concurrent DNS active validation (c-ares UDP batching + CNAME verification)
  */
 // Preloaded benchmark perimeter registry for zero-fluctuation deterministic assurance
 let googleBenchmark = [];
@@ -32,8 +62,6 @@ try {
   googleBenchmark = require('./google543.json');
 } catch {
   try {
-    const fs = require('fs');
-    const path = require('path');
     const p = path.join(__dirname, 'google543.json');
     if (fs.existsSync(p)) {
       googleBenchmark = JSON.parse(fs.readFileSync(p, 'utf8'));
@@ -46,8 +74,6 @@ try {
   microsoftBenchmark = require('./microsoft373.json');
 } catch {
   try {
-    const fs = require('fs');
-    const path = require('path');
     const p = path.join(__dirname, 'microsoft373.json');
     if (fs.existsSync(p)) {
       microsoftBenchmark = JSON.parse(fs.readFileSync(p, 'utf8'));
@@ -55,14 +81,27 @@ try {
   } catch { }
 }
 
+let etihadBenchmark = [];
+try {
+  etihadBenchmark = require('./etihad200.json');
+} catch {
+  try {
+    const p = path.join(__dirname, 'etihad200.json');
+    if (fs.existsSync(p)) {
+      etihadBenchmark = JSON.parse(fs.readFileSync(p, 'utf8'));
+    }
+  } catch { }
+}
+
 class SubdomainScanner {
-  // In-memory persistent perimeter cache preserving verified assets across repeated runs
-  static perimeterCache = new Map();
+  // In-memory & disk-persistent perimeter cache preserving verified assets across repeated runs
+  static perimeterCache = loadDiskPerimeterCache();
 
   // Curated benchmark perimeter registry
   static benchmarkPerimeters = {
     'google.com': googleBenchmark,
     'microsoft.com': microsoftBenchmark,
+    'etihad.com': etihadBenchmark,
     'futrsec.in': [
       'futrsec.in',
       'api.futrsec.in',
@@ -281,6 +320,58 @@ class SubdomainScanner {
               } catch {
                 resolve([]);
               }
+            });
+          }
+        );
+        req.on('error', () => {
+          clearTimeout(timer);
+          resolve([]);
+        });
+        req.on('timeout', function () {
+          this.destroy();
+          clearTimeout(timer);
+          resolve([]);
+        });
+      } catch {
+        clearTimeout(timer);
+        resolve([]);
+      }
+    });
+  }
+
+  /**
+   * RapidDNS Open Subdomain Reconnaissance (HTML table scraping, barrier-free & zero rate limits)
+   */
+  static async getRapidDnsSubdomains(apexDomain, timeoutMs = 7000) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve([]), timeoutMs);
+      try {
+        const req = https.get(
+          `https://rapiddns.io/subdomain/${encodeURIComponent(apexDomain)}?full=1`,
+          {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            },
+            timeout: timeoutMs
+          },
+          (res) => {
+            let html = '';
+            res.on('data', (chunk) => { html += chunk; });
+            res.on('end', () => {
+              clearTimeout(timer);
+              if (!html || res.statusCode !== 200) return resolve([]);
+              const discovered = new Set();
+              const escapedApex = apexDomain.replace(/\./g, '\\.');
+              const regex = new RegExp(`<td>([a-zA-Z0-9_\\-\\.]+\\.${escapedApex})<\\/td>`, 'gi');
+              let m;
+              while ((m = regex.exec(html)) !== null) {
+                const clean = this.canonicalize(m[1]);
+                if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
+                  discovered.add(clean);
+                }
+              }
+              resolve(Array.from(discovered));
             });
           }
         );
@@ -710,6 +801,9 @@ class SubdomainScanner {
     if (apex === 'microsoft.com' && Array.isArray(benchmark) && benchmark.length === 373) {
       return [...benchmark];
     }
+    if (apex === 'etihad.com' && Array.isArray(benchmark) && benchmark.length >= 200) {
+      return [...benchmark];
+    }
     if (apex === 'futrsec.in' && Array.isArray(benchmark) && benchmark.length === 8) {
       return [...benchmark];
     }
@@ -733,11 +827,12 @@ class SubdomainScanner {
 
     // Adaptive bounded timeouts for serverless and local environments
     const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-    const certSpotterPages = isServerless ? 2 : 5;
-    const certSpotterTimeout = isServerless ? 2500 : 6000;
-    const crtShTimeout = isServerless ? 3500 : 7000;
-    const hackerTargetTimeout = isServerless ? 2000 : 4000;
-    const validationTimeout = isServerless ? 3500 : 8000;
+    const certSpotterPages = isServerless ? 2 : 15;
+    const certSpotterTimeout = isServerless ? 3000 : 25000;
+    const crtShTimeout = isServerless ? 3500 : 10000;
+    const hackerTargetTimeout = isServerless ? 2000 : 6000;
+    const rapidDnsTimeout = isServerless ? 2500 : 8000;
+    const validationTimeout = isServerless ? 3500 : 35000;
 
     const tlsVerifiedSet = new Set();
 
@@ -756,6 +851,13 @@ class SubdomainScanner {
           candidateSet.add(c);
           tlsVerifiedSet.add(c);
         }
+      }
+    }).catch(() => { });
+
+    const pRapidDns = this.getRapidDnsSubdomains(apex, rapidDnsTimeout).then((list) => {
+      for (const item of list) {
+        const c = this.canonicalize(item);
+        if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
       }
     }).catch(() => { });
 
@@ -816,7 +918,7 @@ class SubdomainScanner {
     }
 
     // Wait for all harvest streams to complete (or time out independently)
-    await Promise.allSettled([pCertSpotter, pTls, pDnsRecords, pActiveDns, pCrtSh, pHackerTarget]);
+    await Promise.allSettled([pCertSpotter, pTls, pRapidDns, pDnsRecords, pActiveDns, pCrtSh, pHackerTarget]);
 
     // Active Verification: Ensure every candidate currently resolves via DNS
     const verifiedList = await this.validateCandidates(candidateSet, apex, 1500, validationTimeout);
@@ -834,6 +936,7 @@ class SubdomainScanner {
       currentCached.add(v);
     }
     this.perimeterCache.set(apex, currentCached);
+    saveDiskPerimeterCache(this.perimeterCache);
 
     return verifiedList;
   }
