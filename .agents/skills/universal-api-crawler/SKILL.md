@@ -287,7 +287,8 @@ When running on serverless cloud platforms (Vercel / AWS Lambda):
    - `fetch` concurrency capped at 4 with max 6 normal chunks on serverless.
    - Akamai telemetry (`/RfL7_f/`, `_bm/`, `akam/`) and ad tracker scripts bypassed immediately via `isThirdPartyTracker`.
    - Subdomain verification leverages high-speed OS `dns.lookup` (800ms timeout per host, 35 concurrency pool) instead of slow sequential UDP c-ares.
-   - Speculative gateway and `/api/health` probes pruned when crawl time exceeds 5000ms.
-   - Legal document extraction strictly capped within remaining time budget.
+   - Speculative gateway and `/api/health` probes pruned when crawl time exceeds 5500ms.
+   - Legal document extraction runs in parallel; explicit candidate URLs receive up to 5000ms while conventional candidate probing is bypassed on serverless if explicit candidates exist.
+   - Non-spec web URLs in `/api/git-clone` route directly through `UniversalApiCrawler.safeFetch` and `crawl` to prevent 4000ms raw fetch hangs.
 3. **Absolute Zero-Hallucination Guarantee**:
    - Never inject mock endpoints, fake tables, or synthetic subdomains. All returned assets must derive from verified live network responses, DNS, and TLS certificate transparency.

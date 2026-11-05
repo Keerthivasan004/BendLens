@@ -106,16 +106,24 @@ export async function POST(request) {
           }
 
           const isDirectSpecFile = /\.(?:json|yaml|yml|sql|prisma)$/i.test(targetFetchUrl);
-          const initialFetchTimeout = isDirectSpecFile ? 10000 : 4000;
-          let specRes = await fetch(targetFetchUrl, {
-            headers: fetchHeaders,
-            redirect: 'follow',
-            signal: AbortSignal.timeout(initialFetchTimeout)
-          });
+          const initialFetchTimeout = isDirectSpecFile ? 10000 : 3500;
+          let specRes = null;
+          if (isDirectSpecFile) {
+            specRes = await fetch(targetFetchUrl, {
+              headers: fetchHeaders,
+              redirect: 'follow',
+              signal: AbortSignal.timeout(initialFetchTimeout)
+            });
+          } else {
+            specRes = await UniversalApiCrawler.safeFetch(targetFetchUrl, {
+              timeout: initialFetchTimeout,
+              customHeaders: fetchHeaders
+            });
+          }
 
-          if (specRes.ok) {
-            let contentType = (specRes.headers.get('content-type') || '').toLowerCase();
-            let text = await specRes.text();
+          if (specRes && specRes.ok) {
+            let contentType = (specRes.contentType || (typeof specRes.headers?.get === 'function' ? specRes.headers.get('content-type') : specRes.headers?.['content-type']) || '').toLowerCase();
+            let text = typeof specRes.text === 'function' ? await specRes.text() : (specRes.text || '');
 
             // -----------------------------------------------------------------
             // CASE 2A: Swagger UI / Documentation HTML Page Auto-Discovery

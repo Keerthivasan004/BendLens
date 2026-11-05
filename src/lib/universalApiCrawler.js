@@ -107,8 +107,9 @@ class UniversalApiCrawler {
    */
   static async safeFetch(url, options = {}) {
     const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-    const defaultTimeout = isServerless ? 2500 : 10000;
-    const timeout = Math.min(options.timeout || defaultTimeout, isServerless ? 3500 : 30000);
+    const defaultTimeout = isServerless ? 3000 : 10000;
+    const maxTimeout = isServerless ? (options.timeout ? Math.min(options.timeout, 7000) : 3500) : 30000;
+    const timeout = options.timeout ? Math.min(options.timeout, maxTimeout) : defaultTimeout;
     const controller = new AbortController();
     let timer = null;
 
@@ -1180,7 +1181,8 @@ class UniversalApiCrawler {
 
       try {
         const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-        const maxSubdomainBudgetMs = isServerless ? 3000 : 25000;
+        const elapsedSoFar = Date.now() - startTime;
+        const maxSubdomainBudgetMs = isServerless ? Math.min(2000, Math.max(500, 6500 - elapsedSoFar)) : 25000;
         const harvested = await Promise.race([
           SubdomainScanner.discoverSubdomains(hostname, {
             html,
@@ -1612,13 +1614,15 @@ class UniversalApiCrawler {
 
       let extGatewayHeaders = {};
       const diagnosticEndpoints = ['/api/health', '/health', '/healthz'];
-      await Promise.allSettled(prioritizedGateways.map(async (extGateway) => {
-        try {
-          const gwRes = await this.safeFetch(extGateway, { timeout: 2000, customHeaders });
-          if (gwRes && gwRes.headers) {
-            extGatewayHeaders = { ...extGatewayHeaders, ...gwRes.headers };
-          }
-        } catch { }
+      const elapsedGateways = Date.now() - startTime;
+      if (!isServerless || elapsedGateways < 5500) {
+        await Promise.allSettled(prioritizedGateways.map(async (extGateway) => {
+          try {
+            const gwRes = await this.safeFetch(extGateway, { timeout: 2000, customHeaders });
+            if (gwRes && gwRes.headers) {
+              extGatewayHeaders = { ...extGatewayHeaders, ...gwRes.headers };
+            }
+          } catch { }
 
         // 1. Probe WordPress REST API manifest (/wp-json/) on subdomain perimeter
         try {
@@ -1702,6 +1706,7 @@ class UniversalApiCrawler {
           }
         } catch { }
       }));
+      }
 
       // Origin backend probe headers (from /api/health or /api/auth on the target itself) ALWAYS take precedence!
       // External gateway headers are only merged as secondary evidence if origin has no backend API headers.
@@ -1899,7 +1904,8 @@ class UniversalApiCrawler {
       const safeLegalOrigin = (origin || '').replace(/^http:\/\//i, 'https://');
       try {
         if (pLegalDocuments) {
-          const maxLegalWaitMs = isServerless ? 6000 : 15000;
+          const elapsed = Date.now() - startTime;
+          const maxLegalWaitMs = isServerless ? Math.max(1500, Math.min(5000, 9500 - elapsed)) : 15000;
           legalDocuments = await Promise.race([
             pLegalDocuments,
             new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
@@ -4994,7 +5000,7 @@ Support: **support@${domainName}**`;
           // Immediately reject static assets or non-HTML targets
           if (this.isStaticAssetUrl(u)) return null;
 
-          const r = await this.safeFetch(u, { timeout: isExplicitUrl(u) ? 4500 : 2500, customHeaders });
+          const r = await this.safeFetch(u, { timeout: isExplicitUrl(u) ? 5000 : 2500, customHeaders });
           if (r.ok && r.status === 200 && r.text && r.text.length > 250) {
             // Reject CSS, JavaScript, image, or font Content-Types
             const ct = (r.contentType || '').toLowerCase();
@@ -5103,8 +5109,11 @@ Support: **support@${domainName}**`;
       }
 
       // 2. Parallel batched probes for conventional paths (concurrency: 6 on serverless)
-      const conventionCandidates = candidates.filter(u => !isExplicitUrl(u));
       const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+      if (isServerlessEnv && explicitCandidates.length > 0) {
+        return null;
+      }
+      const conventionCandidates = candidates.filter(u => !isExplicitUrl(u));
       const targetConventions = isServerlessEnv ? conventionCandidates.slice(0, 6) : conventionCandidates;
       const batchSize = isServerlessEnv ? 6 : 8;
       for (let i = 0; i < targetConventions.length; i += batchSize) {
