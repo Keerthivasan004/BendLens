@@ -734,10 +734,12 @@ class SubdomainScanner {
     // Adaptive bounded timeouts for serverless environments (Vercel, Lambda)
     const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
     const certSpotterPages = isServerless ? 2 : 15;
-    const certSpotterTimeout = isServerless ? 2000 : 25000;
-    const crtShTimeout = isServerless ? 2000 : 10000;
+    const certSpotterTimeout = isServerless ? 2500 : 25000;
+    const crtShTimeout = isServerless ? 4500 : 10000;
     const hackerTargetTimeout = isServerless ? 2000 : 6000;
-    const validationTimeout = isServerless ? 1800 : 35000;
+    const validationTimeout = isServerless ? 3500 : 35000;
+
+    const tlsVerifiedSet = new Set();
 
     // Harvest signals in parallel with bounded timeouts
     const pCertSpotter = this.getCertSpotterSubdomains(apex, certSpotterPages, certSpotterTimeout).then((list) => {
@@ -747,10 +749,13 @@ class SubdomainScanner {
       }
     }).catch(() => { });
 
-    const pTls = this.getTlsSanSubdomains(apex, isServerless ? 2000 : 2500).then((list) => {
+    const pTls = this.getTlsSanSubdomains(apex, isServerless ? 2500 : 3500).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
-        if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+        if (c && (c === apex || c.endsWith('.' + apex))) {
+          candidateSet.add(c);
+          tlsVerifiedSet.add(c);
+        }
       }
     }).catch(() => { });
 
@@ -782,6 +787,20 @@ class SubdomainScanner {
       }
     }).catch(() => { });
 
+    // Preloaded subdomains from options
+    if (options.subdomains) {
+      for (const s of options.subdomains) {
+        const c = this.canonicalize(s);
+        if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+      }
+    }
+    if (options.discoveredSubdomains) {
+      for (const s of options.discoveredSubdomains) {
+        const c = this.canonicalize(s);
+        if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+      }
+    }
+
     // DOM, Header & Code harvest
     if (options.html) {
       const fromHtml = this.extractFromHtml(options.html, apex);
@@ -801,6 +820,13 @@ class SubdomainScanner {
 
     // Active Verification: Ensure every candidate currently resolves via DNS
     const verifiedList = await this.validateCandidates(candidateSet, apex, 1500, validationTimeout);
+
+    // Guaranteed inclusion of cryptographically certified TLS SAN subdomains
+    for (const item of tlsVerifiedSet) {
+      if (!verifiedList.includes(item)) {
+        verifiedList.push(item);
+      }
+    }
 
     // Save into perimeterCache: guarantees subsequent runs preserve all verified assets
     const currentCached = this.perimeterCache.get(apex) || new Set();

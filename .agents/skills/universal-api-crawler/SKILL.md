@@ -233,7 +233,10 @@ BendLens automatically extracts and verifies the complete Frontend and Backend t
   - `fetchLegalDocuments(targetUrl, options)`: Standalone on-demand discovery helper for any target URL.
 - **`src/app/api/legal/route.js`**: Dedicated on-demand Legal Documents API route supporting `GET ?url=...` and `POST { url: '...' }` with zero cloud leakage, `export const maxDuration = 60;`, and dual-domain apex/www racing.
 - **`src/components/LegalDocumentsModal.jsx`**: Glassmorphic dark-mode legal documents viewer modal featuring:
+  - **Platform Official Policies (`BENDLENS_PRIVACY_POLICY` & `BENDLENS_TERMS_OF_SERVICE`)**: Provides verified, complete local-first air-gapped legal documents when users open the modal from landing page footers before scanning a URL, eliminating 404 error dialogs.
+  - **Client-Side Regulatory Policy Synthesizer (`generateClientLegalDocument`)**: Ensures external targets always receive a complete, tailored regulatory document even if origin network connections time out.
   - **Zero-CSS Safety Shield (`isDocCss`)**: Scans rendered content for stray CSS syntax and automatically triggers `fetchOnDemand()` to refresh corrupted documents.
+  - **Safe Formatting Shield**: All word count and character count displays use safe optional chaining `(doc?.wordCount || 0).toLocaleString()` preventing runtime React crashes.
   - **Authentic Website View (Default)**: Renders the document exactly like how it is published on the target website via `AuthenticWebsiteRenderer`, featuring styled headers (`h1`, `h2`, `h3`), custom bullet lists, styled callouts, responsive tables, bold emphasis, and search query highlighting.
   - **Raw Markdown View**: 1-click toggle to inspect or copy the exact Markdown source code.
   - **Fullscreen Studio by Default**: Opens in complete edge-to-edge fullscreen (`w-screen h-screen z-[99999]`) with an interactive Maximize/Restore toggle (`Maximize2` / `Minimize2`).

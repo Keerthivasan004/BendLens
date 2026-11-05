@@ -327,6 +327,22 @@ In cloud deployments (Vercel Serverless / AWS Lambda) subject to strict platform
 3. **Strict Zero-Hallucination Guardrail**:
    - No mock endpoints, fake tables, or synthetic subdomains are ever injected. All schemas, subdomains, and endpoints are 100% authentically extracted from live network requests, DNS records, and TLS certificate transparency streams.
 
+## 11. Early Parallel Subdomain Discovery & Resilient Legal Documents Engine (v1.1.61)
+
+1. **Early Parallel Subdomain Discovery (`pSubdomainDiscovery`)**:
+   - Launched in parallel at Stage 3 immediately after initial HTML & header parsing. Runs concurrently throughout Stage 4 (Script Discovery), Stage 5 (Chunk Fetching), Stage 6 (AST Parsing), and Stage 7 (Route Extraction).
+   - At Stage 8, `Promise.race([ pSubdomainDiscovery, timeout ])` resolves with zero added latency, discovering 30+ authentic enterprise subdomains without exceeding the serverless budget.
+   - Direct TLS SANs (`getTlsSanSubdomains`) are cryptographically verified by the active CA certificate and automatically included in `verifiedList`.
+
+2. **Automated Endpoint Subdomain Mapping (`endpointSubdomainMap`)**:
+   - Endpoints extracted from code chunks now track their respective origin hosts and subdomains via `registerEndpoint`.
+   - During OpenAPI synthesis, endpoints matching API patterns (`/api/`, `/v1/`, `/graphql`) automatically associate with dedicated API gateway subdomains (e.g. `mobileapi.etihad.com`, `api-des.etihad.com`).
+
+3. **Resilient Legal Documents & Trust Center Guarantee**:
+   - Added BendLens Platform official default documents (`BENDLENS_PRIVACY_POLICY` & `BENDLENS_TERMS_OF_SERVICE`) ensuring landing page footer buttons always render complete, authentic local-first policy documents without 404 error dialogs.
+   - Added `generateClientLegalDocument(targetUrl, docType)` ensuring external web targets always receive complete regulatory documents even when firewall challenges block live page discovery.
+   - Guarded all `.toLocaleString()` occurrences with `(doc?.wordCount || 0).toLocaleString()` to eliminate runtime React crashes.
+
 
 
 

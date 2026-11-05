@@ -838,6 +838,18 @@ class UniversalApiCrawler {
         console.warn('Early legal documents trigger warning:', legalTriggerErr?.message || String(legalTriggerErr));
       }
 
+      // Early parallel trigger for multi-signal subdomain perimeter discovery
+      let pSubdomainDiscovery = null;
+      try {
+        pSubdomainDiscovery = SubdomainScanner.discoverSubdomains(hostname, {
+          html,
+          headers: initRes?.headers,
+          subdomains: backendDomains
+        });
+      } catch (subTriggerErr) {
+        console.warn('Early subdomain discovery trigger warning:', subTriggerErr?.message || String(subTriggerErr));
+      }
+
       // 2. Embedded Documentation / Spec Discovery (Swagger UI, Redoc, RapiDoc)
       const docSpecMatch = html.match(/(?:SwaggerUIBundle|SwaggerUI)\s*\(\s*\{[\s\S]*?url\s*:\s*["']([^"']+)["']/i) ||
         html.match(/["'](?:spec-url|specUrl)["']\s*[:=]\s*["']([^"']+)["']/i) ||
@@ -1182,11 +1194,12 @@ class UniversalApiCrawler {
       try {
         const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
         const elapsedSoFar = Date.now() - startTime;
-        const maxSubdomainBudgetMs = isServerless ? Math.min(2000, Math.max(500, 6500 - elapsedSoFar)) : 25000;
+        const maxSubdomainBudgetMs = isServerless ? Math.max(1500, 8500 - elapsedSoFar) : 25000;
         const harvested = await Promise.race([
-          SubdomainScanner.discoverSubdomains(hostname, {
+          pSubdomainDiscovery || SubdomainScanner.discoverSubdomains(hostname, {
             html,
-            headers: initRes?.headers
+            headers: initRes?.headers,
+            subdomains: backendDomains
           }),
           new Promise((resolve) => setTimeout(() => resolve([]), maxSubdomainBudgetMs))
         ]);
@@ -1238,7 +1251,7 @@ class UniversalApiCrawler {
       while ((ism = inlineScriptRegex.exec(html)) !== null) {
         const inlineCode = ism[1];
         if (inlineCode && inlineCode.length > 20) {
-          this.extractEndpointsFromCode(inlineCode, href, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages });
+          this.extractEndpointsFromCode(inlineCode, href, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
         }
       }
 
@@ -1362,7 +1375,7 @@ class UniversalApiCrawler {
                       if (Array.isArray(sourceMap.sourcesContent)) {
                         for (const rawSource of sourceMap.sourcesContent) {
                           if (typeof rawSource === 'string' && rawSource.length > 50) {
-                            this.extractEndpointsFromCode(rawSource, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages });
+                            this.extractEndpointsFromCode(rawSource, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
                           }
                         }
                       }
@@ -1394,7 +1407,7 @@ class UniversalApiCrawler {
           }
 
           // Extract endpoints from standard chunk code (Normal mode)
-          this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages });
+          this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
         }));
 
         if (normalQueue.length > 0) {
@@ -1528,7 +1541,7 @@ class UniversalApiCrawler {
 
         // Extract deep role-gated and lazy-loaded endpoints across all discovered chunks
         for (const [chunkUrl, chunkCode] of scriptContents.entries()) {
-          this.extractEndpointsFromCode(chunkCode, chunkUrl, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: true, verifiedApiRoutes, discoveredPages });
+          this.extractEndpointsFromCode(chunkCode, chunkUrl, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: true, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
         }
       }
 
@@ -1800,9 +1813,27 @@ class UniversalApiCrawler {
 
         for (const m of effectiveMethods) {
           const method = m.toLowerCase();
-          const epSubdomain = (ep.startsWith('//')
+          let epSubdomain = (ep.startsWith('//')
             ? SubdomainScanner.canonicalize(ep.slice(2).split('/')[0])
-            : (endpointSubdomainMap.get(ep) || SubdomainScanner.canonicalize(hostname))) || null;
+            : (endpointSubdomainMap.get(ep) || null));
+
+          // If no explicit subdomain was mapped, but route matches dedicated API prefixes,
+          // associate with discovered API gateway subdomains if present in perimeter
+          if (!epSubdomain && discoveredSubdomainsList.length > 1) {
+            const isApiPattern = ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') || ep.startsWith('/graphql') || ep.startsWith('/rest/') || ep.startsWith('/auth/');
+            if (isApiPattern) {
+              const apiSub = discoveredSubdomainsList.find(s => {
+                const ls = s.toLowerCase();
+                return ls.startsWith('api.') || ls.startsWith('api-') || ls.includes('mobileapi') || ls.includes('gateway') || ls.includes('services');
+              });
+              if (apiSub) epSubdomain = apiSub;
+            }
+          }
+
+          if (!epSubdomain) {
+            epSubdomain = SubdomainScanner.canonicalize(hostname);
+          }
+
           const epOrigin = (ep.startsWith('//')
             ? `https://${ep.slice(2).split('/')[0]}`
             : (epSubdomain ? `https://${epSubdomain}` : origin)) || origin;
