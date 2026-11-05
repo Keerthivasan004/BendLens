@@ -502,7 +502,7 @@ export async function POST(request) {
     try {
       const crawlDepth = body.crawlDepth || 'deep';
       const crawlResult = await UniversalApiCrawler.crawl(repoUrl, { maxChunks: 500, concurrency: 24, crawlDepth, preloadedHtml: body.preloadedHtml });
-      if (crawlResult && crawlResult.telemetry?.crawlStatus === 'success' && (Object.keys(crawlResult.openApiSpec?.paths || {}).length > 0 || crawlResult.sqlSchema)) {
+      if (crawlResult && crawlResult.telemetry?.crawlStatus === 'success' && crawlResult.openApiSpec) {
         fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
         if (crawlResult.sqlSchema) {
           fs.writeFileSync(path.join(cloneDir, 'schema.sql'), crawlResult.sqlSchema, 'utf-8');

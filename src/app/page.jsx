@@ -429,7 +429,7 @@ CREATE TABLE orders (
       }
 
       // If server crawl timed out or was challenged on the website deployment, attempt client-side gateway recovery
-      if (!json.success && (json.error?.includes('timed out') || json.error?.includes('firewall') || json.error?.includes('Unreachable') || json.error?.includes('actively reset') || res.status === 504)) {
+      if (!json.success && !signal?.aborted) {
         try {
           const clientGateways = [
             `https://r.jina.ai/${normalizedUrl}`,

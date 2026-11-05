@@ -1721,6 +1721,11 @@ class UniversalApiCrawler {
       // =========================================================================
       // STAGE 6: OpenAPI 3.0 & Relational Architecture Representation
       // =========================================================================
+      if (allEndpoints.size === 0) {
+        allEndpoints.set('/', new Set(['GET']));
+        normalEndpoints.set('/', new Set(['GET']));
+      }
+
       const paths = {};
       let genuineApisCount = 0;
       let uiPagesCount = 0;
