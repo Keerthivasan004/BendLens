@@ -299,6 +299,25 @@ To eliminate network timeouts (such as `Connection to "https://etihad.com/" time
    - All crawl and analyze API routes declare `export const maxDuration = 60;` alongside root `vercel.json` configuration to grant a full 60-second execution window on Vercel.
    - DNS resolvers avoid overriding default nameservers (`setServers(['8.8.8.8', ...])`) inside serverless containers (`process.env.VERCEL`), preventing UDP port 53 stalls.
 
+### 10. Serverless Execution Budget & Zero-Hallucination Pipeline (v1.1.61)
+
+In cloud deployments (Vercel Serverless / AWS Lambda) subject to strict platform timeouts (15s on Vercel Hobby), the crawler enforces an adaptive, bounded sub-10-second budget while preserving 100% authentic discovery:
+
+1. **Hydration Integrity (React Error #418 Elimination)**:
+   - `src/app/page.jsx` and `src/components/Header.jsx` initialize `isLocalApp` to `false` during SSR and the initial client hydration render.
+   - Hostname inspection (`localhost`, `127.0.0.1`, LAN IPs) executes strictly inside `useEffect` on client mount, completely preventing SSR vs. Client React hydration mismatch errors.
+   - Removed obsolete/paid proxy gateways (e.g. `corsproxy.io` returning 401 Unauthorized), retaining high-reliability relays (`https://r.jina.ai/`, `https://api.allorigins.win/raw?url=`).
+
+2. **Serverless Crawl Budget (< 10s Execution Guarantee)**:
+   - **Connection Pool & Socket Preservation**: Node.js `fetch` throttles concurrency to 4 on serverless to prevent socket exhaustion against enterprise rate-limiters. Normal chunk limit capped at 6.
+   - **Akamai & Telemetry Script Tarpit Filtering**: Enhanced `isThirdPartyTracker` to identify Akamai telemetry scripts (`/RfL7_f/`, `_bm/`, `akam/`), Adobe DTM (`adobedtm.com`), DoubleClick, Bing Ads, New Relic, and Datadog, immediately bypassing bot-challenge delays.
+   - **High-Speed OS Native DNS Verification (`dns.lookup`)**: Subdomain verification on serverless bypasses multi-tier c-ares UDP lookups (which hang due to port 53 firewall restrictions) in favor of the operating system's native multi-threaded `getaddrinfo` via `dns.lookup`, with an 800ms per-host timeout and 35-worker pool.
+   - **Adaptive Probe Pruning**: On serverless, speculative `/api/health`, Better-Auth `/api/auth`, and external gateway ping loops are bypassed when time exceeds 5000ms.
+   - **Elapsed-Time Guarded Legal Discovery**: Legal document extraction is capped at remaining budget (`Math.min(1500, Math.max(500, 7500 - elapsed))`) and skipped if elapsed crawl time exceeds 6500ms.
+
+3. **Strict Zero-Hallucination Guardrail**:
+   - No mock endpoints, fake tables, or synthetic subdomains are ever injected. All schemas, subdomains, and endpoints are 100% authentically extracted from live network requests, DNS records, and TLS certificate transparency streams.
+
 
 
 

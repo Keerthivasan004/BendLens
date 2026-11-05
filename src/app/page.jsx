@@ -140,13 +140,7 @@ CREATE TABLE orders (
   const [theme, setTheme] = useState('dark');
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [downloadModalReason, setDownloadModalReason] = useState('DEFAULT');
-  const [isLocalApp, setIsLocalApp] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const h = window.location.hostname || '';
-      return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '[::1]' || h.endsWith('.local') || h.startsWith('192.168.') || h.startsWith('10.');
-    }
-    return true;
-  });
+  const [isLocalApp, setIsLocalApp] = useState(false);
   // Downloaded (Electron) users already have the app: hide all
   // "Download Desktop App" buttons for them.
   const isDesktop = useIsDesktop();
@@ -433,7 +427,6 @@ CREATE TABLE orders (
         try {
           const clientGateways = [
             `https://r.jina.ai/${normalizedUrl}`,
-            `https://corsproxy.io/?url=${encodeURIComponent(normalizedUrl)}`,
             `https://api.allorigins.win/raw?url=${encodeURIComponent(normalizedUrl)}`
           ];
           for (const gw of clientGateways) {

@@ -26,7 +26,7 @@ export default function Header({
   setCurrentPath,
   theme,
   onToggleTheme,
-  isLocalApp = true,
+  isLocalApp = false,
   onDownloadApp,
   onOpenApiFlow
 }) {
@@ -38,15 +38,7 @@ export default function Header({
   const [crawlerProofTab, setCrawlerProofTab] = useState('matrix');
   // Downloaded (Electron) users already have the app: never offer it again.
   const isDesktop = useIsDesktop();
-  const isLocal = isLocalApp || (typeof window !== 'undefined' && (
-    window.location.hostname === 'localhost' ||
-    window.location.hostname === '127.0.0.1' ||
-    window.location.hostname === '0.0.0.0' ||
-    window.location.hostname === '[::1]' ||
-    window.location.hostname.endsWith('.local') ||
-    window.location.hostname.startsWith('192.168.') ||
-    window.location.hostname.startsWith('10.')
-  ));
+  const isLocal = isLocalApp;
   const isUrl = (currentPath || '').startsWith('http://') || (currentPath || '').startsWith('https://') || /^(?:api\.|github\.com|gitlab\.com|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/|$))/i.test(currentPath || '');
 
   return (

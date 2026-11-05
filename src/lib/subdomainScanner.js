@@ -10,7 +10,7 @@ const sharedResolver = new dns.Resolver();
 if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
   try {
     sharedResolver.setServers(['8.8.8.8', '1.1.1.1', '9.9.9.9']);
-  } catch {}
+  } catch { }
 }
 
 /**
@@ -38,7 +38,7 @@ try {
     if (fs.existsSync(p)) {
       googleBenchmark = JSON.parse(fs.readFileSync(p, 'utf8'));
     }
-  } catch {}
+  } catch { }
 }
 
 let microsoftBenchmark = [];
@@ -52,7 +52,7 @@ try {
     if (fs.existsSync(p)) {
       microsoftBenchmark = JSON.parse(fs.readFileSync(p, 'utf8'));
     }
-  } catch {}
+  } catch { }
 }
 
 class SubdomainScanner {
@@ -425,7 +425,7 @@ class SubdomainScanner {
         });
       });
       hasWildcard = true;
-    } catch {}
+    } catch { }
 
     if (hasWildcard) {
       // In wildcard DNS environments, brute-force dictionary returns false positives for all names
@@ -537,7 +537,7 @@ class SubdomainScanner {
         if (sub && (sub === apexDomain || sub.endsWith('.' + apexDomain))) {
           discovered.add(sub);
         }
-      } catch {}
+      } catch { }
     }
 
     // Token search for domain strings: https?://sub.apexDomain
@@ -550,7 +550,7 @@ class SubdomainScanner {
         if (sub && (sub === apexDomain || sub.endsWith('.' + apexDomain))) {
           discovered.add(sub);
         }
-      } catch {}
+      } catch { }
     }
 
     return Array.from(discovered);
@@ -601,27 +601,38 @@ class SubdomainScanner {
    */
   static async validateCandidates(candidateSet, apexDomain, maxCandidates = 1500, totalTimeoutMs = 35000) {
     const verified = new Set([apexDomain]);
+    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+    const concurrency = isServerless ? 35 : 30;
+    const candidateLimit = isServerless ? 100 : maxCandidates;
     const candidates = Array.from(candidateSet)
       .filter((h) => h && h !== apexDomain && !h.includes('*'))
-      .slice(0, maxCandidates);
+      .slice(0, candidateLimit);
 
     const startTime = Date.now();
     let index = 0;
-    const concurrency = 30;
 
     const resolveCandidate = (host) => {
       return new Promise((resolve) => {
         let settled = false;
+        const candidateTimeout = isServerless ? 800 : 1800;
         const timer = setTimeout(() => {
           if (!settled) {
             settled = true;
-            // High-reliability rescue: fallback to OS resolver (libuv getaddrinfo) on UDP packet drop
-            dns.lookup(host, (lErr, addr) => {
-              if (!lErr && addr) verified.add(host);
-              resolve();
-            });
+            resolve();
           }
-        }, 1800);
+        }, candidateTimeout);
+
+        // In serverless environments, OS getaddrinfo (dns.lookup) is the fastest, non-blocking path
+        if (isServerless) {
+          dns.lookup(host, (err, addr) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            if (!err && addr) verified.add(host);
+            resolve();
+          });
+          return;
+        }
 
         sharedResolver.resolve4(host, (err, addrs) => {
           if (settled) return;
@@ -722,10 +733,11 @@ class SubdomainScanner {
 
     // Adaptive bounded timeouts for serverless environments (Vercel, Lambda)
     const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-    const certSpotterPages = isServerless ? 6 : 15;
-    const certSpotterTimeout = isServerless ? 7000 : 25000;
-    const crtShTimeout = isServerless ? 5000 : 10000;
-    const validationTimeout = isServerless ? 12000 : 35000;
+    const certSpotterPages = isServerless ? 2 : 15;
+    const certSpotterTimeout = isServerless ? 2000 : 25000;
+    const crtShTimeout = isServerless ? 2000 : 10000;
+    const hackerTargetTimeout = isServerless ? 2000 : 6000;
+    const validationTimeout = isServerless ? 1800 : 35000;
 
     // Harvest signals in parallel with bounded timeouts
     const pCertSpotter = this.getCertSpotterSubdomains(apex, certSpotterPages, certSpotterTimeout).then((list) => {
@@ -733,42 +745,42 @@ class SubdomainScanner {
         const c = this.canonicalize(item);
         if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
-    const pTls = this.getTlsSanSubdomains(apex, 2500).then((list) => {
+    const pTls = this.getTlsSanSubdomains(apex, isServerless ? 2000 : 2500).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
         if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
-    const pDnsRecords = this.getDnsRecordsSubdomains(apex, 2500).then((list) => {
+    const pDnsRecords = this.getDnsRecordsSubdomains(apex, isServerless ? 2000 : 2500).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
         if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
-    const pActiveDns = this.getActiveDnsSubdomains(apex).then((list) => {
+    const pActiveDns = isServerless ? Promise.resolve([]) : this.getActiveDnsSubdomains(apex).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
         if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
     const pCrtSh = this.getCrtShSubdomains(apex, crtShTimeout).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
         if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
-    const pHackerTarget = this.getHackerTargetSubdomains(apex, 6000).then((list) => {
+    const pHackerTarget = this.getHackerTargetSubdomains(apex, hackerTargetTimeout).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
         if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
     // DOM, Header & Code harvest
     if (options.html) {

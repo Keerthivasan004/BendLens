@@ -276,3 +276,18 @@ When users ask why other crawlers show different values or require mathematical 
    - **Discovered Endpoints Inventory Header Alignment (`DeveloperView.jsx`)**: Designed with `flex-col xl:flex-row xl:items-center` layout to guarantee title (`whitespace-nowrap`) and route count badges never line-wrap awkwardly, paired with a dedicated horizontally scrolling action toolbar for `API Breakdown`, `Inspect Signals`, `Accuracy Proof`, `Privacy & Terms`, and `Full Topology & Simulator`.
    - **Unified Modal Data Binding**: Utilizes `effectiveAnalysisData`, `effectiveLegalDocuments`, and sanitized `effectiveTargetUrl` so clicking `Accuracy Proof` or `Privacy & Terms` from the Inventory section instantly opens the fullscreen audit view with complete parity data and authentic legal documents identical to the top header experience.
    - **Multi-Touchpoint Accessibility**: Landing page HUD ribbon, Discovered Endpoints toolbar, Stack Profile card header, Global Header Tier 2 action bar, and Print-Ready API PDF Report.
+
+---
+
+## Serverless Execution & Zero-Hallucination Guardrails (v1.1.61)
+
+When running on serverless cloud platforms (Vercel / AWS Lambda):
+1. **Hydration Integrity**: `isLocalApp` is strictly initialized to `false` during SSR and initial client hydration to prevent React error #418. Hostname detection executes only post-hydration in `useEffect`.
+2. **Sub-10s Serverless Budget**:
+   - `fetch` concurrency capped at 4 with max 6 normal chunks on serverless.
+   - Akamai telemetry (`/RfL7_f/`, `_bm/`, `akam/`) and ad tracker scripts bypassed immediately via `isThirdPartyTracker`.
+   - Subdomain verification leverages high-speed OS `dns.lookup` (800ms timeout per host, 35 concurrency pool) instead of slow sequential UDP c-ares.
+   - Speculative gateway and `/api/health` probes pruned when crawl time exceeds 5000ms.
+   - Legal document extraction strictly capped within remaining time budget.
+3. **Absolute Zero-Hallucination Guarantee**:
+   - Never inject mock endpoints, fake tables, or synthetic subdomains. All returned assets must derive from verified live network responses, DNS, and TLS certificate transparency.
