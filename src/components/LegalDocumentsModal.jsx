@@ -97,8 +97,8 @@ export default function LegalDocumentsModal({
     }
   };
 
-  const privacyDoc = liveDocs?.privacyPolicy || null;
-  const termsDoc = liveDocs?.termsOfService || null;
+  const privacyDoc = liveDocs?.privacyPolicy || legalDocuments?.privacyPolicy || null;
+  const termsDoc = liveDocs?.termsOfService || legalDocuments?.termsOfService || null;
 
   // Selected document based on active tab
   const currentDoc = useMemo(() => {
@@ -106,6 +106,16 @@ export default function LegalDocumentsModal({
     if (activeTab === 'terms') return termsDoc;
     return null;
   }, [activeTab, privacyDoc, termsDoc]);
+
+  // Safe HTTPS URL helper to guarantee customer links always use secure HTTPS
+  const safeHttpsUrl = (u) => {
+    if (!u) return '#';
+    const s = String(u).trim();
+    if (s.startsWith('//')) return `https:${s}`;
+    if (s.startsWith('http://')) return s.replace(/^http:\/\//i, 'https://');
+    if (!s.startsWith('http')) return `https://${s}`;
+    return s;
+  };
 
   // Detect if document content or URL was corrupted by a CSS stylesheet file
   const isDocCss = useMemo(() => {
@@ -368,11 +378,11 @@ export default function LegalDocumentsModal({
 
               {currentDoc.url && (
                 <a
-                  href={currentDoc.url}
+                  href={safeHttpsUrl(currentDoc.url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium text-muted hover:text-foreground hover:bg-surface-raised border border-border flex items-center gap-1.5 transition-colors"
-                  title="Open live webpage in new tab"
+                  title="Open live webpage in new tab (HTTPS secure)"
                 >
                   <ExternalLink className="h-3.5 w-3.5 text-brand" />
                   <span className="hidden sm:inline">Live Page</span>
@@ -1032,7 +1042,7 @@ function AuthenticWebsiteRenderer({ content, searchQuery, currentDoc, cleanHost 
 
         {currentDoc?.url && (
           <a
-            href={currentDoc.url}
+            href={safeHttpsUrl(currentDoc.url)}
             target="_blank"
             rel="noopener noreferrer"
             className="px-3 py-1.5 rounded-xl text-xs font-medium text-emerald-300 hover:text-emerald-200 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 flex items-center gap-1.5 transition-all shadow-xs"

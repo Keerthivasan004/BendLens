@@ -1868,7 +1868,7 @@ CREATE TABLE audit_logs (
                                   </button>
                                   {privacy?.url && (
                                     <a
-                                      href={privacy.url}
+                                      href={privacy.url.startsWith('http://') && !privacy.url.includes('localhost') ? privacy.url.replace(/^http:\/\//i, 'https://') : privacy.url}
                                       target="_blank"
                                       rel="noreferrer"
                                       className="text-[10px] text-muted hover:text-foreground flex items-center gap-1"
@@ -1951,7 +1951,7 @@ CREATE TABLE audit_logs (
                                   </button>
                                   {terms?.url && (
                                     <a
-                                      href={terms.url}
+                                      href={terms.url.startsWith('http://') && !terms.url.includes('localhost') ? terms.url.replace(/^http:\/\//i, 'https://') : terms.url}
                                       target="_blank"
                                       rel="noreferrer"
                                       className="text-[10px] text-muted hover:text-foreground flex items-center gap-1"
