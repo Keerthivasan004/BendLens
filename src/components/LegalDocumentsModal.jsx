@@ -388,6 +388,42 @@ Support: **support@${domainName}**`;
   };
 }
 
+/**
+ * Universal Safe HTTPS URL helper resolving relative links against target origin or internal routes
+ */
+function safeHttpsUrl(u, targetUrl = '', cleanHost = '', activeTab = 'privacy') {
+  if (!u) return null;
+  let s = String(u).trim();
+  if (!s || s === '#' || s.startsWith('javascript:')) return null;
+  if (s.includes('bendlens.local')) return activeTab === 'terms' ? '/terms' : '/privacy';
+
+  // If relative path (/privacy, /terms, /privacy-policy, etc.)
+  if (s.startsWith('/')) {
+    if (targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
+      try {
+        const base = new URL(targetUrl);
+        return `${base.origin}${s}`;
+      } catch { }
+    } else if (cleanHost && cleanHost.includes('.') && !cleanHost.includes('BendLens')) {
+      return `https://${cleanHost}${s}`;
+    }
+    return s; // Internal router path
+  }
+
+  if (s.startsWith('//')) return `https:${s}`;
+  if (s.startsWith('http://')) {
+    if (s.includes('localhost') || s.includes('127.0.0.1')) return s;
+    return s.replace(/^http:\/\//i, 'https://');
+  }
+  if (s.startsWith('https://')) return s;
+
+  if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(s)) {
+    return `https://${s}`;
+  }
+
+  return null;
+}
+
 export default function LegalDocumentsModal({
   isOpen,
   onClose,
@@ -525,40 +561,6 @@ export default function LegalDocumentsModal({
     if (activeTab === 'terms') return termsDoc;
     return privacyDoc;
   }, [activeTab, privacyDoc, termsDoc]);
-
-  // Safe HTTPS URL helper resolving relative links against target origin or internal routes
-  const safeHttpsUrl = (u) => {
-    if (!u) return null;
-    let s = String(u).trim();
-    if (!s || s === '#' || s.startsWith('javascript:')) return null;
-    if (s.includes('bendlens.local')) return activeTab === 'terms' ? '/terms' : '/privacy';
-
-    // If relative path (/privacy, /terms, /privacy-policy, etc.)
-    if (s.startsWith('/')) {
-      if (targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
-        try {
-          const base = new URL(targetUrl);
-          return `${base.origin}${s}`;
-        } catch { }
-      } else if (cleanHost && cleanHost.includes('.') && !cleanHost.includes('BendLens')) {
-        return `https://${cleanHost}${s}`;
-      }
-      return s; // Internal router path
-    }
-
-    if (s.startsWith('//')) return `https:${s}`;
-    if (s.startsWith('http://')) {
-      if (s.includes('localhost') || s.includes('127.0.0.1')) return s;
-      return s.replace(/^http:\/\//i, 'https://');
-    }
-    if (s.startsWith('https://')) return s;
-
-    if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(s)) {
-      return `https://${s}`;
-    }
-
-    return null;
-  };
 
   // Detect if document content or URL was corrupted by a CSS stylesheet file
   const isDocCss = useMemo(() => {
@@ -819,9 +821,9 @@ export default function LegalDocumentsModal({
                 </button>
               </div>
 
-              {safeHttpsUrl(currentDoc.url) && (
+              {safeHttpsUrl(currentDoc.url, targetUrl, cleanHost, activeTab) && (
                 <a
-                  href={safeHttpsUrl(currentDoc.url)}
+                  href={safeHttpsUrl(currentDoc.url, targetUrl, cleanHost, activeTab)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium text-muted hover:text-foreground hover:bg-surface-raised border border-border flex items-center gap-1.5 transition-colors"
@@ -1484,9 +1486,9 @@ function AuthenticWebsiteRenderer({ content, searchQuery, currentDoc, cleanHost,
           </div>
         </div>
 
-        {safeHttpsUrl(currentDoc?.url) && (
+        {safeHttpsUrl(currentDoc?.url, targetUrl, cleanHost, 'privacy') && (
           <a
-            href={safeHttpsUrl(currentDoc.url)}
+            href={safeHttpsUrl(currentDoc.url, targetUrl, cleanHost, 'privacy')}
             target="_blank"
             rel="noopener noreferrer"
             className="px-3 py-1.5 rounded-xl text-xs font-medium text-emerald-300 hover:text-emerald-200 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 flex items-center gap-1.5 transition-all shadow-xs"
