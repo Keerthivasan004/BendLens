@@ -344,6 +344,7 @@ class UniversalApiCrawler {
         } catch { }
 
         // Concurrently race candidate URLs with serverless-adaptive budget
+        const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
         const raceTimeout = isServerless ? 3000 : 7000;
         const fallbackTimeout = isServerless ? 2500 : 5000;
         const gatewayTimeout = isServerless ? 4000 : 8000;
@@ -1163,7 +1164,8 @@ class UniversalApiCrawler {
       }
 
       try {
-        const maxSubdomainBudgetMs = isServerless ? 4500 : 25000;
+        const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+        const maxSubdomainBudgetMs = isServerless ? 3000 : 25000;
         const harvested = await Promise.race([
           SubdomainScanner.discoverSubdomains(hostname, {
             html,
@@ -1195,25 +1197,23 @@ class UniversalApiCrawler {
         } catch { return false; }
       });
 
-      if (!isServerless && (Date.now() - startTime < maxCrawlTimeMs)) {
-        await Promise.allSettled(appPortalOrigins.slice(0, 2).map(async (portalOrigin) => {
-          try {
-            const portalRes = await this.safeFetch(portalOrigin, { timeout: 2500, customHeaders, origin });
-            if (portalRes && portalRes.ok && portalRes.text) {
-              const portalScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
-              let psm;
-              while ((psm = portalScriptRegex.exec(portalRes.text)) !== null) {
-                const src = psm[1];
-                if (!this.isThirdPartyTracker(src)) {
-                  try {
-                    discoveredScriptUrls.add(new URL(src, portalOrigin).href);
-                  } catch { }
-                }
+      await Promise.allSettled(appPortalOrigins.slice(0, 2).map(async (portalOrigin) => {
+        try {
+          const portalRes = await this.safeFetch(portalOrigin, { timeout: 3000, customHeaders, origin });
+          if (portalRes && portalRes.ok && portalRes.text) {
+            const portalScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+            let psm;
+            while ((psm = portalScriptRegex.exec(portalRes.text)) !== null) {
+              const src = psm[1];
+              if (!this.isThirdPartyTracker(src)) {
+                try {
+                  discoveredScriptUrls.add(new URL(src, portalOrigin).href);
+                } catch { }
               }
             }
-          } catch { }
-        }));
-      }
+          }
+        } catch { }
+      }));
 
       // 8. Analyze inline script contents
       const inlineScriptRegex = /<script\b(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/gi;
@@ -1257,6 +1257,7 @@ class UniversalApiCrawler {
       // -----------------------------------------------------------------------
       // PHASE 1: Normal Crawl (Traverse standard application chunk perimeter)
       // -----------------------------------------------------------------------
+      const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
       const maxNormalChunks = isServerless ? Math.min(maxChunks, 6) : (isNormalOnly ? Math.min(maxChunks, 50) : maxChunks);
       const chunkTimeout = isServerless ? 2500 : 5000;
       while (normalQueue.length > 0 && visitedUrls.size < maxNormalChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
@@ -1596,98 +1597,96 @@ class UniversalApiCrawler {
 
       let extGatewayHeaders = {};
       const diagnosticEndpoints = ['/api/health', '/health', '/healthz'];
-      if (!isServerless && (Date.now() - startTime < maxCrawlTimeMs)) {
-        await Promise.allSettled(prioritizedGateways.map(async (extGateway) => {
-          try {
-            const gwRes = await this.safeFetch(extGateway, { timeout: 2000, customHeaders });
-            if (gwRes && gwRes.headers) {
-              extGatewayHeaders = { ...extGatewayHeaders, ...gwRes.headers };
-            }
-          } catch { }
+      await Promise.allSettled(prioritizedGateways.map(async (extGateway) => {
+        try {
+          const gwRes = await this.safeFetch(extGateway, { timeout: 2000, customHeaders });
+          if (gwRes && gwRes.headers) {
+            extGatewayHeaders = { ...extGatewayHeaders, ...gwRes.headers };
+          }
+        } catch { }
 
-          // 1. Probe WordPress REST API manifest (/wp-json/) on subdomain perimeter
-          try {
-            const wpSubUrl = new URL('/wp-json/', extGateway).href;
-            const wpSubRes = await this.safeFetch(wpSubUrl, { timeout: 2500, customHeaders });
-            if (wpSubRes && wpSubRes.ok && (wpSubRes.contentType?.includes('application/json') || wpSubRes.text?.trim().startsWith('{'))) {
-              const wpSubData = JSON.parse(wpSubRes.text);
-              if (wpSubData && wpSubData.routes && typeof wpSubData.routes === 'object') {
-                const gwHost = new URL(extGateway).hostname;
-                const gwCanonical = SubdomainScanner.canonicalize(gwHost);
-                const wpPrefix = '/wp-json';
-                for (const [rawRoute, routeInfo] of Object.entries(wpSubData.routes)) {
-                  let fullRoute = rawRoute;
-                  if (!fullRoute.startsWith(wpPrefix)) {
-                    fullRoute = rawRoute === '/' ? wpPrefix : `${wpPrefix}${rawRoute.startsWith('/') ? '' : '/'}${rawRoute}`;
+        // 1. Probe WordPress REST API manifest (/wp-json/) on subdomain perimeter
+        try {
+          const wpSubUrl = new URL('/wp-json/', extGateway).href;
+          const wpSubRes = await this.safeFetch(wpSubUrl, { timeout: 2500, customHeaders });
+          if (wpSubRes && wpSubRes.ok && (wpSubRes.contentType?.includes('application/json') || wpSubRes.text?.trim().startsWith('{'))) {
+            const wpSubData = JSON.parse(wpSubRes.text);
+            if (wpSubData && wpSubData.routes && typeof wpSubData.routes === 'object') {
+              const gwHost = new URL(extGateway).hostname;
+              const gwCanonical = SubdomainScanner.canonicalize(gwHost);
+              const wpPrefix = '/wp-json';
+              for (const [rawRoute, routeInfo] of Object.entries(wpSubData.routes)) {
+                let fullRoute = rawRoute;
+                if (!fullRoute.startsWith(wpPrefix)) {
+                  fullRoute = rawRoute === '/' ? wpPrefix : `${wpPrefix}${rawRoute.startsWith('/') ? '' : '/'}${rawRoute}`;
+                }
+                const normalized = this.normalizeApiPath(fullRoute);
+                if (normalized) {
+                  let targetPath = normalized;
+                  if (allEndpoints.has(normalized)) {
+                    targetPath = `//${gwHost}${normalized}`;
                   }
-                  const normalized = this.normalizeApiPath(fullRoute);
-                  if (normalized) {
-                    let targetPath = normalized;
-                    if (allEndpoints.has(normalized)) {
-                      targetPath = `//${gwHost}${normalized}`;
-                    }
-                    endpointSubdomainMap.set(targetPath, gwCanonical);
-                    verifiedApiRoutes.add(targetPath);
-                    if (!allEndpoints.has(targetPath)) allEndpoints.set(targetPath, new Set());
-                    const methods = Array.isArray(routeInfo?.methods) ? routeInfo.methods : ['GET'];
-                    for (const m of methods) {
-                      allEndpoints.get(targetPath).add(String(m).toUpperCase());
-                    }
-                    if (!normalEndpoints.has(targetPath)) normalEndpoints.set(targetPath, new Set());
-                    for (const m of methods) {
-                      normalEndpoints.get(targetPath).add(String(m).toUpperCase());
-                    }
+                  endpointSubdomainMap.set(targetPath, gwCanonical);
+                  verifiedApiRoutes.add(targetPath);
+                  if (!allEndpoints.has(targetPath)) allEndpoints.set(targetPath, new Set());
+                  const methods = Array.isArray(routeInfo?.methods) ? routeInfo.methods : ['GET'];
+                  for (const m of methods) {
+                    allEndpoints.get(targetPath).add(String(m).toUpperCase());
+                  }
+                  if (!normalEndpoints.has(targetPath)) normalEndpoints.set(targetPath, new Set());
+                  for (const m of methods) {
+                    normalEndpoints.get(targetPath).add(String(m).toUpperCase());
                   }
                 }
               }
             }
-          } catch { }
+          }
+        } catch { }
 
-          // Concurrent live diagnostic probes for sub-domain backends with 2,500ms timeout
-          try {
-            const probePromises = diagnosticEndpoints.map(async (diagPath) => {
-              const probeUrl = new URL(diagPath, extGateway).href;
-              const res = await this.safeFetch(probeUrl, { timeout: 2500, customHeaders });
-              return { diagPath, res, extGateway };
-            });
-            const probeResults = await Promise.allSettled(probePromises);
-            for (const item of probeResults) {
-              if (item.status === 'fulfilled' && item.value) {
-                const { diagPath, res, extGateway: gw } = item.value;
-                if (res && res.headers && Object.keys(res.headers).length > 0) {
-                  extGatewayHeaders = { ...extGatewayHeaders, ...res.headers };
-                  backendProbeHeaders = { ...backendProbeHeaders, ...res.headers };
-                }
-                if (res && res.ok && (res.status === 200 || (res.contentType && res.contentType.includes('application/json')) || (res.text && res.text.includes('"status"')))) {
-                  // Only register genuine application API routes (starting with /api/)
-                  // Low-level infrastructure diagnostic pings (/health, /healthz) are solely for header/tech-stack fingerprinting
-                  if (diagPath.startsWith('/api/')) {
-                    let targetPath = diagPath;
-                    const gwHost = new URL(gw).hostname;
-                    const gwCanonical = SubdomainScanner.canonicalize(gwHost);
-                    if (allEndpoints.has(diagPath)) {
-                      // Only apply collision prefix if identical route already exists on origin
-                      targetPath = `//${gwHost}${diagPath}`;
-                    }
-                    endpointSubdomainMap.set(targetPath, gwCanonical);
-                    if (!allEndpoints.has(targetPath)) {
-                      allEndpoints.set(targetPath, new Set(['GET']));
-                    } else {
-                      allEndpoints.get(targetPath).add('GET');
-                    }
-                    if (!normalEndpoints.has(targetPath)) {
-                      normalEndpoints.set(targetPath, new Set(['GET']));
-                    } else {
-                      normalEndpoints.get(targetPath).add('GET');
-                    }
-                    verifiedApiRoutes.add(targetPath);
+        // Concurrent live diagnostic probes for sub-domain backends with 2,500ms timeout
+        try {
+          const probePromises = diagnosticEndpoints.map(async (diagPath) => {
+            const probeUrl = new URL(diagPath, extGateway).href;
+            const res = await this.safeFetch(probeUrl, { timeout: 2500, customHeaders });
+            return { diagPath, res, extGateway };
+          });
+          const probeResults = await Promise.allSettled(probePromises);
+          for (const item of probeResults) {
+            if (item.status === 'fulfilled' && item.value) {
+              const { diagPath, res, extGateway: gw } = item.value;
+              if (res && res.headers && Object.keys(res.headers).length > 0) {
+                extGatewayHeaders = { ...extGatewayHeaders, ...res.headers };
+                backendProbeHeaders = { ...backendProbeHeaders, ...res.headers };
+              }
+              if (res && res.ok && (res.status === 200 || (res.contentType && res.contentType.includes('application/json')) || (res.text && res.text.includes('"status"')))) {
+                // Only register genuine application API routes (starting with /api/)
+                // Low-level infrastructure diagnostic pings (/health, /healthz) are solely for header/tech-stack fingerprinting
+                if (diagPath.startsWith('/api/')) {
+                  let targetPath = diagPath;
+                  const gwHost = new URL(gw).hostname;
+                  const gwCanonical = SubdomainScanner.canonicalize(gwHost);
+                  if (allEndpoints.has(diagPath)) {
+                    // Only apply collision prefix if identical route already exists on origin
+                    targetPath = `//${gwHost}${diagPath}`;
                   }
+                  endpointSubdomainMap.set(targetPath, gwCanonical);
+                  if (!allEndpoints.has(targetPath)) {
+                    allEndpoints.set(targetPath, new Set(['GET']));
+                  } else {
+                    allEndpoints.get(targetPath).add('GET');
+                  }
+                  if (!normalEndpoints.has(targetPath)) {
+                    normalEndpoints.set(targetPath, new Set(['GET']));
+                  } else {
+                    normalEndpoints.get(targetPath).add('GET');
+                  }
+                  verifiedApiRoutes.add(targetPath);
                 }
               }
             }
-          } catch { }
-        }));
-      }
+          }
+        } catch { }
+      }));
 
       // Origin backend probe headers (from /api/health or /api/auth on the target itself) ALWAYS take precedence!
       // External gateway headers are only merged as secondary evidence if origin has no backend API headers.
@@ -1882,26 +1881,24 @@ class UniversalApiCrawler {
       // Discover and extract authentic Privacy Policy & Terms of Service documents
       let legalDocuments = { hasLegalDocuments: false, privacyPolicy: null, termsOfService: null };
       try {
-        const elapsed = Date.now() - startTime;
-        if (!isServerless || elapsed < 6500) {
-          const maxLegalBudgetMs = isServerless ? Math.min(1500, Math.max(500, 7500 - elapsed)) : 15000;
-          legalDocuments = await Promise.race([
-            this.discoverLegalDocuments({
-              html,
-              origin,
-              targetUrl: href,
-              projectName,
-              techStack,
-              cloudProvider: techStack?.cloudProvider,
-              customHeaders,
-              discoveredPages,
-              discoveredSubdomains: backendDomains,
-              discoveredScriptUrls,
-              scriptContents
-            }),
-            new Promise((resolve) => setTimeout(() => resolve({ hasLegalDocuments: false, privacyPolicy: null, termsOfService: null }), maxLegalBudgetMs))
-          ]);
-        }
+        const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+        const maxLegalBudgetMs = isServerless ? 2000 : 15000;
+        legalDocuments = await Promise.race([
+          this.discoverLegalDocuments({
+            html,
+            origin,
+            targetUrl: href,
+            projectName,
+            techStack,
+            cloudProvider: techStack?.cloudProvider,
+            customHeaders,
+            discoveredPages,
+            discoveredSubdomains: backendDomains,
+            discoveredScriptUrls,
+            scriptContents
+          }),
+          new Promise((resolve) => setTimeout(() => resolve({ hasLegalDocuments: false, privacyPolicy: null, termsOfService: null }), maxLegalBudgetMs))
+        ]);
       } catch (legalErr) {
         console.warn('Legal documents discovery skipped:', legalErr?.message || String(legalErr));
       }
