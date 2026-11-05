@@ -57,62 +57,9 @@ function saveDiskPerimeterCache(cache) {
  * 9. High-speed concurrent DNS active validation (c-ares UDP batching + CNAME verification)
  */
 
-// Preloaded authoritative enterprise perimeter baselines for zero-fluctuation deterministic assurance
-let googleBenchmark = [];
-try {
-  googleBenchmark = require('./google543.json');
-} catch {
-  try {
-    const p = path.join(__dirname, 'google543.json');
-    if (fs.existsSync(p)) googleBenchmark = JSON.parse(fs.readFileSync(p, 'utf8'));
-  } catch { }
-}
-const google544Benchmark = Array.from(new Set(['google.com', 'www.google.com', ...googleBenchmark]));
-
-let microsoftBenchmark = [];
-try {
-  microsoftBenchmark = require('./microsoft373.json');
-} catch {
-  try {
-    const p = path.join(__dirname, 'microsoft373.json');
-    if (fs.existsSync(p)) microsoftBenchmark = JSON.parse(fs.readFileSync(p, 'utf8'));
-  } catch { }
-}
-const microsoft373Benchmark = Array.from(new Set(['microsoft.com', 'www.microsoft.com', ...microsoftBenchmark]));
-
-let etihadBenchmark = [];
-try {
-  etihadBenchmark = require('./etihad200.json');
-} catch {
-  try {
-    const p = path.join(__dirname, 'etihad200.json');
-    if (fs.existsSync(p)) etihadBenchmark = JSON.parse(fs.readFileSync(p, 'utf8'));
-  } catch { }
-}
-const etihad214Benchmark = Array.from(new Set(['etihad.com', 'www.etihad.com', ...etihadBenchmark]));
-
-const futrsec8Benchmark = [
-  'futrsec.in',
-  'api.futrsec.in',
-  'app.futrsec.in',
-  'autoconfig.futrsec.in',
-  'autodiscover.futrsec.in',
-  'ftp.futrsec.in',
-  'kp.futrsec.in',
-  'tpo.futrsec.in'
-];
-
 class SubdomainScanner {
   // In-memory & disk-persistent perimeter cache preserving verified assets across repeated runs
   static perimeterCache = loadDiskPerimeterCache();
-
-  // Curated authoritative benchmark perimeter registry
-  static benchmarkPerimeters = {
-    'google.com': google544Benchmark,
-    'microsoft.com': microsoft373Benchmark,
-    'etihad.com': etihad214Benchmark,
-    'futrsec.in': futrsec8Benchmark
-  };
   /**
    * Extract apex domain handling multi-part TLDs (.co.uk, .co.in, .org.in, etc.)
    */
@@ -161,7 +108,19 @@ class SubdomainScanner {
       `www.${apexDomain}`,
       `mail.${apexDomain}`,
       `api.${apexDomain}`,
-      `app.${apexDomain}`
+      `app.${apexDomain}`,
+      `dev.${apexDomain}`,
+      `stage.${apexDomain}`,
+      `portal.${apexDomain}`,
+      `admin.${apexDomain}`,
+      `auth.${apexDomain}`,
+      `vpn.${apexDomain}`,
+      `cdn.${apexDomain}`,
+      `cloud.${apexDomain}`,
+      `secure.${apexDomain}`,
+      `m.${apexDomain}`,
+      `mobile.${apexDomain}`,
+      `static.${apexDomain}`
     ];
 
     const probeSingleTarget = (host) => {
@@ -713,51 +672,32 @@ class SubdomainScanner {
           }
         }, candidateTimeout);
 
-        // In serverless environments, OS getaddrinfo (dns.lookup) is the fastest, non-blocking path
-        if (isServerless) {
-          dns.lookup(host, (err, addr) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            if (!err && addr) verified.add(host);
-            resolve();
-          });
-          return;
-        }
-
-        sharedResolver.resolve4(host, (err, addrs) => {
+        // Fast dual-stack resolution (IPv4 + IPv6 + CNAME)
+        dns.lookup(host, { all: false }, (err, addr) => {
           if (settled) return;
-          if (!err && addrs && addrs.length > 0) {
+          if (!err && addr) {
             settled = true;
             clearTimeout(timer);
             verified.add(host);
             return resolve();
           }
-          // Fallback to CNAME or AAAA (do not abort on ENOTFOUND)
-          sharedResolver.resolveCname(host, (cErr, cnames) => {
+          // Secondary fallback to c-ares A or CNAME
+          sharedResolver.resolve4(host, (e4, addrs) => {
             if (settled) return;
-            if (!cErr && cnames && cnames.length > 0) {
+            if (!e4 && addrs && addrs.length > 0) {
               settled = true;
               clearTimeout(timer);
               verified.add(host);
               return resolve();
             }
-            sharedResolver.resolve6(host, (e6, a6) => {
+            sharedResolver.resolveCname(host, (cErr, cnames) => {
               if (settled) return;
-              if (!e6 && a6 && a6.length > 0) {
-                settled = true;
-                clearTimeout(timer);
+              settled = true;
+              clearTimeout(timer);
+              if (!cErr && cnames && cnames.length > 0) {
                 verified.add(host);
-                return resolve();
               }
-              // Final fallback to OS resolver (resolves IPv6, complex CNAME chains, split-horizon DNS)
-              dns.lookup(host, (lErr, addr) => {
-                if (settled) return;
-                settled = true;
-                clearTimeout(timer);
-                if (!lErr && addr) verified.add(host);
-                resolve();
-              });
+              resolve();
             });
           });
         });
@@ -793,64 +733,16 @@ class SubdomainScanner {
     const apex = this.getApexDomain(targetHostname);
     if (!apex) return [this.canonicalize(targetHostname) || targetHostname];
 
-    // Guaranteed authoritative baseline perimeter assurance
-    const benchmark = this.benchmarkPerimeters[apex];
-    if (apex === 'google.com' && Array.isArray(benchmark) && benchmark.length >= 544) {
-      const combined = new Set(benchmark.slice(0, 544));
-      if (options.subdomains) {
-        for (const s of options.subdomains) {
-          const c = this.canonicalize(s);
-          if (c && (c === apex || c.endsWith('.' + apex))) combined.add(c);
-        }
-      }
-      return Array.from(combined);
-    }
-    if (apex === 'microsoft.com' && Array.isArray(benchmark) && benchmark.length === 373) {
-      const combined = new Set(benchmark);
-      if (options.subdomains) {
-        for (const s of options.subdomains) {
-          const c = this.canonicalize(s);
-          if (c && (c === apex || c.endsWith('.' + apex))) combined.add(c);
-        }
-      }
-      return Array.from(combined);
-    }
-    if (apex === 'etihad.com' && Array.isArray(benchmark) && benchmark.length >= 200) {
-      const combined = new Set(benchmark);
-      if (options.subdomains) {
-        for (const s of options.subdomains) {
-          const c = this.canonicalize(s);
-          if (c && (c === apex || c.endsWith('.' + apex))) combined.add(c);
-        }
-      }
-      return Array.from(combined);
-    }
-    if (apex === 'futrsec.in' && Array.isArray(benchmark) && benchmark.length === 8) {
-      const combined = new Set(benchmark);
-      if (options.subdomains) {
-        for (const s of options.subdomains) {
-          const c = this.canonicalize(s);
-          if (c && (c === apex || c.endsWith('.' + apex))) combined.add(c);
-        }
-      }
-      return Array.from(combined);
-    }
-
     const candidateSet = new Set([apex]);
     const targetClean = this.canonicalize(targetHostname);
     if (targetClean && (targetClean === apex || targetClean.endsWith('.' + apex))) {
       candidateSet.add(targetClean);
     }
 
-    // Preload previously verified subdomains from perimeterCache to prevent count fluctuation
+    // Preload previously verified subdomains from perimeterCache to re-verify live
     const cached = this.perimeterCache.get(apex);
     if (cached && cached.size > 0) {
       for (const item of cached) candidateSet.add(item);
-    }
-
-    // Preload benchmark candidates if known
-    if (Array.isArray(benchmark)) {
-      for (const b of benchmark) candidateSet.add(b);
     }
 
     // Adaptive bounded timeouts for serverless and local environments

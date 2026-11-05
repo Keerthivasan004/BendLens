@@ -336,7 +336,7 @@ In cloud deployments (Vercel Serverless / AWS Lambda) subject to strict platform
    - Direct TLS SANs (`getTlsSanSubdomains`) are cryptographically verified by the active CA certificate and automatically included in `verifiedList`.
    - **RapidDNS Open Reconnaissance Integration**: Added `getRapidDnsSubdomains` leveraging open HTML table reconnaissance, discovering 76+ authentic enterprise subdomains without external API rate limits or 429 errors.
    - **Disk-Persistent Perimeter Cache**: Implemented `loadDiskPerimeterCache()` and `saveDiskPerimeterCache()` targeting `.bendlens_perimeter_cache.json` in `os.tmpdir()`. Subdomains discovered across CT logs, HackerTarget, and TLS SANs are preserved across server restarts and rate-limit windows.
-   - **Enterprise Benchmark Perimeters**: `google.com` (544), `microsoft.com` (373), `etihad.com` (214 verified in `src/lib/etihad200.json`), and `futrsec.in` (8).
+   - **100% Pure Dynamic Live Reconnaissance (Zero Hardcoded Domain Files)**: Eliminated all domain-specific static JSON files (`google543.json`, `microsoft373.json`, `etihad200.json`) and hardcoded benchmark shortcuts. All subdomains are discovered live via real-time Certificate Transparency logs, RapidDNS, HackerTarget, TLS SAN handshakes, 350+ enterprise prefix wordlists, and dual-stack active DNS resolution (`dns.lookup`). Guarantees full responsiveness to provider CRUD operations: newly created subdomains appear live, while deleted or decommissioned subdomains fail active DNS and are automatically pruned.
 
 2. **Automated Endpoint Subdomain Mapping (`endpointSubdomainMap`)**:
    - Endpoints extracted from code chunks now track their respective origin hosts and subdomains via `registerEndpoint`.
