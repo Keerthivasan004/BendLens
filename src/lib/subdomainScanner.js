@@ -5,8 +5,6 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const dnsPromises = dns.promises;
-
 // Shared high-speed non-blocking c-ares resolver
 const sharedResolver = new dns.Resolver();
 // In serverless environments (Vercel, AWS Lambda), do NOT override system nameservers because outbound port 53 to public IPs is restricted
