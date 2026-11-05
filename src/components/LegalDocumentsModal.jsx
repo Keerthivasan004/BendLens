@@ -11,7 +11,7 @@ import {
 
 const BENDLENS_PRIVACY_POLICY = {
   title: 'BendLens Platform Privacy Policy & Data Sovereignty Statement',
-  url: 'https://bendlens.local/privacy',
+  url: '/privacy',
   path: '/privacy',
   lastUpdated: 'January 1, 2025',
   keyClauses: [
@@ -97,7 +97,7 @@ If you have questions regarding BendLens's local-first architecture or security 
 
 const BENDLENS_TERMS_OF_SERVICE = {
   title: 'BendLens Platform Terms of Use & End-User License Agreement',
-  url: 'https://bendlens.local/terms',
+  url: '/terms',
   path: '/terms',
   lastUpdated: 'January 1, 2025',
   keyClauses: [
@@ -526,14 +526,38 @@ export default function LegalDocumentsModal({
     return privacyDoc;
   }, [activeTab, privacyDoc, termsDoc]);
 
-  // Safe HTTPS URL helper to guarantee customer links always use secure HTTPS
+  // Safe HTTPS URL helper resolving relative links against target origin or internal routes
   const safeHttpsUrl = (u) => {
-    if (!u) return '#';
-    const s = String(u).trim();
+    if (!u) return null;
+    let s = String(u).trim();
+    if (!s || s === '#' || s.startsWith('javascript:')) return null;
+    if (s.includes('bendlens.local')) return activeTab === 'terms' ? '/terms' : '/privacy';
+
+    // If relative path (/privacy, /terms, /privacy-policy, etc.)
+    if (s.startsWith('/')) {
+      if (targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
+        try {
+          const base = new URL(targetUrl);
+          return `${base.origin}${s}`;
+        } catch { }
+      } else if (cleanHost && cleanHost.includes('.') && !cleanHost.includes('BendLens')) {
+        return `https://${cleanHost}${s}`;
+      }
+      return s; // Internal router path
+    }
+
     if (s.startsWith('//')) return `https:${s}`;
-    if (s.startsWith('http://')) return s.replace(/^http:\/\//i, 'https://');
-    if (!s.startsWith('http')) return `https://${s}`;
-    return s;
+    if (s.startsWith('http://')) {
+      if (s.includes('localhost') || s.includes('127.0.0.1')) return s;
+      return s.replace(/^http:\/\//i, 'https://');
+    }
+    if (s.startsWith('https://')) return s;
+
+    if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(s)) {
+      return `https://${s}`;
+    }
+
+    return null;
   };
 
   // Detect if document content or URL was corrupted by a CSS stylesheet file
@@ -795,7 +819,7 @@ export default function LegalDocumentsModal({
                 </button>
               </div>
 
-              {currentDoc.url && (
+              {safeHttpsUrl(currentDoc.url) && (
                 <a
                   href={safeHttpsUrl(currentDoc.url)}
                   target="_blank"
@@ -1116,6 +1140,7 @@ export default function LegalDocumentsModal({
                       searchQuery={searchQuery}
                       currentDoc={currentDoc}
                       cleanHost={cleanHost}
+                      targetUrl={targetUrl}
                     />
                   ) : (
                     <div className="p-6 sm:p-10 rounded-2xl bg-surface border border-border/80 shadow-xs font-mono text-foreground/90 leading-relaxed text-xs sm:text-sm whitespace-pre-wrap selection:bg-brand/20">
@@ -1325,7 +1350,7 @@ function renderInlineWithHighlights(text, searchQuery = '') {
  * Rich authentic website document renderer.
  * Formats headings, paragraphs, lists, tables, and blockquotes exactly like a live web publication.
  */
-function AuthenticWebsiteRenderer({ content, searchQuery, currentDoc, cleanHost }) {
+function AuthenticWebsiteRenderer({ content, searchQuery, currentDoc, cleanHost, targetUrl }) {
   const blocks = useMemo(() => {
     if (!content) return [];
     const lines = content.split('\n');
@@ -1459,7 +1484,7 @@ function AuthenticWebsiteRenderer({ content, searchQuery, currentDoc, cleanHost 
           </div>
         </div>
 
-        {currentDoc?.url && (
+        {safeHttpsUrl(currentDoc?.url) && (
           <a
             href={safeHttpsUrl(currentDoc.url)}
             target="_blank"

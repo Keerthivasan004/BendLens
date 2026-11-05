@@ -1685,7 +1685,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                     return (
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.preventDefault();
                           setLegalModalTab('privacy');
                           setShowLegalModal(true);
                         }}

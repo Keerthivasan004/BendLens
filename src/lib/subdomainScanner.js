@@ -56,63 +56,10 @@ function saveDiskPerimeterCache(cache) {
  * 8. HTML DOM, JavaScript chunks, inline scripts, and HTTP headers token extraction
  * 9. High-speed concurrent DNS active validation (c-ares UDP batching + CNAME verification)
  */
-// Preloaded benchmark perimeter registry for zero-fluctuation deterministic assurance
-let googleBenchmark = [];
-try {
-  googleBenchmark = require('./google543.json');
-} catch {
-  try {
-    const p = path.join(__dirname, 'google543.json');
-    if (fs.existsSync(p)) {
-      googleBenchmark = JSON.parse(fs.readFileSync(p, 'utf8'));
-    }
-  } catch { }
-}
-
-let microsoftBenchmark = [];
-try {
-  microsoftBenchmark = require('./microsoft373.json');
-} catch {
-  try {
-    const p = path.join(__dirname, 'microsoft373.json');
-    if (fs.existsSync(p)) {
-      microsoftBenchmark = JSON.parse(fs.readFileSync(p, 'utf8'));
-    }
-  } catch { }
-}
-
-let etihadBenchmark = [];
-try {
-  etihadBenchmark = require('./etihad200.json');
-} catch {
-  try {
-    const p = path.join(__dirname, 'etihad200.json');
-    if (fs.existsSync(p)) {
-      etihadBenchmark = JSON.parse(fs.readFileSync(p, 'utf8'));
-    }
-  } catch { }
-}
 
 class SubdomainScanner {
   // In-memory & disk-persistent perimeter cache preserving verified assets across repeated runs
   static perimeterCache = loadDiskPerimeterCache();
-
-  // Curated benchmark perimeter registry
-  static benchmarkPerimeters = {
-    'google.com': googleBenchmark,
-    'microsoft.com': microsoftBenchmark,
-    'etihad.com': etihadBenchmark,
-    'futrsec.in': [
-      'futrsec.in',
-      'api.futrsec.in',
-      'app.futrsec.in',
-      'autoconfig.futrsec.in',
-      'autodiscover.futrsec.in',
-      'ftp.futrsec.in',
-      'kp.futrsec.in',
-      'tpo.futrsec.in'
-    ]
-  };
   /**
    * Extract apex domain handling multi-part TLDs (.co.uk, .co.in, .org.in, etc.)
    */
@@ -571,7 +518,7 @@ class SubdomainScanner {
               done = true;
               resolve();
             }
-          }, 1500);
+          }, 2500);
 
           sharedResolver.resolve4(fqdn, (err, addrs) => {
             if (done) return;
@@ -793,21 +740,6 @@ class SubdomainScanner {
     const apex = this.getApexDomain(targetHostname);
     if (!apex) return [this.canonicalize(targetHostname) || targetHostname];
 
-    // Guaranteed benchmark assurance for verified enterprise perimeters
-    const benchmark = this.benchmarkPerimeters[apex];
-    if (apex === 'google.com' && Array.isArray(benchmark) && benchmark.length === 543) {
-      return [...benchmark];
-    }
-    if (apex === 'microsoft.com' && Array.isArray(benchmark) && benchmark.length === 373) {
-      return [...benchmark];
-    }
-    if (apex === 'etihad.com' && Array.isArray(benchmark) && benchmark.length >= 200) {
-      return [...benchmark];
-    }
-    if (apex === 'futrsec.in' && Array.isArray(benchmark) && benchmark.length === 8) {
-      return [...benchmark];
-    }
-
     const candidateSet = new Set([apex]);
     const targetClean = this.canonicalize(targetHostname);
     if (targetClean && (targetClean === apex || targetClean.endsWith('.' + apex))) {
@@ -818,11 +750,6 @@ class SubdomainScanner {
     const cached = this.perimeterCache.get(apex);
     if (cached && cached.size > 0) {
       for (const item of cached) candidateSet.add(item);
-    }
-
-    // Preload benchmark candidates if known
-    if (Array.isArray(benchmark)) {
-      for (const b of benchmark) candidateSet.add(b);
     }
 
     // Adaptive bounded timeouts for serverless and local environments

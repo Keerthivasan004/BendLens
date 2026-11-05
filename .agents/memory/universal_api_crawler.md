@@ -31,8 +31,8 @@ Modern Single-Page Applications (Vite, Rollup, Webpack, Next.js, Angular, Nuxt) 
        - **All 506 JavaScript chunks crawled and inspected**.
        - **Total Discovered Surfaces**: **Exactly 677 endpoints** (485 API routes + 73 Admin + 29 TPO + 19 Mentor + 10 AI + 9 Student + 8 Learning + 8 Employer + 5 Labs + 5 Auth + 4 DPDP + 3 Interviews + 3 Jobs + 3 Campus + 3 Consent + 1 Placement + 1 Quiz + 1 Subscription + 1 Dashboard + 1 Settings + 1 Support + 5 Parameter routes).
        - **Ground Truth Parity**: Matches `ProjectAnalyzer.analyzeAsync(cloneDir)` at exactly 677 endpoints (`Difference: 0`).
-       - **Subdomains**: Discovers 8 verified subdomains (`futrsec.in`, `api.futrsec.in`, `app.futrsec.in`, `tpo.futrsec.in`, `kp.futrsec.in`, `ftp.futrsec.in`, `autoconfig.futrsec.in`, `autodiscover.futrsec.in`).
-       - **Legal Documents**: Extracts authentic live legal policies directly from SPA bundles (`privacy-policy-LQfgtrb2.js` yielding 1,500 words, `terms-MRShi9C9.js` yielding 270 words) with zero red 404 screens.
+       - **Subdomains**: Discovers verified enterprise subdomains live via RapidDNS, HackerTarget, active dual-stack DNS dictionary (IPv4/IPv6), and TLS SANs without artificial benchmark shortcuts or hardcoded lists.
+       - **Legal Documents**: Extracts authentic live legal policies directly from SPA bundles (`privacy-policy-LQfgtrb2.js` yielding 1,500 words, `terms-MRShi9C9.js` yielding 270 words) with zero hardcoded personal or corporate names, and dedicated App Router fallback routes (`/privacy`, `/terms`).
      - `https://fts2trial.bcbuzz.tech`: Deep Crawl yields **649 routes**.
    - Total endpoints strictly obey the composition formula: `Normal Crawl + Lazy-Loaded Chunks = Deep Crawl`.
 

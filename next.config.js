@@ -14,6 +14,13 @@ const nextConfig = {
   httpAgentOptions: {
     keepAlive: true,
   },
+  async rewrites() {
+    return [
+      { source: '/privacy-policy', destination: '/privacy' },
+      { source: '/terms-of-service', destination: '/terms' },
+      { source: '/terms-of-use', destination: '/terms' },
+    ];
+  },
 };
 
 module.exports = nextConfig;

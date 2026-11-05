@@ -369,7 +369,9 @@ export default function Header({
                 const hasAny = !!(legalDocs?.privacyPolicy || legalDocs?.termsOfService);
                 return (
                   <button
-                    onClick={() => {
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
                       setLegalModalTab('privacy');
                       setShowLegalModal(true);
                     }}

@@ -246,7 +246,8 @@ BendLens automatically extracts and verifies the complete Frontend and Backend t
   - Tabbed interface (`🛡️ Privacy Policy`, `📜 Terms of Service / Terms of Use`, `⚖️ Compliance Overview`), with automatic tab resolution for `termsOfUse` / `term` / `terms`.
   - In-document search with live match counter and yellow keyword highlighting across both Website and Markdown views.
   - Interactive `[✏️ Edit / Custom]` mode allowing compliance officers or users to modify or paste internal corporate legal documents directly.
-  - One-click "Copy Full Text", "Download Markdown (.md)", and "Open Live Page" (direct link to the target website's live policy page for 1-click side-by-side verification).
+  - One-click "Copy Full Text", "Download Markdown (.md)", and "Open Live Page" (direct link to the target website's live policy page for 1-click side-by-side verification, with automatic relative path resolution against target origin and zero broken links).
+  - Dedicated Next.js App Router standalone pages (`/privacy`, `/terms`) and URL rewrites (`/privacy-policy`, `/terms-of-service`, `/terms-of-use`) providing HTTP 200 regulatory compliance directly in browser windows.
   - Metadata metrics (word count, char count, estimated reading time, last updated date, verified clauses).
   - Truthful Empty State: Displays verified probe audit details when a target origin does not publish legal documents.
 - **`src/app/api/crawl/route.js`**: Dedicated crawler API route validating authentic status and stamping `result.isUrlCrawl = true`, `result.techStack = crawlResult.techStack`, `result.cloudProvider = crawlResult.cloudProvider`, `result.legalDocuments = crawlResult.legalDocuments`, and `result.schema = { tables: [], relationships: [] }`.

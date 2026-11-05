@@ -1316,7 +1316,7 @@ class UniversalApiCrawler {
           const code = scriptRes.text;
           scriptContents.set(url, code);
 
-          if (apexDomain && !SubdomainScanner.benchmarkPerimeters?.[apexDomain]) {
+          if (apexDomain) {
             const codeSubs = SubdomainScanner.extractFromCode(code, apexDomain);
             for (const cs of codeSubs) {
               if (cs && !discoveredSubdomainsList.includes(cs)) {
@@ -1522,7 +1522,7 @@ class UniversalApiCrawler {
             const code = scriptRes.text;
             scriptContents.set(url, code);
 
-            if (apexDomain && !SubdomainScanner.benchmarkPerimeters?.[apexDomain]) {
+            if (apexDomain) {
               const codeSubs = SubdomainScanner.extractFromCode(code, apexDomain);
               for (const cs of codeSubs) {
                 if (cs && !discoveredSubdomainsList.includes(cs)) {
@@ -1897,11 +1897,6 @@ class UniversalApiCrawler {
       // schemas are completely private and cannot be inspected over external HTTP requests.
       const sqlStatements = [];
       const schemas = {};
-
-      if (apexDomain && SubdomainScanner.benchmarkPerimeters?.[apexDomain]) {
-        discoveredSubdomainsList.length = 0;
-        discoveredSubdomainsList.push(...SubdomainScanner.benchmarkPerimeters[apexDomain]);
-      }
 
       const openApiSpec = {
         openapi: '3.0.3',
@@ -5407,27 +5402,24 @@ Support: **support@${domainName}**`;
               }
             }
 
-            // Extract Grievance Officer details
+            // Extract Grievance / Privacy Officer details dynamically from code
             let grievanceOfficer = null;
-            const officerMatch = jsCode.match(/MAHARAJ\s+MANOHARAN/i);
-            const emailMatch = jsCode.match(/grievance@([a-zA-Z0-9.\-_]+)/i);
+            const officerMatch = jsCode.match(/(?:grievance\s*officer|data\s*protection\s*officer|privacy\s*officer|compliance\s*officer)[\s\S]{1,40}?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i);
+            const emailMatch = jsCode.match(/(?:grievance|dpo|privacy|compliance)@([a-zA-Z0-9.\-_]+)/i);
             if (officerMatch || emailMatch) {
+              const detectedName = officerMatch ? officerMatch[1].trim() : 'Designated Privacy / Grievance Officer';
               grievanceOfficer = {
-                name: officerMatch ? 'Maharaj Manoharan' : 'Grievance Officer',
-                email: emailMatch ? emailMatch[0] : `grievance@${new URL(origin).hostname}`,
-                role: 'Grievance Officer'
+                name: detectedName,
+                email: emailMatch ? emailMatch[0] : `privacy@${new URL(origin).hostname}`,
+                role: 'Grievance / Privacy Officer'
               };
             }
 
-            // Extract legal entity name if present in narrative
+            // Extract legal entity name dynamically from code, copyright, or domain
             let legalEntity = entityName;
-            if (origin.includes('bcbuzz')) {
-              legalEntity = 'BCBUZZ Technologies Private Limited';
-            } else {
-              const entMatch = jsCode.match(/(?:[A-Z][a-zA-Z0-9\s]+(?:Private Limited|Pvt\.?\s*Ltd\.?|LLC|Corporation))/);
-              if (entMatch && !entMatch[0].includes('Remix') && !entMatch[0].includes('Facebook') && !entMatch[0].includes('Meta')) {
-                legalEntity = entMatch[0].trim();
-              }
+            const entMatch = jsCode.match(/\b([A-Z][A-Za-z0-9\s&.,-]{2,40}(?:Private\s+Limited|Pvt\.?\s*Ltd\.?|LLC|Inc\.?|Corp\.?|Corporation|Ltd\.?|GmbH|S\.A\.))\b/);
+            if (entMatch && !entMatch[0].includes('Remix') && !entMatch[0].includes('Facebook') && !entMatch[0].includes('Meta')) {
+              legalEntity = entMatch[0].trim();
             }
 
             const mdParts = [];
@@ -5527,13 +5519,9 @@ Support: **support@${domainName}**`;
 
           if (hasTermsSignals) {
             let legalEntity = entityName;
-            if (origin.includes('bcbuzz')) {
-              legalEntity = 'BCBUZZ Technologies Private Limited';
-            } else {
-              const entMatch = jsCode.match(/(?:[A-Z][a-zA-Z0-9\s]+(?:Private Limited|Pvt\.?\s*Ltd\.?|LLC|Corporation))/);
-              if (entMatch && !entMatch[0].includes('Remix') && !entMatch[0].includes('Facebook') && !entMatch[0].includes('Meta')) {
-                legalEntity = entMatch[0].trim();
-              }
+            const entMatch = jsCode.match(/\b([A-Z][A-Za-z0-9\s&.,-]{2,40}(?:Private\s+Limited|Pvt\.?\s*Ltd\.?|LLC|Inc\.?|Corp\.?|Corporation|Ltd\.?|GmbH|S\.A\.))\b/);
+            if (entMatch && !entMatch[0].includes('Remix') && !entMatch[0].includes('Facebook') && !entMatch[0].includes('Meta')) {
+              legalEntity = entMatch[0].trim();
             }
 
             const mdTerms = [];
@@ -5544,22 +5532,22 @@ Support: **support@${domainName}**`;
             mdTerms.push(`---\n`);
 
             mdTerms.push(`## 1. Acceptance of Terms\n`);
-            mdTerms.push(`By accessing or using the services of **${legalEntity}** ("Company", "We", "Us"), including our website, applications, APIs, and cybersecurity solutions, you agree to be bound by these Terms of Service. If you are entering into these terms on behalf of a company or other legal entity, you represent that you possess full corporate authority to bind such entity to these terms.\n`);
+            mdTerms.push(`By accessing or using the services of **${legalEntity}** ("Company", "We", "Us"), including our website, digital applications, and APIs, you agree to be bound by these Terms of Service. If you are entering into these terms on behalf of a company or other legal entity, you represent that you possess full corporate authority to bind such entity to these terms.\n`);
 
             mdTerms.push(`## 2. Service Coverage & Scope\n`);
-            mdTerms.push(`Our platform provides AI-driven threat intelligence, vulnerability assessments (VAPT), cloud posture management, and SOC-as-a-Service solutions. Service availability is governed by subscription tiers, scheduled maintenance windows, and respective service level agreements (SLAs).\n`);
+            mdTerms.push(`Our platform provides digital applications, APIs, software platforms, and related online services provided by ${legalEntity}. Service availability is governed by subscription terms, service level agreements, and scheduled maintenance windows.\n`);
 
             mdTerms.push(`## 3. Acceptable Use & User Conduct\n`);
             mdTerms.push(`You agree not to engage in any activity that interferes with, disrupts, or compromises the security of the services. Specifically:`);
-            mdTerms.push(`- No unauthorized penetration testing or vulnerability probing against external infrastructure.`);
+            mdTerms.push(`- No unauthorized vulnerability probing, penetration testing, or disruption of platform infrastructure.`);
             mdTerms.push(`- No reverse engineering, decompiling, or attempting to derive platform source code or proprietary algorithms.`);
-            mdTerms.push(`- Strict adherence to all applicable state, national, and international cybersecurity laws.\n`);
+            mdTerms.push(`- Strict adherence to all applicable state, national, and international laws and regulations.\n`);
 
             mdTerms.push(`## 4. Intellectual Property Rights\n`);
             mdTerms.push(`All software, algorithms, documentation, brand trademarks, and proprietary methodologies remain the exclusive property of ${legalEntity}. Customers are granted a limited, non-exclusive, non-transferable license to access the services solely for authorized business operations.\n`);
 
             mdTerms.push(`## 5. Governing Law & Dispute Resolution\n`);
-            mdTerms.push(`These Terms of Service are governed by and construed in accordance with the laws of the jurisdiction of incorporation of ${legalEntity}. Any dispute arising from these terms shall be resolved through confidential arbitration.\n`);
+            mdTerms.push(`These Terms of Service are governed by and construed in accordance with the laws of the jurisdiction of incorporation of ${legalEntity}. Any dispute arising from these terms shall be resolved through good-faith negotiation or confidential arbitration.\n`);
 
             const fullTermsContent = mdTerms.join('\n');
             const words = fullTermsContent.split(/\s+/).filter(Boolean);

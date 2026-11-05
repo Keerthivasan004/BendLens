@@ -78,6 +78,26 @@ CREATE TABLE orders (
     return getApiEndpointsBreakdown(analysisResult, 'auto');
   }, [analysisResult]);
 
+  const getSafeLiveLegalUrl = (docUrl) => {
+    if (!docUrl) return null;
+    const s = String(docUrl).trim();
+    if (!s || s === '#' || s.startsWith('javascript:') || s.includes('bendlens.local')) return null;
+    if (s.startsWith('http://') || s.startsWith('https://')) {
+      if (s.startsWith('http://') && !s.includes('localhost')) return s.replace(/^http:\/\//i, 'https://');
+      return s;
+    }
+    if (s.startsWith('/')) {
+      const root = analysisResult?.targetUrl || analysisResult?.crawlerTelemetry?.targetUrl || gitUrl;
+      if (root && (root.startsWith('http://') || root.startsWith('https://'))) {
+        try {
+          return `${new URL(root).origin}${s}`;
+        } catch { }
+      }
+      return s;
+    }
+    return null;
+  };
+
   const landingEndpointsList = useMemo(() => {
     if (Array.isArray(analysisResult?.code?.endpoints) && analysisResult.code.endpoints.length > 0) {
       return analysisResult.code.endpoints;
@@ -1853,7 +1873,8 @@ CREATE TABLE audit_logs (
                                 <div className="pt-2 border-t border-border/60 flex items-center justify-between">
                                   <button
                                     type="button"
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                      e.preventDefault();
                                       setLegalModalTab('privacy');
                                       setShowLegalModal(true);
                                     }}
@@ -1862,9 +1883,9 @@ CREATE TABLE audit_logs (
                                     <FileText className="h-3 w-3" />
                                     <span>Read Full Privacy Policy</span>
                                   </button>
-                                  {privacy?.url && (
+                                  {getSafeLiveLegalUrl(privacy?.url) && (
                                     <a
-                                      href={privacy.url.startsWith('http://') && !privacy.url.includes('localhost') ? privacy.url.replace(/^http:\/\//i, 'https://') : privacy.url}
+                                      href={getSafeLiveLegalUrl(privacy.url)}
                                       target="_blank"
                                       rel="noreferrer"
                                       className="text-[10px] text-muted hover:text-foreground flex items-center gap-1"
@@ -1932,7 +1953,8 @@ CREATE TABLE audit_logs (
                                 <div className="pt-2 border-t border-border/60 flex items-center justify-between">
                                   <button
                                     type="button"
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                      e.preventDefault();
                                       setLegalModalTab('terms');
                                       setShowLegalModal(true);
                                     }}
@@ -1941,9 +1963,9 @@ CREATE TABLE audit_logs (
                                     <FileText className="h-3 w-3" />
                                     <span>Read Full Terms of Use & Service</span>
                                   </button>
-                                  {terms?.url && (
+                                  {getSafeLiveLegalUrl(terms?.url) && (
                                     <a
-                                      href={terms.url.startsWith('http://') && !terms.url.includes('localhost') ? terms.url.replace(/^http:\/\//i, 'https://') : terms.url}
+                                      href={getSafeLiveLegalUrl(terms.url)}
                                       target="_blank"
                                       rel="noreferrer"
                                       className="text-[10px] text-muted hover:text-foreground flex items-center gap-1"
@@ -2023,7 +2045,8 @@ CREATE TABLE audit_logs (
 
                               <button
                                 type="button"
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.preventDefault();
                                   setLegalModalTab('privacy');
                                   setShowLegalModal(true);
                                 }}
@@ -2841,7 +2864,8 @@ CREATE TABLE audit_logs (
             <div className="flex flex-wrap items-center gap-3 text-[11px]">
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.preventDefault();
                   setLegalModalTab('privacy');
                   setShowLegalModal(true);
                 }}
@@ -2852,7 +2876,8 @@ CREATE TABLE audit_logs (
               <span className="text-border-subtle">•</span>
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.preventDefault();
                   setLegalModalTab('terms');
                   setShowLegalModal(true);
                 }}
