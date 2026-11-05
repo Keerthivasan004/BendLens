@@ -1288,8 +1288,23 @@ class UniversalApiCrawler {
       // PHASE 1: Normal Crawl (Traverse standard application chunk perimeter)
       // -----------------------------------------------------------------------
       const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-      const maxNormalChunks = isServerless ? Math.min(maxChunks, 6) : (isNormalOnly ? Math.min(maxChunks, 50) : maxChunks);
-      const chunkTimeout = isServerless ? 2500 : 5000;
+      const maxNormalChunks = isServerless ? Math.min(maxChunks, 150) : (isNormalOnly ? Math.min(maxChunks, 50) : maxChunks);
+      const chunkTimeout = isServerless ? 2000 : 5000;
+
+      // Helper: Priority sort for high-yield code modules (roles, pages, stores, apis)
+      const isPriorityChunkUrl = (u) => {
+        const l = (u || '').toLowerCase();
+        return l.includes('student') || l.includes('tpo') || l.includes('employer') || l.includes('mentor') ||
+          l.includes('admin') || l.includes('career') || l.includes('learning') || l.includes('lab') ||
+          l.includes('ai') || l.includes('quiz') || l.includes('job') || l.includes('auth') ||
+          l.includes('dashboard') || l.includes('setting') || l.includes('support') || l.includes('consent') ||
+          l.includes('dpdp') || l.includes('interview') || l.includes('placement') || l.includes('campus') ||
+          l.includes('home') || l.includes('landing') || l.includes('plan') || l.includes('feature') ||
+          l.includes('modal') || l.includes('table') || l.includes('view') || l.includes('page') ||
+          l.includes('store') || l.includes('api') || l.includes('client') || l.includes('service') ||
+          l.includes('privacy') || l.includes('terms') || l.includes('legal');
+      };
+
       while (normalQueue.length > 0 && visitedUrls.size < maxNormalChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
         const batch = normalQueue.splice(0, concurrency);
         await Promise.all(batch.map(async (url) => {
@@ -1321,7 +1336,11 @@ class UniversalApiCrawler {
                   const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
                   const resolvedChunkUrl = new URL(rawChunk, chunkOrigin).href;
                   if (!visitedUrls.has(resolvedChunkUrl) && !normalQueue.includes(resolvedChunkUrl)) {
-                    normalQueue.push(resolvedChunkUrl);
+                    if (isPriorityChunkUrl(resolvedChunkUrl)) {
+                      normalQueue.unshift(resolvedChunkUrl);
+                    } else {
+                      normalQueue.push(resolvedChunkUrl);
+                    }
                   }
                 } catch { }
               }
@@ -1344,7 +1363,11 @@ class UniversalApiCrawler {
                     deepUrl = new URL(rawChunk, url).href;
                   }
                   if (deepUrl && !visitedUrls.has(deepUrl) && !normalQueue.includes(deepUrl) && !deepQueue.includes(deepUrl)) {
-                    deepQueue.push(deepUrl);
+                    if (isPriorityChunkUrl(deepUrl)) {
+                      deepQueue.unshift(deepUrl);
+                    } else {
+                      deepQueue.push(deepUrl);
+                    }
                   }
                 } catch { }
               }
@@ -1375,7 +1398,7 @@ class UniversalApiCrawler {
                       if (Array.isArray(sourceMap.sourcesContent)) {
                         for (const rawSource of sourceMap.sourcesContent) {
                           if (typeof rawSource === 'string' && rawSource.length > 50) {
-                            this.extractEndpointsFromCode(rawSource, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
+                            this.extractEndpointsFromCode(rawSource, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: !isNormalOnly, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
                           }
                         }
                       }
@@ -1406,8 +1429,8 @@ class UniversalApiCrawler {
             }
           }
 
-          // Extract endpoints from standard chunk code (Normal mode)
-          this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
+          // Extract endpoints from standard chunk code (Immediate Deep Mode extraction when active)
+          this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: !isNormalOnly, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
         }));
 
         if (normalQueue.length > 0) {
@@ -1438,23 +1461,26 @@ class UniversalApiCrawler {
 
       // -----------------------------------------------------------------------
       // PHASE 2: Deep Crawl (If not normal-only, traverse all lazy chunks & sub-routes)
-      // On serverless environments (Vercel), Phase 1 extracts all essential routes within budget.
+      // Serverless Adaptive: executes Phase 2 dynamically when execution budget permits
       // -----------------------------------------------------------------------
-      if (!isNormalOnly && !isServerless) {
+      const elapsedPhase2 = Date.now() - startTime;
+      const canRunPhase2 = !isNormalOnly && (!isServerless || elapsedPhase2 < 7000);
+      if (canRunPhase2) {
         // Probe discovered internal sub-routes to uncover role-gated page chunks (e.g. /login, /admin, /dashboard, /ai, /quiz)
         const commonSubpages = ['/ai', '/ai/index.html', '/quiz', '/quiz/index.html', '/privacy-policy', '/terms'];
         const targetInternalRoutes = Array.from(new Set([
-          ...Array.from(discoveredPages).filter(p => p !== '/' && !p.startsWith('/api/')).slice(0, 15),
+          ...Array.from(discoveredPages).filter(p => p !== '/' && !p.startsWith('/api/')).slice(0, isServerless ? 6 : 15),
           ...commonSubpages
         ]));
 
-        const subpageBatchSize = 6;
+        const subpageBatchSize = isServerless ? 6 : 8;
         for (let i = 0; i < targetInternalRoutes.length; i += subpageBatchSize) {
+          if (Date.now() - startTime >= maxCrawlTimeMs) break;
           const batchRoutes = targetInternalRoutes.slice(i, i + subpageBatchSize);
           await Promise.allSettled(batchRoutes.map(async (sr) => {
             try {
               const srUrl = new URL(sr, origin).href;
-              const srRes = await this.safeFetch(srUrl, { timeout: 2500, customHeaders });
+              const srRes = await this.safeFetch(srUrl, { timeout: isServerless ? 1500 : 2500, customHeaders });
               if (srRes.ok && srRes.status === 200 && srRes.text) {
                 // SPA Catch-All Guard: If the probed subpage returns the exact same HTML as the root homepage,
                 // it is an SPA wildcard fallback (not an authentic distinct page)
@@ -1482,7 +1508,8 @@ class UniversalApiCrawler {
         }
 
         // Exhaustively process all dynamic code-split chunks up to bounded deep limit
-        const maxDeepChunks = maxChunks + 150;
+        const maxDeepChunks = isServerless ? Math.min(maxChunks + 150, 150) : (maxChunks + 150);
+        const deepChunkTimeout = isServerless ? 2000 : 5000;
         while (deepQueue.length > 0 && visitedUrls.size < maxDeepChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
           const batch = deepQueue.splice(0, concurrency);
 
@@ -1490,7 +1517,7 @@ class UniversalApiCrawler {
             if (visitedUrls.has(url)) return;
             visitedUrls.add(url);
 
-            const scriptRes = await this.safeFetch(url, { timeout: 5000, customHeaders, context: 'script', origin });
+            const scriptRes = await this.safeFetch(url, { timeout: deepChunkTimeout, customHeaders, context: 'script', origin });
             if (!scriptRes.ok) return;
             const code = scriptRes.text;
             scriptContents.set(url, code);
@@ -5291,15 +5318,37 @@ Support: **support@${domainName}**`;
         }
       }
 
-      // Prioritize primary client entry bundles (e.g. index-*.js, main-*.js, app-*.js, client-*.js)
+      // Discover explicit legal chunks from scriptContents keys and code references
+      if (scriptContents && scriptContents.size > 0) {
+        for (const [sUrl, code] of scriptContents.entries()) {
+          const l = sUrl.toLowerCase();
+          if (l.includes('privacy') || l.includes('terms') || l.includes('legal') || l.includes('policy')) {
+            candidateScripts.add(sUrl);
+          }
+          if (code && typeof code === 'string') {
+            const chunkMatch = code.match(/["']([a-zA-Z0-9_\-\.\/]*(?:privacy|terms|legal|policy)[a-zA-Z0-9_\-\.]*\.js)["']/gi) || [];
+            for (const cm of chunkMatch) {
+              const clean = cm.slice(1, -1);
+              try {
+                const resolved = new URL(clean.startsWith('/') ? clean : `/assets/${clean.replace(/^\.\//, '')}`, origin).href;
+                candidateScripts.add(resolved);
+              } catch { }
+            }
+          }
+        }
+      }
+
+      // Prioritize explicit legal chunks first, then primary client entry bundles
       const sortedScripts = Array.from(candidateScripts).sort((a, b) => {
-        const aPrimary = /(?:index|main|app|client|bundle)[a-zA-Z0-9_\-]*\.js/i.test(a) ? 1 : 0;
-        const bPrimary = /(?:index|main|app|client|bundle)[a-zA-Z0-9_\-]*\.js/i.test(b) ? 1 : 0;
-        return bPrimary - aPrimary;
+        const aLegal = /(?:privacy|terms|legal|policy)/i.test(a) ? 10 : 0;
+        const bLegal = /(?:privacy|terms|legal|policy)/i.test(b) ? 10 : 0;
+        const aPrimary = /(?:index|main|app|client|bundle)[a-zA-Z0-9_\-]*\.js/i.test(a) ? 5 : 0;
+        const bPrimary = /(?:index|main|app|client|bundle)[a-zA-Z0-9_\-]*\.js/i.test(b) ? 5 : 0;
+        return (bLegal + bPrimary) - (aLegal + aPrimary);
       });
 
-      // Probe up to 4 primary first-party bundle scripts
-      for (const sUrl of sortedScripts.slice(0, 4)) {
+      // Probe up to 6 priority first-party bundle scripts
+      for (const sUrl of sortedScripts.slice(0, 6)) {
         if (privacyPolicy && termsOfService) break;
 
         let jsCode = scriptContents?.get?.(sUrl);

@@ -130,33 +130,40 @@ export async function POST(request) {
             // -----------------------------------------------------------------
             if (contentType.includes('text/html') || text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
               const discoveredUrls = ApiSpecSynthesizer.discoverSpecUrlsFromHtml(text, targetFetchUrl);
-              for (const candUrl of discoveredUrls) {
-                try {
-                  const candRes = await fetch(candUrl, {
-                    headers: fetchHeaders,
-                    redirect: 'follow',
-                    signal: AbortSignal.timeout(6000)
-                  });
-                  if (candRes.ok) {
-                    const candText = await candRes.text();
-                    if (candUrl.includes('swagger-initializer.js')) {
-                      const initUrlMatch = candText.match(/(?:url|defaultDefinitionUrl)\s*[:=]\s*["']([^"']+\.(?:json|yaml|yml))["']/i);
-                      if (initUrlMatch) {
-                        const resolvedUrl = new URL(initUrlMatch[1], candUrl).href;
-                        const finalRes = await fetch(resolvedUrl, { headers: fetchHeaders, signal: AbortSignal.timeout(6000) });
-                        if (finalRes.ok) {
-                          text = await finalRes.text();
-                          contentType = 'application/json';
-                          break;
+              if (discoveredUrls.length > 0) {
+                const specProbes = discoveredUrls.slice(0, 3).map(async (candUrl) => {
+                  try {
+                    const candRes = await fetch(candUrl, {
+                      headers: fetchHeaders,
+                      redirect: 'follow',
+                      signal: AbortSignal.timeout(2000)
+                    });
+                    if (candRes.ok) {
+                      const candText = await candRes.text();
+                      if (candUrl.includes('swagger-initializer.js')) {
+                        const initUrlMatch = candText.match(/(?:url|defaultDefinitionUrl)\s*[:=]\s*["']([^"']+\.(?:json|yaml|yml))["']/i);
+                        if (initUrlMatch) {
+                          const resolvedUrl = new URL(initUrlMatch[1], candUrl).href;
+                          const finalRes = await fetch(resolvedUrl, { headers: fetchHeaders, signal: AbortSignal.timeout(2000) });
+                          if (finalRes.ok) {
+                            return { text: await finalRes.text(), contentType: 'application/json' };
+                          }
                         }
+                      } else if (candText.includes('"swagger"') || candText.includes('"openapi"') || candText.includes('swagger:') || candText.includes('openapi:') || candText.includes('paths:')) {
+                        return { text: candText, contentType: candUrl.endsWith('.yaml') || candUrl.endsWith('.yml') ? 'text/yaml' : 'application/json' };
                       }
-                    } else if (candText.includes('"swagger"') || candText.includes('"openapi"') || candText.includes('swagger:') || candText.includes('openapi:') || candText.includes('paths:')) {
-                      text = candText;
-                      contentType = candUrl.endsWith('.yaml') || candUrl.endsWith('.yml') ? 'text/yaml' : 'application/json';
-                      break;
                     }
+                  } catch { }
+                  return null;
+                });
+                const probeResults = await Promise.allSettled(specProbes);
+                for (const pr of probeResults) {
+                  if (pr.status === 'fulfilled' && pr.value) {
+                    text = pr.value.text;
+                    contentType = pr.value.contentType;
+                    break;
                   }
-                } catch {}
+                }
               }
 
               // -----------------------------------------------------------------

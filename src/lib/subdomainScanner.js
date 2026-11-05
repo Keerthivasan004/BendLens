@@ -731,13 +731,13 @@ class SubdomainScanner {
       for (const b of benchmark) candidateSet.add(b);
     }
 
-    // Adaptive bounded timeouts for serverless environments (Vercel, Lambda)
+    // Adaptive bounded timeouts for serverless and local environments
     const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-    const certSpotterPages = isServerless ? 2 : 15;
-    const certSpotterTimeout = isServerless ? 2500 : 25000;
-    const crtShTimeout = isServerless ? 4500 : 10000;
-    const hackerTargetTimeout = isServerless ? 2000 : 6000;
-    const validationTimeout = isServerless ? 3500 : 35000;
+    const certSpotterPages = isServerless ? 2 : 5;
+    const certSpotterTimeout = isServerless ? 2500 : 6000;
+    const crtShTimeout = isServerless ? 3500 : 7000;
+    const hackerTargetTimeout = isServerless ? 2000 : 4000;
+    const validationTimeout = isServerless ? 3500 : 8000;
 
     const tlsVerifiedSet = new Set();
 

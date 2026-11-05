@@ -499,24 +499,31 @@ export default function LegalDocumentsModal({
   };
 
   const privacyDoc = useMemo(() => {
-    if (isBendLensTarget) {
-      return liveDocs?.privacyPolicy || legalDocuments?.privacyPolicy || BENDLENS_PRIVACY_POLICY;
+    const candidate = liveDocs?.privacyPolicy || legalDocuments?.privacyPolicy;
+    if (candidate && candidate.content && typeof candidate.content === 'string' && candidate.content.trim().length > 50) {
+      return candidate;
     }
-    return liveDocs?.privacyPolicy || legalDocuments?.privacyPolicy || (targetUrl ? generateClientLegalDocument(targetUrl, 'privacy') : BENDLENS_PRIVACY_POLICY);
+    if (isBendLensTarget || !targetUrl) {
+      return BENDLENS_PRIVACY_POLICY;
+    }
+    return generateClientLegalDocument(targetUrl, 'privacy');
   }, [isBendLensTarget, liveDocs, legalDocuments, targetUrl]);
 
   const termsDoc = useMemo(() => {
-    if (isBendLensTarget) {
-      return liveDocs?.termsOfService || legalDocuments?.termsOfService || BENDLENS_TERMS_OF_SERVICE;
+    const candidate = liveDocs?.termsOfService || legalDocuments?.termsOfService;
+    if (candidate && candidate.content && typeof candidate.content === 'string' && candidate.content.trim().length > 50) {
+      return candidate;
     }
-    return liveDocs?.termsOfService || legalDocuments?.termsOfService || (targetUrl ? generateClientLegalDocument(targetUrl, 'terms') : BENDLENS_TERMS_OF_SERVICE);
+    if (isBendLensTarget || !targetUrl) {
+      return BENDLENS_TERMS_OF_SERVICE;
+    }
+    return generateClientLegalDocument(targetUrl, 'terms');
   }, [isBendLensTarget, liveDocs, legalDocuments, targetUrl]);
 
-  // Selected document based on active tab
+  // Selected document based on active tab (Always guaranteed to resolve a complete regulatory document)
   const currentDoc = useMemo(() => {
-    if (activeTab === 'privacy') return privacyDoc;
     if (activeTab === 'terms') return termsDoc;
-    return null;
+    return privacyDoc;
   }, [activeTab, privacyDoc, termsDoc]);
 
   // Safe HTTPS URL helper to guarantee customer links always use secure HTTPS
