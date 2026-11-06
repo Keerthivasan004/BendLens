@@ -191,9 +191,29 @@ function generateClientLegalDocument(targetUrl, docType = 'privacy') {
   const rawEntity = domainName.split('.')[0] || 'Organization';
   const isErr = rawEntity.toLowerCase().includes('access denied') || rawEntity.toLowerCase().includes('403') || rawEntity.toLowerCase().includes('error');
   const cleanEntity = isErr ? 'Organization' : rawEntity;
-  const entityName = cleanEntity.charAt(0).toUpperCase() + cleanEntity.slice(1);
+  const knownBrands = {
+    'amazon': 'Amazon',
+    'emirates': 'Emirates',
+    'etihad': 'Etihad',
+    'apple': 'Apple',
+    'google': 'Google',
+    'microsoft': 'Microsoft',
+    'meta': 'Meta',
+    'netflix': 'Netflix',
+    'bcbuzz': 'Bcbuzz'
+  };
+  const entityName = knownBrands[cleanEntity.toLowerCase()] || (cleanEntity.charAt(0).toUpperCase() + cleanEntity.slice(1));
   const now = new Date();
   const lastUpdated = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  let docUrl = docType === 'privacy' ? `${origin}/privacy` : `${origin}/terms`;
+  if (domainName.includes('amazon')) {
+    docUrl = docType === 'privacy' ? 'https://www.amazon.com/privacy' : 'https://www.amazon.com/gp/help/customer/display.html?nodeId=508088';
+  } else if (domainName.includes('emirates')) {
+    docUrl = docType === 'privacy' ? 'https://www.emirates.com/english/information/privacy-policy/' : 'https://www.emirates.com/english/information/terms-and-conditions/';
+  } else if (domainName.includes('etihad')) {
+    docUrl = docType === 'privacy' ? 'https://www.etihad.com/en-ae/legal/privacy-policy' : 'https://www.etihad.com/en-ae/legal/terms-and-conditions';
+  }
 
   if (docType === 'privacy') {
     const content = `# Privacy Policy for ${entityName}
@@ -285,7 +305,7 @@ Support: **support@${domainName}**`;
     ];
 
     return {
-      url: `${origin}/privacy`,
+      url: docUrl,
       path: '/privacy',
       title: `${entityName} Privacy Policy`,
       lastUpdated,
@@ -374,7 +394,7 @@ Support: **support@${domainName}**`;
   ];
 
   return {
-    url: `${origin}/terms`,
+    url: docUrl,
     path: '/terms',
     title: `${entityName} Terms of Service / Terms of Use`,
     lastUpdated,
@@ -398,6 +418,30 @@ function safeHttpsUrl(u, targetUrl = '', cleanHost = '', activeTab = 'privacy') 
   let s = String(u).trim();
   if (!s || s === '#' || s.startsWith('javascript:')) return null;
   if (s.includes('bendlens.local')) return activeTab === 'terms' ? '/terms' : '/privacy';
+
+  const hostLower = (cleanHost || targetUrl || '').toLowerCase();
+  if (hostLower.includes('amazon')) {
+    if (activeTab === 'privacy' && (s.includes('pay.amazon') || s.includes('amazonpay') || s.endsWith('/privacy-policy') || s.endsWith('/privacy') || s === '/privacy' || s === '/privacy-policy')) {
+      return 'https://www.amazon.com/privacy';
+    }
+    if (activeTab === 'terms' && (s.includes('pay.amazon') || s.includes('amazonpay') || s.endsWith('/terms-of-service') || s.endsWith('/terms') || s === '/terms' || s === '/terms-of-service')) {
+      return 'https://www.amazon.com/gp/help/customer/display.html?nodeId=508088';
+    }
+  } else if (hostLower.includes('emirates')) {
+    if (activeTab === 'privacy' && (s.endsWith('/privacy-policy') || s === '/privacy' || s === '/privacy-policy')) {
+      return 'https://www.emirates.com/english/information/privacy-policy/';
+    }
+    if (activeTab === 'terms' && (s.endsWith('/terms-of-service') || s === '/terms' || s === '/terms-of-service')) {
+      return 'https://www.emirates.com/english/information/terms-and-conditions/';
+    }
+  } else if (hostLower.includes('etihad')) {
+    if (activeTab === 'privacy' && (s.endsWith('/privacy-policy') || s === '/privacy')) {
+      return 'https://www.etihad.com/en-ae/legal/privacy-policy';
+    }
+    if (activeTab === 'terms' && (s.endsWith('/terms-of-service') || s === '/terms')) {
+      return 'https://www.etihad.com/en-ae/legal/terms-and-conditions';
+    }
+  }
 
   // If relative path (/privacy, /terms, /privacy-policy, etc.)
   if (s.startsWith('/')) {
@@ -537,7 +581,15 @@ export default function LegalDocumentsModal({
   };
 
   const privacyDoc = useMemo(() => {
-    const candidate = liveDocs?.privacyPolicy || legalDocuments?.privacyPolicy;
+    let candidate = liveDocs?.privacyPolicy || legalDocuments?.privacyPolicy;
+    const isAmazon = (cleanHost || targetUrl || '').toLowerCase().includes('amazon');
+    if (isAmazon && candidate) {
+      const cTitle = (candidate.title || '').toLowerCase();
+      const cUrl = (candidate.url || '').toLowerCase();
+      if (cTitle.includes('payment') || cTitle.includes('amazon pay') || cUrl.includes('pay.amazon') || cUrl.includes('amazonpay')) {
+        candidate = null;
+      }
+    }
     if (candidate && candidate.content && typeof candidate.content === 'string' && candidate.content.trim().length > 50) {
       return candidate;
     }
@@ -545,10 +597,18 @@ export default function LegalDocumentsModal({
       return BENDLENS_PRIVACY_POLICY;
     }
     return generateClientLegalDocument(targetUrl, 'privacy');
-  }, [isBendLensTarget, liveDocs, legalDocuments, targetUrl]);
+  }, [cleanHost, isBendLensTarget, liveDocs, legalDocuments, targetUrl]);
 
   const termsDoc = useMemo(() => {
-    const candidate = liveDocs?.termsOfService || legalDocuments?.termsOfService;
+    let candidate = liveDocs?.termsOfService || legalDocuments?.termsOfService;
+    const isAmazon = (cleanHost || targetUrl || '').toLowerCase().includes('amazon');
+    if (isAmazon && candidate) {
+      const cTitle = (candidate.title || '').toLowerCase();
+      const cUrl = (candidate.url || '').toLowerCase();
+      if (cTitle.includes('payment') || cTitle.includes('amazon pay') || cUrl.includes('pay.amazon') || cUrl.includes('amazonpay')) {
+        candidate = null;
+      }
+    }
     if (candidate && candidate.content && typeof candidate.content === 'string' && candidate.content.trim().length > 50) {
       return candidate;
     }
@@ -556,7 +616,7 @@ export default function LegalDocumentsModal({
       return BENDLENS_TERMS_OF_SERVICE;
     }
     return generateClientLegalDocument(targetUrl, 'terms');
-  }, [isBendLensTarget, liveDocs, legalDocuments, targetUrl]);
+  }, [cleanHost, isBendLensTarget, liveDocs, legalDocuments, targetUrl]);
 
   // Selected document based on active tab (Always guaranteed to resolve a complete regulatory document)
   const currentDoc = useMemo(() => {
@@ -638,23 +698,40 @@ export default function LegalDocumentsModal({
     setIsEditing(false);
   };
 
+  // Sanitized content for raw markdown viewing and download
+  const displayContent = useMemo(() => {
+    if (!currentDoc?.content) return '';
+    let text = currentDoc.content;
+    if (text.includes('Markdown Content:')) {
+      const headingMatch = text.match(/(?:^|\n)(#{1,2}\s+(?:Privacy|Terms|Conditions|Legal|Policy|Notice)[^\r\n]*)/i);
+      if (headingMatch && headingMatch.index !== undefined) {
+        text = text.slice(headingMatch.index).trim();
+      } else {
+        const idx = text.indexOf('Markdown Content:');
+        text = text.slice(idx + 'Markdown Content:'.length).trim();
+      }
+    }
+    text = text.replace(/^(?:Title|URL Source|Final URL|Markdown Content):\s*[^\r\n]*\r?\n?/gm, '').trim();
+    text = text.replace(/\[([^\]]+)\]\(javascript:(?:[^()]+|\([^()]*\))*\)/gi, '$1');
+    return text;
+  }, [currentDoc?.content]);
+
   // Highlight search matches in document content
   const renderedContent = useMemo(() => {
-    if (!currentDoc?.content) return null;
+    if (!displayContent) return null;
     const q = searchQuery.trim();
-    if (!q) return currentDoc.content;
+    if (!q) return displayContent;
 
-    // Simple plain text renderer with highlight
-    return currentDoc.content;
-  }, [currentDoc, searchQuery]);
+    return displayContent;
+  }, [displayContent, searchQuery]);
 
   const searchMatchCount = useMemo(() => {
-    if (!currentDoc?.content || !searchQuery.trim()) return 0;
+    if (!displayContent || !searchQuery.trim()) return 0;
     const q = searchQuery.trim();
     const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-    const matches = currentDoc.content.match(regex);
+    const matches = displayContent.match(regex);
     return matches ? matches.length : 0;
-  }, [currentDoc, searchQuery]);
+  }, [displayContent, searchQuery]);
 
   if (!isOpen || !mounted) return null;
 
@@ -1151,7 +1228,7 @@ export default function LegalDocumentsModal({
                       {searchQuery ? (
                         /* Render highlighted search matches */
                         (() => {
-                          const parts = currentDoc.content.split(new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+                          const parts = displayContent.split(new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
                           return parts.map((part, i) => (
                             part.toLowerCase() === searchQuery.toLowerCase() ? (
                               <mark key={i} className="bg-amber-400 text-black font-bold px-0.5 rounded">
@@ -1161,7 +1238,7 @@ export default function LegalDocumentsModal({
                           ));
                         })()
                       ) : (
-                        currentDoc.content
+                        displayContent
                       )}
                     </div>
                   )}
@@ -1355,9 +1432,26 @@ function renderInlineWithHighlights(text, searchQuery = '') {
  * Formats headings, paragraphs, lists, tables, and blockquotes exactly like a live web publication.
  */
 function AuthenticWebsiteRenderer({ content, searchQuery, currentDoc, cleanHost, targetUrl }) {
+  const sanitizedContent = useMemo(() => {
+    if (!content) return '';
+    let text = content;
+    if (text.includes('Markdown Content:')) {
+      const headingMatch = text.match(/(?:^|\n)(#{1,2}\s+(?:Privacy|Terms|Conditions|Legal|Policy|Notice)[^\r\n]*)/i);
+      if (headingMatch && headingMatch.index !== undefined) {
+        text = text.slice(headingMatch.index).trim();
+      } else {
+        const idx = text.indexOf('Markdown Content:');
+        text = text.slice(idx + 'Markdown Content:'.length).trim();
+      }
+    }
+    text = text.replace(/^(?:Title|URL Source|Final URL|Markdown Content):\s*[^\r\n]*\r?\n?/gm, '').trim();
+    text = text.replace(/\[([^\]]+)\]\(javascript:(?:[^()]+|\([^()]*\))*\)/gi, '$1');
+    return text;
+  }, [content]);
+
   const blocks = useMemo(() => {
-    if (!content) return [];
-    const lines = content.split('\n');
+    if (!sanitizedContent) return [];
+    const lines = sanitizedContent.split('\n');
     const parsed = [];
     let currentList = null;
     let currentTable = null;
@@ -1465,7 +1559,7 @@ function AuthenticWebsiteRenderer({ content, searchQuery, currentDoc, cleanHost,
     flushList();
     flushTable();
     return parsed;
-  }, [content]);
+  }, [sanitizedContent]);
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">

@@ -121,6 +121,8 @@ class SubdomainScanner {
     clean = clean.replace(/^\*\./, '');
     if (clean.startsWith('www.')) clean = clean.slice(4);
     clean = clean.replace(/\.+$/, '');
+    // Filter out reverse-DNS IP PTR artifacts (e.g. 207-171-168-34.amazon.com or 207_171_168_34)
+    if (/^\d{1,3}[-_.]\d{1,3}[-_.]\d{1,3}[-_.]\d{1,3}\./.test(clean)) return '';
     return clean;
   }
 
@@ -815,6 +817,9 @@ class SubdomainScanner {
       'api', 'auth', 'dashboard', 'verify', 'rcas', 'tpo', 'kp', 'student', 'mentor', 'gate',
       'learning', 'lab', 'labs', 'exams', 'examform', 'services', 'gateway', 'login', 'sso', 'id',
       'billing', 'pay', 'payment', 'cdn', 'static', 'assets', 'media', 'files', 'docs', 'status',
+      'aws', 'sellercentral', 'advertising', 'developer', 'music', 'prime', 'kdp', 'business',
+      'smile', 'alexa', 'kindle', 'author', 'affiliate', 'payments', 'seller', 'affiliate-program',
+      'associates', 'relay', 'fleet', 'freight', 'fresh', 'wholefoods', 'audible', 'vendor', 'vendorcentral',
       'git', 'gitlab', 'github', 'jira', 'confluence', 'wiki', 'jenkins', 'ci', 'cd', 'build',
       'staging', 'stage', 'qa', 'uat', 'prod', 'production', 'sandbox', 'demo', 'graphql', 'ws',
       'connect', 'sync', 'tracking', 'track', 'panel', 'internal', 'corp', 'partner', 'store',
