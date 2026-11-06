@@ -347,6 +347,41 @@ In cloud deployments (Vercel Serverless / AWS Lambda) subject to strict platform
    - Added `generateClientLegalDocument(targetUrl, docType)` ensuring external web targets always receive complete regulatory documents even when firewall challenges block live page discovery.
    - Guarded all `.toLocaleString()` occurrences with `(doc?.wordCount || 0).toLocaleString()` to eliminate runtime React crashes.
 
+---
+
+## 12. Web Deployment Serverless Parity & Authentic Legal Engine (v1.1.62)
+
+### Parity Divergence Resolution (Localhost vs. Vercel Web Deployments)
+When running in cloud serverless environments (`process.env.VERCEL`), prior configurations enforced an overly restrictive sub-10s cutoff (`maxChunks: 8`, `maxCrawlTimeMs: 8000`, `concurrency: 4`, active DNS disabled). Because Vercel serverless routes configured `export const maxDuration = 60;`, crawls were unnecessarily aborted mid-execution, causing web deployments to discover only 1 endpoint and 1 subdomain while localhost uncovered full surface areas.
+
+**Enhancements Applied**:
+1. **Serverless Budget Parity**:
+   - Serverless `maxChunks` elevated to **150** (from 8).
+   - Serverless `maxCrawlTimeMs` raised to **42,000ms** (safely utilizing Vercel's 60s execution window without gateway timeout risk).
+   - Serverless HTTP concurrency boosted to **16** (from 4).
+   - Phase 2 lazy-load cutoff extended to **35,000ms** (from 7,000ms).
+   - Gateway probe elapsed cutoff raised to **35,000ms** (from 5,500ms).
+   - Subdomain validation candidate limit expanded to **350** (from 100) with candidate timeout increased to 1,200ms.
+   - Active enterprise DNS prefix resolution enabled on serverless with top 60 high-probability prefixes.
+
+2. **Catch-All SPA Detection for Origin Policies (AirAsia & Modern Next.js/Vite Apps)**:
+   - Many modern single-page applications return HTTP 200 with the full homepage HTML for any non-existent route instead of HTTP 404 (e.g. AirAsia returning the 240KB flight booking widget for `/privacy_policy`).
+   - Traditional string-comparison checks (`r.text === homepageHtml`) failed because cloud edge CDNs (Cloudflare/Akamai) inject dynamic session tokens (`cf-ray`, tracking cookies).
+   - The crawler now utilizes semantic verification: compares page `<title>` against homepage `<title>`, checks length proximity (< 3,000 bytes delta), and verifies that the candidate `<title>` or `<h1>` explicitly contains legal tokens (`privacy`, `terms`, `policy`, `condition`, `agreement`, `statement`, `carriage`). This prevents homepage booking widgets from masquerading as legal agreements.
+
+3. **Client-Rendered CMS JSON Support in Legal Documents**:
+   - Modern enterprise portals (like AirAsia Terms of Use) render an empty CMS shell container (`<div id="mainContent"></div>`) which fetches content dynamically from a CDN JSON endpoint (e.g. `static.airasia.com/affiliate/about-us/terms-of-use/en-gb/file.json`).
+   - The crawler inspects script references and dynamic fetch calls within the page; if an authentic legal JSON file is referenced, it fetches the CMS content and structures it into Markdown sections with titles and subtitles.
+
+4. **Firewall Title Quarantine in Brand Extraction (`getEntityName`)**:
+   - Edge-protected targets (such as Emirates Akamai 403 Forbidden pages) return `<title>Access Denied</title>`.
+   - `getEntityName` and Stage 3 `projectName` extraction now validate against error tokens (`access denied`, `403`, `forbidden`, `attention required`, `just a moment`, `security check`).
+   - If an error title is returned, the engine gracefully extracts the clean brand identity from the target hostname (`emirates.com` -> `Emirates`), preventing documents from rendering as "Access Denied Privacy Policy".
+
+5. **Lens Dashboard URL State Preservation**:
+   - In `src/app/lens/page.jsx`, `currentPath` and `localStorage.getItem('bendlens-path')` now strictly preserve the normalized remote URL (`https://www.emirates.com` or `https://www.airasia.com`) rather than overwriting it with `projectName` ("Emirates"). This prevents subsequent rescans or reloads from mistaking the project name for a local filesystem directory.
+   - Implemented client-side relay auto-recovery for web deployments when server-side fetch is challenged or blocked.
+
 
 
 

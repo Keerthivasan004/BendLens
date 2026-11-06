@@ -230,9 +230,9 @@ class UniversalApiCrawler {
     const crawlDepth = options.crawlDepth || 'deep';
     const isNormalOnly = crawlDepth === 'normal';
     const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-    const maxChunks = isServerless ? Math.min(options.maxChunks || 500, 8) : (options.maxChunks || 500);
-    const maxCrawlTimeMs = isServerless ? 8000 : (options.maxCrawlDurationMs || 60000);
-    const concurrency = isServerless ? 4 : (options.concurrency || 20);
+    const maxChunks = isServerless ? Math.min(options.maxChunks || 500, 150) : (options.maxChunks || 500);
+    const maxCrawlTimeMs = isServerless ? 42000 : (options.maxCrawlDurationMs || 60000);
+    const concurrency = isServerless ? 16 : (options.concurrency || 20);
     const allEndpoints = new Map(); // path -> Set of HTTP methods
     const normalEndpoints = new Map(); // path -> Set of HTTP methods (Phase 1 / Normal Crawl snapshot)
     const verifiedApiRoutes = new Set(); // Routes confirmed to be HTTP callers / REST / RPC endpoints
@@ -820,7 +820,13 @@ class UniversalApiCrawler {
       const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
       if (titleMatch) {
         pageTitle = titleMatch[1].trim().replace(/&amp;/g, '&');
-        projectName = pageTitle;
+        const lowerTitle = pageTitle.toLowerCase();
+        const isErrorTitle = lowerTitle.includes('access denied') || lowerTitle.includes('403') || lowerTitle.includes('forbidden') || lowerTitle.includes('attention required') || lowerTitle.includes('just a moment') || lowerTitle.includes('security check') || lowerTitle.includes('blocked');
+        if (!isErrorTitle) {
+          projectName = pageTitle;
+        } else {
+          projectName = this.getEntityName(href, '');
+        }
       }
 
       // Early parallel trigger for authentic legal document extraction (Privacy Policy & Terms of Service)
@@ -1194,7 +1200,7 @@ class UniversalApiCrawler {
       try {
         const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
         const elapsedSoFar = Date.now() - startTime;
-        const maxSubdomainBudgetMs = isServerless ? Math.max(1500, 8500 - elapsedSoFar) : 35000;
+        const maxSubdomainBudgetMs = isServerless ? Math.max(4000, Math.min(20000, 40000 - elapsedSoFar)) : 35000;
         const harvested = await Promise.race([
           pSubdomainDiscovery || SubdomainScanner.discoverSubdomains(hostname, {
             html,
@@ -1464,7 +1470,7 @@ class UniversalApiCrawler {
       // Serverless Adaptive: executes Phase 2 dynamically when execution budget permits
       // -----------------------------------------------------------------------
       const elapsedPhase2 = Date.now() - startTime;
-      const canRunPhase2 = !isNormalOnly && (!isServerless || elapsedPhase2 < 7000);
+      const canRunPhase2 = !isNormalOnly && (!isServerless || elapsedPhase2 < 35000);
       if (canRunPhase2) {
         // Probe discovered internal sub-routes to uncover role-gated page chunks (e.g. /login, /admin, /dashboard, /ai, /quiz)
         const commonSubpages = ['/ai', '/ai/index.html', '/quiz', '/quiz/index.html', '/privacy-policy', '/terms'];
@@ -1655,7 +1661,7 @@ class UniversalApiCrawler {
       let extGatewayHeaders = {};
       const diagnosticEndpoints = ['/api/health', '/health', '/healthz'];
       const elapsedGateways = Date.now() - startTime;
-      if (!isServerless || elapsedGateways < 5500) {
+      if (!isServerless || elapsedGateways < 35000) {
         await Promise.allSettled(prioritizedGateways.map(async (extGateway) => {
           try {
             const gwRes = await this.safeFetch(extGateway, { timeout: 2000, customHeaders });
@@ -1958,7 +1964,7 @@ class UniversalApiCrawler {
       try {
         if (pLegalDocuments) {
           const elapsed = Date.now() - startTime;
-          const maxLegalWaitMs = isServerless ? Math.max(1500, Math.min(5000, 9500 - elapsed)) : 15000;
+          const maxLegalWaitMs = isServerless ? Math.max(3000, Math.min(8000, 42000 - elapsed)) : 15000;
           legalDocuments = await Promise.race([
             pLegalDocuments,
             new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
@@ -4377,17 +4383,27 @@ class UniversalApiCrawler {
    * Derive clean organization / brand name from target URL or project title.
    */
   static getEntityName(targetUrl = '', projectName = '') {
-    if (projectName && typeof projectName === 'string' && projectName !== 'Target' && !projectName.includes('Analysis for')) {
+    const isInvalidBrand = (str) => {
+      if (!str || typeof str !== 'string') return true;
+      const s = str.trim().toLowerCase();
+      if (s === 'target' || s === 'organization' || s === 'entity' || s.includes('analysis for')) return true;
+      if (s.includes('access denied') || s.includes('403') || s.includes('forbidden') || s.includes('not found') || s.includes('404')) return true;
+      if (s.includes('attention required') || s.includes('just a moment') || s.includes('cloudflare') || s.includes('akamai') || s.includes('incapsula')) return true;
+      if (s.includes('bad gateway') || s.includes('502') || s.includes('503') || s.includes('504') || s.includes('internal server error') || s.includes('security check') || s.includes('blocked')) return true;
+      return false;
+    };
+
+    if (projectName && typeof projectName === 'string' && !isInvalidBrand(projectName)) {
       const parts = projectName.split(/[|·\-–—]/).map(s => s.trim()).filter(Boolean);
       if (parts.length > 0) {
         // Find best brand candidate (prefer concise brand token over tagline)
-        const brandCandidate = parts.find(p => !/^(?:home|welcome|official|website|page|portal|ai-powered|powered|cybersecurity|solutions)\b/i.test(p) && p.length < 35 && !p.includes('...'));
+        const brandCandidate = parts.find(p => !isInvalidBrand(p) && !/^(?:home|welcome|official|website|page|portal|ai-powered|powered|cybersecurity|solutions)\b/i.test(p) && p.length < 35 && !p.includes('...'));
         if (brandCandidate) {
           return brandCandidate.replace(/^(?:welcome\s+to\s+|the\s+)/i, '').trim();
         }
-        if (parts[0] && parts[0].length < 35) return parts[0];
+        if (parts[0] && parts[0].length < 35 && !isInvalidBrand(parts[0])) return parts[0];
       }
-      if (projectName.length < 35) return projectName;
+      if (projectName.length < 35 && !isInvalidBrand(projectName)) return projectName;
     }
     try {
       const raw = targetUrl.startsWith('http') ? targetUrl : 'https://' + targetUrl;
@@ -4761,7 +4777,7 @@ Support: **support@${domainName}**`;
     const wordCount = words.length;
     const charCount = content.length;
 
-    let rawUrl = options.url || targetUrl || origin;
+    let rawUrl = options.url || (docType === 'privacy' ? `${origin}/privacy-policy` : `${origin}/terms-of-service`);
     if (rawUrl.startsWith('http://') && !rawUrl.includes('localhost')) {
       rawUrl = rawUrl.replace(/^http:\/\//i, 'https://');
     }
@@ -4919,6 +4935,14 @@ Support: **support@${domainName}**`;
 
     // Prioritized candidate lists (discovered links first, followed by origin paths, subdomains, and multi-lingual conventions)
     const primaryPrivacyPaths = [
+      '/aa/about-us/en/gb/privacy-statement.html',
+      '/aa/about-us/en/gb/privacy-policy.html',
+      '/privacy-statement',
+      '/privacy-statement/',
+      '/privacy-statement.html',
+      '/about-us/privacy-statement',
+      '/about-us/privacy-statement.html',
+      '/about/privacy-statement',
       '/privacy_policy',
       '/privacy_policy/',
       '/privacy_policy.html',
@@ -4954,6 +4978,8 @@ Support: **support@${domainName}**`;
       '/us/en/legal/privacy-policy',
       '/us/en/legal/privacy-policy/',
       '/english/privacy-policy/',
+      '/ae/english/privacy-policy/',
+      '/in/english/privacy-policy/',
       '/privacy.html'
     ];
 
@@ -4974,6 +5000,11 @@ Support: **support@${domainName}**`;
     ]));
 
     const primaryTermsPaths = [
+      '/aa/about-us/en/gb/terms-and-conditions.html',
+      '/aa/about-us/en/gb/terms-of-use.html',
+      '/terms-and-conditions.html',
+      '/terms-of-use.html',
+      '/terms-of-service.html',
       '/terms_of_use',
       '/terms_of_use/',
       '/terms_of_use.html',
@@ -5066,8 +5097,12 @@ Support: **support@${domainName}**`;
               return null;
             }
 
-            const isCatchAllFallback = html && r.text.length === html.length && r.text === html;
             const lowerText = r.text.toLowerCase();
+            const homeTitle = (html && typeof html === 'string') ? (html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '').trim().toLowerCase() : '';
+            const candTitle = (r.text.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '').trim().toLowerCase();
+            const isCatchAllByTitle = Boolean(homeTitle && candTitle && homeTitle === candTitle && !candTitle.includes('privacy') && !candTitle.includes('terms') && !candTitle.includes('legal') && !candTitle.includes('condition') && !candTitle.includes('policy') && !candTitle.includes('statement'));
+            const isCatchAllByLength = Boolean(html && Math.abs(r.text.length - html.length) < 3000 && (isCatchAllByTitle || (!candTitle.includes('privacy') && !candTitle.includes('terms') && !candTitle.includes('condition') && !candTitle.includes('policy') && !candTitle.includes('statement'))));
+            const isCatchAllFallback = (html && r.text.length === html.length && r.text === html) || isCatchAllByTitle || isCatchAllByLength;
             const is404Page = lowerText.includes('<title>404') || lowerText.includes('page not found') || lowerText.includes('404 not found') || (r.status === 200 && r.text.length < 800 && lowerText.includes('error'));
 
             // Verify content contains relevant legal terminology
@@ -5075,8 +5110,42 @@ Support: **support@${domainName}**`;
               ? (lowerText.includes('privacy') || lowerText.includes('personal data') || lowerText.includes('data protection') || lowerText.includes('information we collect'))
               : (lowerText.includes('terms') || lowerText.includes('condition') || lowerText.includes('agreement') || lowerText.includes('acceptable use') || lowerText.includes('governing law') || lowerText.includes('carriage'));
 
-            if (!isCatchAllFallback && !is404Page && hasRelevantTerms && !this.isFirewallBlocked(r)) {
-              const meta = this.extractLegalMetadata(r.text, defaultTitle, u);
+            // Validate that the page is an authentic legal policy and not a general product or booking landing page with a stray footer cookie notice
+            const titleMentionsLegal = candTitle.includes('privacy') || candTitle.includes('terms') || candTitle.includes('policy') || candTitle.includes('condition') || candTitle.includes('legal') || candTitle.includes('statement') || candTitle.includes('agreement') || candTitle.includes('carriage') || candTitle.includes('disclaimer');
+            const h1Match = (r.text.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || '').toLowerCase();
+            const h1MentionsLegal = h1Match.includes('privacy') || h1Match.includes('terms') || h1Match.includes('policy') || h1Match.includes('condition') || h1Match.includes('legal') || h1Match.includes('statement') || h1Match.includes('agreement') || h1Match.includes('carriage');
+            const isAuthenticLegalPage = titleMentionsLegal || h1MentionsLegal || isExplicitUrl(u);
+
+            if (!isCatchAllFallback && !is404Page && hasRelevantTerms && isAuthenticLegalPage && !this.isFirewallBlocked(r)) {
+              let meta = this.extractLegalMetadata(r.text, defaultTitle, u);
+
+              // Client-rendered CMS JSON support: if page body has minimal text but references a content JSON file (e.g. AirAsia terms of use)
+              if ((!meta || meta.wordCount < 80) && r.text.includes('.json')) {
+                const jsonUrlMatch = r.text.match(/fetch\(["'](https?:\/\/[^"']+\.json)["']\)/i) ||
+                  r.text.match(/["'](https?:\/\/[^"']*(?:terms|privacy|policy|legal)[^"']*\.json)["']/i);
+                if (jsonUrlMatch) {
+                  try {
+                    const jsonRes = await this.safeFetch(jsonUrlMatch[1], { timeout: 3500 });
+                    if (jsonRes.ok && jsonRes.text) {
+                      const parsed = JSON.parse(jsonRes.text);
+                      let synthContent = `# ${defaultTitle}\n\n`;
+                      if (Array.isArray(parsed.default) && parsed.default[0]?.description) {
+                        synthContent += `*${parsed.default[0].description}*\n\n`;
+                      }
+                      const sections = Array.isArray(parsed.general) ? parsed.general : (Array.isArray(parsed.sections) ? parsed.sections : []);
+                      for (const sec of sections) {
+                        if (sec.subtitle) synthContent += `## ${sec.subtitle}\n\n`;
+                        if (sec.content) synthContent += `${sec.content}\n\n`;
+                        if (sec.content2) synthContent += `${sec.content2}\n\n`;
+                      }
+                      if (synthContent.length > 300) {
+                        meta = this.extractLegalMetadata(`<html><head><title>${candTitle || defaultTitle}</title></head><body>${synthContent}</body></html>`, defaultTitle, u);
+                      }
+                    }
+                  } catch {}
+                }
+              }
+
               if (meta && meta.wordCount >= 80 && !this.isCssContent(meta.content)) {
                 meta.isFirewallResilient = false;
                 meta.source = 'origin_live';
@@ -5099,7 +5168,9 @@ Support: **support@${domainName}**`;
                 const hasTerms = docType === 'privacy'
                   ? (lowerText.includes('privacy') || lowerText.includes('personal data') || lowerText.includes('data protection'))
                   : (lowerText.includes('terms') || lowerText.includes('condition') || lowerText.includes('agreement'));
-                if (!is404 && hasTerms && !this.isFirewallBlocked(slashRes)) {
+                const candTitle = (slashRes.text.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '').trim().toLowerCase();
+                const titleMentionsLegal = candTitle.includes('privacy') || candTitle.includes('terms') || candTitle.includes('policy') || candTitle.includes('condition') || candTitle.includes('legal') || candTitle.includes('statement') || candTitle.includes('agreement');
+                if (!is404 && hasTerms && titleMentionsLegal && !this.isFirewallBlocked(slashRes)) {
                   const meta = this.extractLegalMetadata(slashRes.text, defaultTitle, slashUrl);
                   if (meta && meta.wordCount >= 80 && !this.isCssContent(meta.content)) {
                     meta.isFirewallResilient = false;
@@ -5163,11 +5234,8 @@ Support: **support@${domainName}**`;
 
       // 2. Parallel batched probes for conventional paths (concurrency: 6 on serverless)
       const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-      if (isServerlessEnv && explicitCandidates.length > 0) {
-        return null;
-      }
       const conventionCandidates = candidates.filter(u => !isExplicitUrl(u));
-      const targetConventions = isServerlessEnv ? conventionCandidates.slice(0, 6) : conventionCandidates;
+      const targetConventions = isServerlessEnv ? conventionCandidates.slice(0, 14) : conventionCandidates;
       const batchSize = isServerlessEnv ? 6 : 8;
       for (let i = 0; i < targetConventions.length; i += batchSize) {
         const batch = targetConventions.slice(i, i + batchSize);

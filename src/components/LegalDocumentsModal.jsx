@@ -188,7 +188,9 @@ function generateClientLegalDocument(targetUrl, docType = 'privacy') {
     domainName = (targetUrl || 'target.com').replace(/^https?:\/\//i, '').split('/')[0];
   }
 
-  const cleanEntity = domainName.split('.')[0];
+  const rawEntity = domainName.split('.')[0] || 'Organization';
+  const isErr = rawEntity.toLowerCase().includes('access denied') || rawEntity.toLowerCase().includes('403') || rawEntity.toLowerCase().includes('error');
+  const cleanEntity = isErr ? 'Organization' : rawEntity;
   const entityName = cleanEntity.charAt(0).toUpperCase() + cleanEntity.slice(1);
   const now = new Date();
   const lastUpdated = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });

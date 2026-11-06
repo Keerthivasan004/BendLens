@@ -159,7 +159,7 @@ export default function LensDashboard() {
       const isRemoteUrl = sanitized.startsWith('http://') || sanitized.startsWith('https://') || /^(?:api\.|github\.com|gitlab\.com|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/|$))/i.test(sanitized);
       const normalizedRemote = isRemoteUrl && !sanitized.startsWith('http://') && !sanitized.startsWith('https://') ? 'https://' + sanitized : sanitized;
       const endpoint = isRemoteUrl ? '/api/git-clone' : `/api/analyze?t=${Date.now()}`;
-      const payload = isRemoteUrl ? { repoUrl: normalizedRemote } : { path: sanitized };
+      const payload = isRemoteUrl ? { repoUrl: normalizedRemote, crawlDepth: 'deep' } : { path: sanitized };
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -167,19 +167,57 @@ export default function LensDashboard() {
         cache: 'no-store',
         body: JSON.stringify(payload)
       });
-      const result = await res.json();
-      if (result.success) {
+      let result = null;
+      try {
+        result = await res.json();
+      } catch {
+        result = { success: false, error: `Server error (${res.status})` };
+      }
+
+      // If server crawl timed out or was challenged on web deployment, attempt client-side relay recovery
+      if ((!result || !result.success) && isRemoteUrl) {
+        try {
+          const clientGateways = [
+            `https://api.allorigins.win/raw?url=${encodeURIComponent(normalizedRemote)}`
+          ];
+          for (const gw of clientGateways) {
+            try {
+              const gwRes = await fetch(gw, { signal: AbortSignal.timeout(7000) });
+              if (gwRes.ok) {
+                const htmlText = await gwRes.text();
+                if (htmlText && htmlText.length > 200) {
+                  const retryRes = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ repoUrl: normalizedRemote, crawlDepth: 'deep', preloadedHtml: htmlText })
+                  });
+                  const retryJson = await retryRes.json();
+                  if (retryJson?.success) {
+                    result = retryJson;
+                    break;
+                  }
+                }
+              }
+            } catch {}
+          }
+        } catch {}
+      }
+
+      if (result && result.success) {
         setAnalysisData(result.data);
-        const resolvedPath = result.data.projectName || result.data.projectPath || sanitized;
+        const resolvedPath = isRemoteUrl 
+          ? (result.data.projectPath || result.data.targetUrl || normalizedRemote) 
+          : (result.data.projectPath || result.data.projectName || sanitized);
         setCurrentPath(resolvedPath);
         if (result.data.isUrlCrawl || result.data.crawlerTelemetry || isRemoteUrl || result.data.schema?.tables?.length === 0) {
           setActiveDiagramTab('sequence');
         }
         try {
+          sessionStorage.setItem('bendlens-current-data', JSON.stringify(result.data));
           localStorage.setItem('bendlens-path', resolvedPath);
         } catch {}
       } else {
-        setErrorMessage(result.error || 'Analysis failed');
+        setErrorMessage(result?.error || 'Analysis failed');
       }
     } catch (err) {
       setErrorMessage(err.message || 'Network error analyzing project');

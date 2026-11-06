@@ -462,7 +462,7 @@ class SubdomainScanner {
    * High-Probability Active DNS Resolution with Expanded Enterprise Dictionary (350+ entries)
    * Powered by non-blocking asynchronous c-ares UDP lookups
    */
-  static async getActiveDnsSubdomains(apexDomain) {
+  static async getActiveDnsSubdomains(apexDomain, maxPrefixes = 350) {
     // 1. Check for Wildcard DNS
     let hasWildcard = false;
     try {
@@ -481,7 +481,7 @@ class SubdomainScanner {
     }
 
     // 350+ Most Common Enterprise & SaaS Subdomain Prefixes
-    const wordlist = [
+    const fullWordlist = [
       'www', 'mail', 'remote', 'blog', 'webmail', 'server', 'ns1', 'ns2', 'smtp', 'secure',
       'vpn', 'm', 'shop', 'ftp', 'mail2', 'test', 'portal', 'ns', 'ww1', 'host',
       'support', 'dev', 'bbs', 'ww42', 'mx', 'email', 'cloud', '1', 'mail1', '2',
@@ -513,6 +513,7 @@ class SubdomainScanner {
       'audit', 'compliance', 'academy', 'training', 'school', 'university', 'lms', 'classroom'
     ];
 
+    const wordlist = fullWordlist.slice(0, maxPrefixes);
     const discovered = [];
     let idx = 0;
     const concurrency = 40;
@@ -651,7 +652,7 @@ class SubdomainScanner {
     const verified = new Set([apexDomain]);
     const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
     const concurrency = isServerless ? 35 : 30;
-    const candidateLimit = isServerless ? 100 : maxCandidates;
+    const candidateLimit = isServerless ? 350 : maxCandidates;
     const candidates = Array.from(candidateSet)
       .filter((h) => h && h !== apexDomain && !h.includes('*'))
       .slice(0, candidateLimit);
@@ -662,7 +663,7 @@ class SubdomainScanner {
     const resolveCandidate = (host) => {
       return new Promise((resolve) => {
         let settled = false;
-        const candidateTimeout = isServerless ? 800 : 1800;
+        const candidateTimeout = isServerless ? 1200 : 1800;
         const timer = setTimeout(() => {
           if (!settled) {
             settled = true;
@@ -745,12 +746,12 @@ class SubdomainScanner {
 
     // Adaptive bounded timeouts for serverless and local environments
     const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-    const certSpotterPages = isServerless ? 2 : 15;
-    const certSpotterTimeout = isServerless ? 3000 : 25000;
-    const crtShTimeout = isServerless ? 3500 : 10000;
-    const hackerTargetTimeout = isServerless ? 2000 : 6000;
-    const rapidDnsTimeout = isServerless ? 2500 : 8000;
-    const validationTimeout = isServerless ? 3500 : 35000;
+    const certSpotterPages = isServerless ? 8 : 15;
+    const certSpotterTimeout = isServerless ? 6000 : 25000;
+    const crtShTimeout = isServerless ? 6000 : 10000;
+    const hackerTargetTimeout = isServerless ? 3500 : 6000;
+    const rapidDnsTimeout = isServerless ? 5000 : 8000;
+    const validationTimeout = isServerless ? 10000 : 35000;
 
     const tlsVerifiedSet = new Set();
 
@@ -786,7 +787,7 @@ class SubdomainScanner {
       }
     }).catch(() => { });
 
-    const pActiveDns = isServerless ? Promise.resolve([]) : this.getActiveDnsSubdomains(apex).then((list) => {
+    const pActiveDns = this.getActiveDnsSubdomains(apex, isServerless ? 60 : 350).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
         if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);

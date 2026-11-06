@@ -526,11 +526,15 @@ export async function POST(request) {
         result.projectName = crawlResult.projectName;
         result.projectPath = repoUrl;
         result.isUrlCrawl = true;
+        result.openApiSpec = crawlResult.openApiSpec;
         result.legalDocuments = crawlResult.legalDocuments || crawlResult.telemetry?.legalDocuments || null;
         result.crawlerTelemetry = crawlResult.telemetry;
         result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
         result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
         result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
+        if (!crawlResult.sqlSchema) {
+          result.schema = { tables: [], relationships: [] };
+        }
         saveToHistory(result);
         return NextResponse.json({ success: true, data: result });
       }
