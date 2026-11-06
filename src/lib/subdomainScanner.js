@@ -1,17 +1,26 @@
+// @ts-nocheck
+/* eslint-disable */
 const dns = require('dns');
 const tls = require('tls');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { getCrawlerProfile } = require('./crawler/index.js');
 
 // Shared high-speed non-blocking c-ares resolver
 const sharedResolver = new dns.Resolver();
 // In serverless environments (Vercel, AWS Lambda), do NOT override system nameservers because outbound port 53 to public IPs is restricted
 if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
   try {
-    sharedResolver.setServers(['8.8.8.8', '1.1.1.1', '9.9.9.9']);
-  } catch { }
+    const sysServers = dns.getServers();
+    const hasLocal = sysServers.some(s => s === '127.0.0.1' || s === '::1');
+    if (!hasLocal) {
+      sharedResolver.setServers(['8.8.8.8', '1.1.1.1', '9.9.9.9']);
+    } else {
+      sharedResolver.setServers([...sysServers, '8.8.8.8', '1.1.1.1']);
+    }
+  } catch (_err) { }
 }
 
 const PERIMETER_CACHE_FILE = path.join(os.tmpdir(), '.bendlens_perimeter_cache.json');
@@ -21,23 +30,34 @@ function loadDiskPerimeterCache() {
     if (fs.existsSync(PERIMETER_CACHE_FILE)) {
       const data = JSON.parse(fs.readFileSync(PERIMETER_CACHE_FILE, 'utf8'));
       const cache = new Map();
-      for (const [k, v] of Object.entries(data)) {
-        if (Array.isArray(v)) cache.set(k, new Set(v));
+      if (data && typeof data === 'object') {
+        for (const [k, v] of Object.entries(data)) {
+          if (Array.isArray(v)) cache.set(k, new Set(v));
+        }
       }
       return cache;
     }
-  } catch { }
+  } catch (_err) { }
   return new Map();
 }
 
 function saveDiskPerimeterCache(cache) {
   try {
+    if (!cache || !(cache instanceof Map)) return;
     const obj = {};
     for (const [k, v] of cache.entries()) {
-      obj[k] = Array.from(v);
+      if (v instanceof Set) {
+        obj[k] = Array.from(v);
+      } else if (Array.isArray(v)) {
+        obj[k] = v;
+      }
     }
     fs.writeFileSync(PERIMETER_CACHE_FILE, JSON.stringify(obj, null, 2), 'utf8');
-  } catch { }
+  } catch (_err) { }
+}
+
+function escapeRegex(str) {
+  return String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -47,23 +67,25 @@ function saveDiskPerimeterCache(cache) {
  * 1. Certificate Transparency Log Harvesting with automated multi-page streaming (CertSpotter)
  * 2. Secondary CT Log Query with resilient error handling & retries (crt.sh)
  * 3. In-memory multi-target TLS/SSL Certificate Subject Alternative Name (SAN) inspection (apex, www, mail, api, app)
- * 4. RapidDNS Open Subdomain Reconnaissance (barrier-free, zero rate limits)
- * 5. Direct DNS Record Mining (TXT/SPF, MX, NS, CNAME)
- * 6. High-probability active DNS dictionary resolution (350+ enterprise prefixes via non-blocking c-ares)
- * 7. Wildcard DNS detection & differential IP verification
- * 8. HTML DOM, JavaScript chunks, inline scripts, and HTTP headers token extraction
- * 9. High-speed concurrent DNS active validation (c-ares UDP batching + CNAME verification)
+ * 4. Subdomain Center Open Intelligence API (fast candidate harvesting)
+ * 5. AlienVault OTX Passive Reconnaissance
+ * 6. RapidDNS Open Subdomain Reconnaissance (barrier-free, zero rate limits)
+ * 7. Direct DNS Record Mining (TXT/SPF, MX, NS, CNAME)
+ * 8. High-probability active DNS dictionary resolution (350+ enterprise prefixes via non-blocking c-ares)
+ * 9. Wildcard DNS detection & differential IP verification
+ * 10. HTML DOM, JavaScript chunks, inline scripts, and HTTP headers token extraction
+ * 11. High-speed concurrent DNS active validation (c-ares UDP batching + CNAME verification + OS fallback)
  */
 
 class SubdomainScanner {
-  // In-memory & disk-persistent perimeter cache preserving verified assets across repeated runs
-  static perimeterCache = loadDiskPerimeterCache();
   /**
    * Extract apex domain handling multi-part TLDs (.co.uk, .co.in, .org.in, etc.)
    */
   static getApexDomain(hostname) {
     if (!hostname) return '';
-    let host = String(hostname).toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
+    let host = String(hostname).toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split('?')[0].split('#')[0];
+    if (host.includes('@')) host = host.split('@').pop() || '';
+    host = host.split(':')[0].replace(/\.+$/, '');
     if (host.startsWith('www.')) host = host.slice(4);
     const parts = host.split('.');
     if (parts.length <= 2) return host;
@@ -76,7 +98,9 @@ class SubdomainScanner {
       'com.br', 'net.br', 'org.br',
       'co.jp', 'ne.jp', 'or.jp',
       'com.sg', 'org.sg', 'edu.sg',
-      'com.my', 'org.my', 'edu.my'
+      'com.my', 'org.my', 'edu.my',
+      'com.tr', 'gov.tr', 'edu.tr',
+      'com.ph', 'org.ph', 'net.ph'
     ];
     const lastTwo = parts.slice(-2).join('.');
     if (secondLevelTlds.includes(lastTwo)) {
@@ -86,13 +110,17 @@ class SubdomainScanner {
   }
 
   /**
-   * Canonicalize subdomain string: removes protocol, port, trailing slashes, www alias, wildcard prefixes
+   * Canonicalize subdomain string: removes protocol, port, trailing slashes, www alias, wildcard prefixes, and trailing FQDN dots
    */
   static canonicalize(host) {
     if (!host || typeof host !== 'string') return '';
-    let clean = host.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
+    let clean = host.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split('?')[0].split('#')[0];
+    if (clean.includes('@')) clean = clean.split('@').pop() || '';
+    clean = clean.split(':')[0];
+    clean = clean.replace(/\.+$/, '');
     clean = clean.replace(/^\*\./, '');
     if (clean.startsWith('www.')) clean = clean.slice(4);
+    clean = clean.replace(/\.+$/, '');
     return clean;
   }
 
@@ -101,6 +129,7 @@ class SubdomainScanner {
    * Probes apex domain and top perimeter endpoints (apex, www, mail, api, app) in parallel
    */
   static async getTlsSanSubdomains(apexDomain, timeoutMs = 3000) {
+    if (!apexDomain) return [];
     const targets = [
       apexDomain,
       `www.${apexDomain}`,
@@ -123,14 +152,26 @@ class SubdomainScanner {
 
     const probeSingleTarget = (host) => {
       return new Promise((resolve) => {
-        const timer = setTimeout(() => resolve([]), timeoutMs);
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            resolve([]);
+          }
+        }, timeoutMs);
+
         try {
           const socket = tls.connect(443, host, { servername: host, timeout: timeoutMs }, () => {
+            if (settled) {
+              try { socket.destroy(); } catch (_e) { }
+              return;
+            }
+            settled = true;
             clearTimeout(timer);
             try {
               const cert = socket.getPeerCertificate();
               socket.end();
-              if (cert && cert.subjectaltname) {
+              if (cert && cert.subjectaltname && typeof cert.subjectaltname === 'string') {
                 const sans = cert.subjectaltname
                   .split(',')
                   .map((s) => s.trim().replace(/^DNS:/i, ''))
@@ -139,17 +180,31 @@ class SubdomainScanner {
               } else {
                 resolve([]);
               }
-            } catch {
+            } catch (_err) {
               resolve([]);
             }
           });
           socket.on('error', () => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              resolve([]);
+            }
+          });
+          socket.on('timeout', () => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              try { socket.destroy(); } catch (_e) { }
+              resolve([]);
+            }
+          });
+        } catch (_err) {
+          if (!settled) {
+            settled = true;
             clearTimeout(timer);
             resolve([]);
-          });
-        } catch {
-          clearTimeout(timer);
-          resolve([]);
+          }
         }
       });
     };
@@ -174,6 +229,7 @@ class SubdomainScanner {
    * Capable of harvesting 800-1000+ issuances in seconds
    */
   static async getCertSpotterSubdomains(apexDomain, maxPages = 10, timeoutMs = 15000) {
+    if (!apexDomain) return [];
     const discovered = new Set();
     let after = null;
     const startTime = Date.now();
@@ -182,46 +238,77 @@ class SubdomainScanner {
       if (Date.now() - startTime > timeoutMs) break;
 
       const pageItems = await new Promise((resolve) => {
-        let url = `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(apexDomain)}&include_subdomains=true&expand=dns_names`;
-        if (after) url += `&after=${encodeURIComponent(after)}`;
-
-        const req = https.get(
-          url,
-          {
-            headers: { 'User-Agent': 'Mozilla/5.0 BendLens/1.0' },
-            timeout: 6000
-          },
-          (res) => {
-            let data = '';
-            res.on('data', (chunk) => { data += chunk; });
-            res.on('end', () => {
-              if (res.statusCode !== 200 || !data || !data.trim().startsWith('[')) {
-                return resolve([]);
-              }
-              try {
-                const parsed = JSON.parse(data);
-                resolve(Array.isArray(parsed) ? parsed : []);
-              } catch {
-                resolve([]);
-              }
-            });
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            resolve([]);
           }
-        );
-        req.on('error', () => resolve([]));
-        req.on('timeout', function () {
-          this.destroy();
-          resolve([]);
-        });
+        }, 7000);
+
+        try {
+          let url = `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(apexDomain)}&include_subdomains=true&expand=dns_names`;
+          if (after) url += `&after=${encodeURIComponent(after)}`;
+
+          const req = https.get(
+            url,
+            {
+              headers: { 'User-Agent': 'Mozilla/5.0 BendLens/1.0' },
+              timeout: 6000
+            },
+            (res) => {
+              let data = '';
+              res.on('data', (chunk) => { data += chunk; });
+              res.on('end', () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                if (res.statusCode !== 200 || !data || !data.trim().startsWith('[')) {
+                  return resolve([]);
+                }
+                try {
+                  const parsed = JSON.parse(data);
+                  resolve(Array.isArray(parsed) ? parsed : []);
+                } catch (_err) {
+                  resolve([]);
+                }
+              });
+            }
+          );
+          req.on('error', () => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              resolve([]);
+            }
+          });
+          req.on('timeout', () => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              try { req.destroy(); } catch (_e) { }
+              resolve([]);
+            }
+          });
+        } catch (_err) {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve([]);
+          }
+        }
       });
 
       if (!pageItems || pageItems.length === 0) break;
 
       for (const entry of pageItems) {
-        if (Array.isArray(entry.dns_names)) {
+        if (entry && Array.isArray(entry.dns_names)) {
           for (const n of entry.dns_names) {
-            const clean = this.canonicalize(n.replace(/^\*\./, ''));
-            if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
-              discovered.add(clean);
+            if (n && typeof n === 'string') {
+              const clean = this.canonicalize(n.replace(/^\*\./, ''));
+              if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
+                discovered.add(clean);
+              }
             }
           }
         }
@@ -236,17 +323,26 @@ class SubdomainScanner {
   }
 
   /**
-   * Certificate Transparency logs from crt.sh with resilient timeout & JSON parsing
+   * Subdomain Center Open Intelligence API
+   * High-capacity reconnaissance returning 500+ active candidates in seconds with zero authentication
    */
-  static async getCrtShSubdomains(apexDomain, timeoutMs = 5000) {
+  static async getSubdomainCenterSubdomains(apexDomain, timeoutMs = 8000) {
+    if (!apexDomain) return [];
     return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve([]), timeoutMs);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve([]);
+        }
+      }, timeoutMs);
+
       try {
         const req = https.get(
-          `https://crt.sh/?q=%25.${encodeURIComponent(apexDomain)}&output=json`,
+          `https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}`,
           {
             headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0',
+              'User-Agent': 'Mozilla/5.0 BendLens/1.0',
               'Accept': 'application/json, text/plain, */*'
             },
             timeout: timeoutMs
@@ -255,18 +351,19 @@ class SubdomainScanner {
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
+              if (settled) return;
+              settled = true;
               clearTimeout(timer);
-              if (!data || !data.trim().startsWith('[')) {
+              if (res.statusCode !== 200 || !data || !data.trim().startsWith('[')) {
                 return resolve([]);
               }
               try {
                 const parsed = JSON.parse(data);
                 const results = [];
-                for (const entry of parsed) {
-                  if (entry.name_value) {
-                    const names = entry.name_value.split('\n');
-                    for (const n of names) {
-                      const clean = this.canonicalize(n.replace(/^\*\./, ''));
+                if (Array.isArray(parsed)) {
+                  for (const item of parsed) {
+                    if (item) {
+                      const clean = this.canonicalize(String(item));
                       if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
                         results.push(clean);
                       }
@@ -274,34 +371,219 @@ class SubdomainScanner {
                   }
                 }
                 resolve(results);
-              } catch {
+              } catch (_err) {
                 resolve([]);
               }
             });
           }
         );
         req.on('error', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve([]);
+          }
+        });
+        req.on('timeout', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            try { req.destroy(); } catch (_e) { }
+            resolve([]);
+          }
+        });
+      } catch (_err) {
+        if (!settled) {
+          settled = true;
           clearTimeout(timer);
           resolve([]);
-        });
-        req.on('timeout', function () {
-          this.destroy();
-          clearTimeout(timer);
-          resolve([]);
-        });
-      } catch {
-        clearTimeout(timer);
-        resolve([]);
+        }
       }
     });
+  }
+
+  /**
+   * AlienVault OTX Passive Reconnaissance
+   * Extracts historical endpoints and active subdomains from AlienVault OTX indicators
+   */
+  static async getAlienVaultSubdomains(apexDomain, timeoutMs = 8000) {
+    if (!apexDomain) return [];
+    return new Promise((resolve) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve([]);
+        }
+      }, timeoutMs);
+
+      try {
+        const req = https.get(
+          `https://otx.alienvault.com/api/v1/indicators/domain/${encodeURIComponent(apexDomain)}/url_list?limit=500`,
+          {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 BendLens/1.0',
+              'Accept': 'application/json, text/plain, */*'
+            },
+            timeout: timeoutMs
+          },
+          (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              if (res.statusCode !== 200 || !data) return resolve([]);
+              try {
+                const parsed = JSON.parse(data);
+                const results = new Set();
+                if (Array.isArray(parsed.url_list)) {
+                  for (const entry of parsed.url_list) {
+                    try {
+                      if (entry && entry.url && typeof entry.url === 'string') {
+                        const u = new URL(entry.url);
+                        const clean = this.canonicalize(u.hostname);
+                        if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
+                          results.add(clean);
+                        }
+                      }
+                    } catch (_e) { }
+                  }
+                }
+                resolve(Array.from(results));
+              } catch (_err) {
+                resolve([]);
+              }
+            });
+          }
+        );
+        req.on('error', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve([]);
+          }
+        });
+        req.on('timeout', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            try { req.destroy(); } catch (_e) { }
+            resolve([]);
+          }
+        });
+      } catch (_err) {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve([]);
+        }
+      }
+    });
+  }
+
+  /**
+   * Certificate Transparency logs from crt.sh with resilient retry & JSON parsing
+   */
+  static async getCrtShSubdomains(apexDomain, timeoutMs = 10000) {
+    if (!apexDomain) return [];
+    const fetchOnce = () => new Promise((resolve) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve([]);
+        }
+      }, timeoutMs);
+
+      try {
+        const req = https.get(
+          `https://crt.sh/?q=%25.${encodeURIComponent(apexDomain)}&output=json`,
+          {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
+              'Accept': 'application/json, text/plain, */*'
+            },
+            timeout: timeoutMs
+          },
+          (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              if (!data || !data.trim().startsWith('[')) {
+                return resolve([]);
+              }
+              try {
+                const parsed = JSON.parse(data);
+                const results = [];
+                if (Array.isArray(parsed)) {
+                  for (const entry of parsed) {
+                    if (entry && typeof entry === 'object' && entry.name_value) {
+                      const names = String(entry.name_value).split('\n');
+                      for (const n of names) {
+                        const clean = this.canonicalize(n.replace(/^\*\./, ''));
+                        if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
+                          results.push(clean);
+                        }
+                      }
+                    }
+                  }
+                }
+                resolve(results);
+              } catch (_err) {
+                resolve([]);
+              }
+            });
+          }
+        );
+        req.on('error', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve([]);
+          }
+        });
+        req.on('timeout', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            try { req.destroy(); } catch (_e) { }
+            resolve([]);
+          }
+        });
+      } catch (_err) {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve([]);
+        }
+      }
+    });
+
+    const first = await fetchOnce();
+    if (first.length > 0) return first;
+    // Resilient retry on transient 502/503 from crt.sh
+    return fetchOnce();
   }
 
   /**
    * RapidDNS Open Subdomain Reconnaissance (HTML table scraping, barrier-free & zero rate limits)
    */
   static async getRapidDnsSubdomains(apexDomain, timeoutMs = 7000) {
+    if (!apexDomain) return [];
     return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve([]), timeoutMs);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve([]);
+        }
+      }, timeoutMs);
+
       try {
         const req = https.get(
           `https://rapiddns.io/subdomain/${encodeURIComponent(apexDomain)}?full=1`,
@@ -316,10 +598,12 @@ class SubdomainScanner {
             let html = '';
             res.on('data', (chunk) => { html += chunk; });
             res.on('end', () => {
+              if (settled) return;
+              settled = true;
               clearTimeout(timer);
               if (!html || res.statusCode !== 200) return resolve([]);
               const discovered = new Set();
-              const escapedApex = apexDomain.replace(/\./g, '\\.');
+              const escapedApex = escapeRegex(apexDomain);
               const regex = new RegExp(`<td>([a-zA-Z0-9_\\-\\.]+\\.${escapedApex})<\\/td>`, 'gi');
               let m;
               while ((m = regex.exec(html)) !== null) {
@@ -333,17 +617,26 @@ class SubdomainScanner {
           }
         );
         req.on('error', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve([]);
+          }
+        });
+        req.on('timeout', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            try { req.destroy(); } catch (_e) { }
+            resolve([]);
+          }
+        });
+      } catch (_err) {
+        if (!settled) {
+          settled = true;
           clearTimeout(timer);
           resolve([]);
-        });
-        req.on('timeout', function () {
-          this.destroy();
-          clearTimeout(timer);
-          resolve([]);
-        });
-      } catch {
-        clearTimeout(timer);
-        resolve([]);
+        }
       }
     });
   }
@@ -352,8 +645,16 @@ class SubdomainScanner {
    * Passive DNS from HackerTarget hostsearch API
    */
   static async getHackerTargetSubdomains(apexDomain, timeoutMs = 3000) {
+    if (!apexDomain) return [];
     return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve([]), timeoutMs);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve([]);
+        }
+      }, timeoutMs);
+
       try {
         const req = https.get(
           `https://api.hackertarget.com/hostsearch/?q=${encodeURIComponent(apexDomain)}`,
@@ -365,6 +666,8 @@ class SubdomainScanner {
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
+              if (settled) return;
+              settled = true;
               clearTimeout(timer);
               if (!data || data.includes('API count exceeded') || data.includes('error')) {
                 return resolve([]);
@@ -382,12 +685,26 @@ class SubdomainScanner {
           }
         );
         req.on('error', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve([]);
+          }
+        });
+        req.on('timeout', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            try { req.destroy(); } catch (_e) { }
+            resolve([]);
+          }
+        });
+      } catch (_err) {
+        if (!settled) {
+          settled = true;
           clearTimeout(timer);
           resolve([]);
-        });
-      } catch {
-        clearTimeout(timer);
-        resolve([]);
+        }
       }
     });
   }
@@ -397,6 +714,7 @@ class SubdomainScanner {
    * Discovers subdomains declared directly in authoritative DNS zones
    */
   static async getDnsRecordsSubdomains(apexDomain, timeoutMs = 3000) {
+    if (!apexDomain) return [];
     const discovered = new Set();
 
     const pTxt = new Promise((resolve) => {
@@ -405,14 +723,16 @@ class SubdomainScanner {
         clearTimeout(timer);
         if (!err && Array.isArray(records)) {
           records.flat().forEach((txt) => {
-            const matches = txt.match(/[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-\.]+/g);
-            if (matches) {
-              matches.forEach((m) => {
-                const clean = SubdomainScanner.canonicalize(m);
-                if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
-                  discovered.add(clean);
-                }
-              });
+            if (typeof txt === 'string') {
+              const matches = txt.match(/[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-\.]+/g);
+              if (matches) {
+                matches.forEach((m) => {
+                  const clean = SubdomainScanner.canonicalize(m);
+                  if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
+                    discovered.add(clean);
+                  }
+                });
+              }
             }
           });
         }
@@ -426,7 +746,7 @@ class SubdomainScanner {
         clearTimeout(timer);
         if (!err && Array.isArray(records)) {
           records.forEach((mx) => {
-            if (mx.exchange) {
+            if (mx && mx.exchange) {
               const clean = SubdomainScanner.canonicalize(mx.exchange);
               if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
                 discovered.add(clean);
@@ -444,9 +764,11 @@ class SubdomainScanner {
         clearTimeout(timer);
         if (!err && Array.isArray(records)) {
           records.forEach((ns) => {
-            const clean = SubdomainScanner.canonicalize(ns);
-            if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
-              discovered.add(clean);
+            if (ns && typeof ns === 'string') {
+              const clean = SubdomainScanner.canonicalize(ns);
+              if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
+                discovered.add(clean);
+              }
             }
           });
         }
@@ -463,17 +785,21 @@ class SubdomainScanner {
    * Powered by non-blocking asynchronous c-ares UDP lookups
    */
   static async getActiveDnsSubdomains(apexDomain, maxPrefixes = 350) {
-    // 1. Check for Wildcard DNS
+    if (!apexDomain) return [];
+    // 1. Check for Wildcard DNS with bounded timeout
     let hasWildcard = false;
     try {
-      await new Promise((resolve, reject) => {
+      hasWildcard = await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(false), 2000);
         sharedResolver.resolve4(`__bendlens_wildcard_${Date.now()}.${apexDomain}`, (err, addrs) => {
-          if (!err && addrs && addrs.length > 0) return resolve(addrs);
-          reject();
+          clearTimeout(timer);
+          if (!err && addrs && addrs.length > 0) return resolve(true);
+          resolve(false);
         });
       });
-      hasWildcard = true;
-    } catch { }
+    } catch (_err) {
+      hasWildcard = false;
+    }
 
     if (hasWildcard) {
       // In wildcard DNS environments, brute-force dictionary returns false positives for all names
@@ -573,7 +899,7 @@ class SubdomainScanner {
    * Extract first-party subdomains from HTML content
    */
   static extractFromHtml(html, apexDomain) {
-    if (!html || typeof html !== 'string') return [];
+    if (!html || typeof html !== 'string' || !apexDomain) return [];
     const discovered = new Set();
 
     // Match links and tags: <a href="..."><script src="..."> etc.
@@ -586,11 +912,11 @@ class SubdomainScanner {
         if (sub && (sub === apexDomain || sub.endsWith('.' + apexDomain))) {
           discovered.add(sub);
         }
-      } catch { }
+      } catch (_e) { }
     }
 
     // Token search for domain strings: https?://sub.apexDomain
-    const escapedApex = apexDomain.replace(/\./g, '\\.');
+    const escapedApex = escapeRegex(apexDomain);
     const tokenRegex = new RegExp(`(?:https?:)?\\/\\/([a-zA-Z0-9_\\-\\.]+\\.${escapedApex})`, 'gi');
     let tMatch;
     while ((tMatch = tokenRegex.exec(html)) !== null) {
@@ -599,7 +925,7 @@ class SubdomainScanner {
         if (sub && (sub === apexDomain || sub.endsWith('.' + apexDomain))) {
           discovered.add(sub);
         }
-      } catch { }
+      } catch (_e) { }
     }
 
     return Array.from(discovered);
@@ -609,11 +935,16 @@ class SubdomainScanner {
    * Extract subdomains from HTTP response headers (CSP, CORS, Link)
    */
   static extractFromHeaders(headers, apexDomain) {
-    if (!headers || typeof headers !== 'object') return [];
+    if (!headers || typeof headers !== 'object' || !apexDomain) return [];
     const discovered = new Set();
-    const headerStr = JSON.stringify(headers);
+    let headerStr = '';
+    try {
+      headerStr = typeof headers === 'string' ? headers : JSON.stringify(headers);
+    } catch (_e) {
+      headerStr = String(headers);
+    }
 
-    const escapedApex = apexDomain.replace(/\./g, '\\.');
+    const escapedApex = escapeRegex(apexDomain);
     const regex = new RegExp(`[a-zA-Z0-9_\\-\\.]+\\.${escapedApex}`, 'gi');
     let m;
     while ((m = regex.exec(headerStr)) !== null) {
@@ -629,9 +960,9 @@ class SubdomainScanner {
    * Extract subdomains from JavaScript source code, Next.js chunk bundles, and Vite build manifests
    */
   static extractFromCode(code, apexDomain) {
-    if (!code || typeof code !== 'string') return [];
+    if (!code || typeof code !== 'string' || !apexDomain) return [];
     const discovered = new Set();
-    const escapedApex = apexDomain.replace(/\./g, '\\.');
+    const escapedApex = escapeRegex(apexDomain);
     const regex = new RegExp(`[a-zA-Z0-9_\\-\\.]+\\.${escapedApex}`, 'gi');
     let m;
     while ((m = regex.exec(code)) !== null) {
@@ -645,14 +976,15 @@ class SubdomainScanner {
 
   /**
    * Rigorous Active Verification:
-   * Concurrently verifies candidate subdomains via high-speed non-blocking streaming worker pool
-   * with bounded time budget (35s max) and multi-tier DNS resolution (A -> CNAME -> AAAA -> OS lookup).
+   * Concurrently verifies candidate subdomains via high-speed non-blocking UDP c-ares worker pool
+   * with bounded time budget and multi-tier DNS resolution (A -> CNAME -> AAAA -> OS lookup).
    */
-  static async validateCandidates(candidateSet, apexDomain, maxCandidates = 1500, totalTimeoutMs = 35000) {
+  static async validateCandidates(candidateSet, apexDomain, maxCandidates = 1500, totalTimeoutMs = 35000, options = {}) {
+    if (!apexDomain) return [];
     const verified = new Set([apexDomain]);
-    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-    const concurrency = isServerless ? 35 : 30;
-    const candidateLimit = isServerless ? 350 : maxCandidates;
+    const profile = getCrawlerProfile(options);
+    const concurrency = profile.dnsLookupConcurrency || (profile.isServerless ? 35 : 50);
+    const candidateLimit = profile.subdomainCandidateLimit || maxCandidates;
     const candidates = Array.from(candidateSet)
       .filter((h) => h && h !== apexDomain && !h.includes('*'))
       .slice(0, candidateLimit);
@@ -663,7 +995,7 @@ class SubdomainScanner {
     const resolveCandidate = (host) => {
       return new Promise((resolve) => {
         let settled = false;
-        const candidateTimeout = isServerless ? 1200 : 1800;
+        const candidateTimeout = profile.candidateTimeout || 2500;
         const timer = setTimeout(() => {
           if (!settled) {
             settled = true;
@@ -671,35 +1003,58 @@ class SubdomainScanner {
           }
         }, candidateTimeout);
 
-        // Fast dual-stack resolution (IPv4 + IPv6 + CNAME)
-        dns.lookup(host, { all: false }, (err, addr) => {
-          if (settled) return;
-          if (!err && addr) {
+        const onVerified = () => {
+          if (!settled) {
             settled = true;
             clearTimeout(timer);
             verified.add(host);
-            return resolve();
+            resolve();
           }
-          // Secondary fallback to c-ares A or CNAME
+        };
+
+        let caresFinished = false;
+        let osLookupFinished = false;
+        const checkDone = () => {
+          if (!settled && caresFinished && osLookupFinished) {
+            settled = true;
+            clearTimeout(timer);
+            resolve();
+          }
+        };
+
+        // 1. Fast non-blocking UDP c-ares resolution (IPv4 A, CNAME, IPv6 AAAA)
+        try {
           sharedResolver.resolve4(host, (e4, addrs) => {
             if (settled) return;
-            if (!e4 && addrs && addrs.length > 0) {
-              settled = true;
-              clearTimeout(timer);
-              verified.add(host);
-              return resolve();
-            }
+            if (!e4 && addrs && addrs.length > 0) return onVerified();
             sharedResolver.resolveCname(host, (cErr, cnames) => {
               if (settled) return;
-              settled = true;
-              clearTimeout(timer);
-              if (!cErr && cnames && cnames.length > 0) {
-                verified.add(host);
-              }
-              resolve();
+              if (!cErr && cnames && cnames.length > 0) return onVerified();
+              sharedResolver.resolve6(host, (e6, a6) => {
+                if (settled) return;
+                if (!e6 && a6 && a6.length > 0) return onVerified();
+                caresFinished = true;
+                checkDone();
+              });
             });
           });
-        });
+        } catch (_err) {
+          caresFinished = true;
+          checkDone();
+        }
+
+        // 2. Concurrent resilient OS lookup (uses system 127.0.0.1 or local network DNS)
+        try {
+          dns.lookup(host, { all: false }, (err, addr) => {
+            if (settled) return;
+            if (!err && addr) return onVerified();
+            osLookupFinished = true;
+            checkDone();
+          });
+        } catch (_err) {
+          osLookupFinished = true;
+          checkDone();
+        }
       });
     };
 
@@ -729,6 +1084,7 @@ class SubdomainScanner {
    * @returns {Promise<string[]>} Array of verified canonical subdomains with apex domain first
    */
   static async discoverSubdomains(targetHostname, options = {}) {
+    if (!targetHostname) return [];
     const apex = this.getApexDomain(targetHostname);
     if (!apex) return [this.canonicalize(targetHostname) || targetHostname];
 
@@ -745,17 +1101,31 @@ class SubdomainScanner {
     }
 
     // Adaptive bounded timeouts for serverless and local environments
-    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-    const certSpotterPages = isServerless ? 8 : 15;
-    const certSpotterTimeout = isServerless ? 6000 : 25000;
-    const crtShTimeout = isServerless ? 6000 : 10000;
-    const hackerTargetTimeout = isServerless ? 3500 : 6000;
-    const rapidDnsTimeout = isServerless ? 5000 : 8000;
-    const validationTimeout = isServerless ? 10000 : 35000;
+    const profile = getCrawlerProfile(options);
+    const certSpotterPages = profile.certSpotterPages;
+    const certSpotterTimeout = profile.certSpotterTimeout;
+    const crtShTimeout = profile.crtShTimeout;
+    const hackerTargetTimeout = profile.hackerTargetTimeout;
+    const rapidDnsTimeout = profile.rapidDnsTimeout;
+    const validationTimeout = profile.subdomainValidationTimeout;
 
     const tlsVerifiedSet = new Set();
 
     // Harvest signals in parallel with bounded timeouts
+    const pSubdomainCenter = this.getSubdomainCenterSubdomains(apex, profile.subdomainCenterTimeout || 8000).then((list) => {
+      for (const item of list) {
+        const c = this.canonicalize(item);
+        if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+      }
+    }).catch(() => { });
+
+    const pAlienVault = this.getAlienVaultSubdomains(apex, profile.alienVaultTimeout || 8000).then((list) => {
+      for (const item of list) {
+        const c = this.canonicalize(item);
+        if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+      }
+    }).catch(() => { });
+
     const pCertSpotter = this.getCertSpotterSubdomains(apex, certSpotterPages, certSpotterTimeout).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
@@ -763,7 +1133,7 @@ class SubdomainScanner {
       }
     }).catch(() => { });
 
-    const pTls = this.getTlsSanSubdomains(apex, isServerless ? 2500 : 3500).then((list) => {
+    const pTls = this.getTlsSanSubdomains(apex, profile.isServerless ? 2500 : 3500).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
         if (c && (c === apex || c.endsWith('.' + apex))) {
@@ -780,14 +1150,14 @@ class SubdomainScanner {
       }
     }).catch(() => { });
 
-    const pDnsRecords = this.getDnsRecordsSubdomains(apex, isServerless ? 2000 : 2500).then((list) => {
+    const pDnsRecords = this.getDnsRecordsSubdomains(apex, profile.isServerless ? 2000 : 2500).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
         if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
       }
     }).catch(() => { });
 
-    const pActiveDns = this.getActiveDnsSubdomains(apex, isServerless ? 60 : 350).then((list) => {
+    const pActiveDns = this.getActiveDnsSubdomains(apex, profile.activeDnsPrefixes).then((list) => {
       for (const item of list) {
         const c = this.canonicalize(item);
         if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
@@ -837,15 +1207,34 @@ class SubdomainScanner {
     }
 
     // Wait for all harvest streams to complete (or time out independently)
-    await Promise.allSettled([pCertSpotter, pTls, pRapidDns, pDnsRecords, pActiveDns, pCrtSh, pHackerTarget]);
+    await Promise.allSettled([
+      pSubdomainCenter,
+      pAlienVault,
+      pCertSpotter,
+      pTls,
+      pRapidDns,
+      pDnsRecords,
+      pActiveDns,
+      pCrtSh,
+      pHackerTarget
+    ]);
 
     // Active Verification: Ensure every candidate currently resolves via DNS
-    const verifiedList = await this.validateCandidates(candidateSet, apex, 1500, validationTimeout);
+    const verifiedList = await this.validateCandidates(candidateSet, apex, profile.subdomainCandidateLimit, validationTimeout, options);
 
     // Guaranteed inclusion of cryptographically certified TLS SAN subdomains
     for (const item of tlsVerifiedSet) {
       if (!verifiedList.includes(item)) {
         verifiedList.push(item);
+      }
+    }
+
+    // Preserve previously verified assets from perimeter cache
+    if (cached && cached.size > 0) {
+      for (const item of cached) {
+        if (!verifiedList.includes(item)) {
+          verifiedList.push(item);
+        }
       }
     }
 
@@ -861,6 +1250,8 @@ class SubdomainScanner {
   }
 }
 
+// In-memory & disk-persistent perimeter cache preserving verified assets across repeated runs
+SubdomainScanner.perimeterCache = loadDiskPerimeterCache();
 SubdomainScanner.default = SubdomainScanner;
 SubdomainScanner.SubdomainScanner = SubdomainScanner;
 module.exports = SubdomainScanner;

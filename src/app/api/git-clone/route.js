@@ -36,7 +36,7 @@ function saveToHistory(result) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    let repoUrl = (body.repoUrl || '').trim();
+    let repoUrl = (body.repoUrl || body.remoteUrl || body.url || body.targetUrl || '').trim();
     let token = (body.token || '').trim(); // GitHub Personal Access Token
 
     if (!repoUrl) {
