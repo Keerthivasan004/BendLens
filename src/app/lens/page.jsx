@@ -178,6 +178,7 @@ export default function LensDashboard() {
       if ((!result || !result.success) && isRemoteUrl) {
         try {
           const clientGateways = [
+            `https://r.jina.ai/${normalizedRemote}`,
             `https://api.allorigins.win/raw?url=${encodeURIComponent(normalizedRemote)}`
           ];
           for (const gw of clientGateways) {

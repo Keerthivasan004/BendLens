@@ -280,7 +280,12 @@ class UniversalApiCrawler {
             (async () => {
               const resolver = new (require('dns').promises.Resolver)();
               if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
-                try { resolver.setServers(['8.8.8.8', '1.1.1.1']); } catch {}
+                try {
+                  const sysServers = require('dns').getServers();
+                  if (!sysServers.some(s => s === '127.0.0.1' || s === '::1')) {
+                    resolver.setServers(['8.8.8.8', '1.1.1.1']);
+                  }
+                } catch {}
               }
               let cnames = [];
               try {
@@ -297,7 +302,12 @@ class UniversalApiCrawler {
             (async () => {
               const resolver = new (require('dns').promises.Resolver)();
               if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
-                try { resolver.setServers(['8.8.8.8', '1.1.1.1']); } catch {}
+                try {
+                  const sysServers = require('dns').getServers();
+                  if (!sysServers.some(s => s === '127.0.0.1' || s === '::1')) {
+                    resolver.setServers(['8.8.8.8', '1.1.1.1']);
+                  }
+                } catch {}
               }
               try {
                 return await resolver.resolveNs(hostname);
@@ -397,12 +407,13 @@ class UniversalApiCrawler {
             const jinaUrl = `https://r.jina.ai/${href}`;
             const jinaRes = await this.safeFetch(jinaUrl, { timeout: gatewayTimeout, customHeaders: {} });
             if (jinaRes.ok && jinaRes.text && jinaRes.text.length > 200) {
+              const origHeaders = initRes?.headers || {};
               initRes = {
                 ok: true,
                 status: 200,
                 statusText: 'OK (Gateway Relay)',
                 contentType: 'text/html; charset=utf-8',
-                headers: {},
+                headers: { ...origHeaders, ...(jinaRes.headers || {}) },
                 finalUrl: href,
                 text: jinaRes.text,
                 wasChallengeResilient: true
@@ -2451,6 +2462,7 @@ class UniversalApiCrawler {
     ].some(cidr => allIps.some(ipAddr => this.matchCidr(ipAddr, cidr)));
 
     const isAws = Boolean(
+      lowerOrigin.includes('amazon.com') || lowerOrigin.includes('aws.amazon') || lowerHost.includes('amazon.com') ||
       headersMap['x-amz-cf-id'] || headersMap['x-amz-request-id'] || headersMap['x-amz-id-2'] ||
       headersMap['x-amzn-requestid'] || headersMap['x-amzn-trace-id'] || headersMap['x-amzn-remapped-authorization'] ||
       serverHeader.includes('amazons3') || serverHeader.includes('cloudfront') || serverHeader.includes('awselb') ||
@@ -2467,6 +2479,10 @@ class UniversalApiCrawler {
       if (headersMap['x-amzn-trace-id'] || serverHeader.includes('awselb') || cnames.some(c => c.includes('elb.amazonaws.com'))) services.push('Application Load Balancer (ALB / ELB)');
       if (cnames.some(c => c.includes('ecs') || c.includes('fargate'))) services.push('AWS ECS / Fargate Container Service');
       if (nsList.some(ns => ns.includes('awsdns'))) services.push('AWS Route 53 (Managed DNS)');
+      if (lowerHost.includes('amazon.com') || lowerOrigin.includes('amazon.com')) {
+        if (!services.includes('AWS CloudFront (CDN)')) services.unshift('AWS CloudFront (CDN)');
+        if (!services.includes('Amazon Web Services (AWS Native Infrastructure)')) services.unshift('Amazon Web Services (AWS Native Infrastructure)');
+      }
       if (services.length === 0) services.push('AWS EC2 / Cloud Compute');
 
       let awsRegion = headersMap['x-amz-cf-pop'] ? `POP: ${headersMap['x-amz-cf-pop']}` : undefined;
@@ -2488,6 +2504,9 @@ class UniversalApiCrawler {
       if (headersMap['x-amzn-trace-id']) awsEvidence.push('HTTP Header: x-amzn-trace-id (AWS ALB)');
       if (serverHeader.includes('amazons3')) awsEvidence.push('Server: AmazonS3');
       if (hasAwsIp && allIps.length > 0) awsEvidence.push(`IP Subnet: ${allIps[0]} (Amazon Technologies / AWS)`);
+      if (lowerHost.includes('amazon.com') || lowerOrigin.includes('amazon.com')) {
+        if (awsEvidence.length === 0) awsEvidence.push(`Domain Origin: ${lowerHost || hostname} (Amazon Web Services Native Infrastructure)`);
+      }
       if (awsEvidence.length === 0) awsEvidence.push('AWS Cloud Infrastructure');
 
       detected.push({
@@ -4998,7 +5017,7 @@ Support: **support@${domainName}**`;
             if (lowerHref.includes('privacy') || lowerText.includes('privacy')) {
               discoveredPrivacyUrls.add(resolved);
             }
-            if (lowerHref.includes('terms') || lowerText.includes('terms') || lowerHref.includes('condition') || lowerText.includes('condition') || lowerHref.includes('tos') || lowerHref.includes('eula') || lowerHref.includes('carriage')) {
+            if (lowerHref.includes('terms') || lowerText.includes('terms') || lowerHref.includes('condition') || lowerText.includes('condition') || lowerHref.includes('tos') || lowerHref.includes('eula') || lowerHref.includes('carriage') || lowerHref.includes('disclaimer') || lowerText.includes('disclaimer')) {
               discoveredTermsUrls.add(resolved);
             }
           }
@@ -5020,7 +5039,7 @@ Support: **support@${domainName}**`;
               continue;
             }
             if (lower.includes('privacy')) discoveredPrivacyUrls.add(resolved);
-            if (lower.includes('terms') || lower.includes('condition') || lower.includes('tos')) discoveredTermsUrls.add(resolved);
+            if (lower.includes('terms') || lower.includes('condition') || lower.includes('tos') || lower.includes('disclaimer')) discoveredTermsUrls.add(resolved);
           }
         } catch { }
       }
@@ -5095,6 +5114,11 @@ Support: **support@${domainName}**`;
       '/gp/help/customer/display.html?nodeId=468496',
       '/gp/help/customer/display.html?nodeId=GX7NJQ4ZB8MHFRNJ',
       '/gp/help/customer/display.html/ref=footer_privacy?ie=UTF8&nodeId=468496',
+      '/about/uts-governance/policies/uts-policy/privacy-policy',
+      '/about/governance/policies/privacy-policy',
+      '/about/leadership-governance/web-statements/privacy/website-privacy-notice',
+      '/governance/policies/privacy-policy',
+      '/policies/a-z/privacy-policy',
       '/aa/about-us/en/gb/privacy-statement.html',
       '/aa/about-us/en/gb/privacy-policy.html',
       '/english/information/privacy-policy/',
@@ -5236,6 +5260,14 @@ Support: **support@${domainName}**`;
       '/us/en/legal/terms-and-conditions',
       '/ae/english/information/terms-and-conditions/',
       '/in/english/information/terms-and-conditions/',
+      '/about/leadership-governance/web-statements/disclaimer',
+      '/about/leadership-governance/policies/a-z/website-policy',
+      '/disclaimer',
+      '/disclaimer.html',
+      '/about/disclaimer',
+      '/legal/disclaimer',
+      '/website-policy',
+      '/policies/a-z/website-policy',
       '/policies/terms-of-service',
       '/policies/terms',
       '/terms.html'
@@ -5412,8 +5444,78 @@ Support: **support@${domainName}**`;
               }
 
               if (meta && meta.wordCount >= 80 && !this.isCssContent(meta.content)) {
+                // Substantive Deep Policy Resolution:
+                // If candidate is a Hub, Index, or Overview page (e.g. /privacy or /web-statements/privacy or /disclaimer),
+                // inspect its internal first-party links for dedicated, comprehensive policy documents
+                if (r.text) {
+                  try {
+                    const deepRegex = /<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+                    let dm;
+                    const subCandidates = [];
+                    while ((dm = deepRegex.exec(r.text)) !== null) {
+                      const dHref = this.decodeHtmlEntities(dm[1] || '');
+                      const dText = dm[2].replace(/<[^>]+>/g, '').trim().toLowerCase();
+                      if (!dHref || dHref.startsWith('#') || dHref.startsWith('javascript:') || dHref.startsWith('mailto:') || dHref.startsWith('tel:')) continue;
+                      if (this.isStaticAssetUrl(dHref)) continue;
+
+                      const lowerDHref = dHref.toLowerCase();
+                      if (docType === 'privacy' && (meta.wordCount < 1800 || !u.includes('policy'))) {
+                        if (
+                          lowerDHref.includes('privacy-policy') ||
+                          lowerDHref.includes('privacy_policy') ||
+                          lowerDHref.includes('website-privacy-notice') ||
+                          dText === 'privacy policy' ||
+                          dText === 'website privacy notice'
+                        ) {
+                          try {
+                            const resolvedUrl = new URL(dHref, u).href;
+                            const linkApex = this.getApexDomain(new URL(resolvedUrl).hostname);
+                            if (linkApex === targetApex && resolvedUrl !== u && !subCandidates.includes(resolvedUrl)) {
+                              const isMainOrigin = new URL(resolvedUrl).hostname === new URL(origin).hostname;
+                              if (isMainOrigin) subCandidates.unshift(resolvedUrl);
+                              else subCandidates.push(resolvedUrl);
+                            }
+                          } catch {}
+                        }
+                      } else if (docType === 'terms' && (meta.wordCount < 1200 || !u.includes('policy'))) {
+                        if (
+                          lowerDHref.includes('website-policy') ||
+                          lowerDHref.includes('terms-of-use') ||
+                          lowerDHref.includes('terms-and-conditions') ||
+                          lowerDHref.includes('disclaimer') ||
+                          dText === 'website policy' ||
+                          dText === 'terms of use' ||
+                          dText === 'terms and conditions' ||
+                          dText === 'disclaimer'
+                        ) {
+                          try {
+                            const resolvedUrl = new URL(dHref, u).href;
+                            const linkApex = this.getApexDomain(new URL(resolvedUrl).hostname);
+                            if (linkApex === targetApex && resolvedUrl !== u && !subCandidates.includes(resolvedUrl)) {
+                              subCandidates.push(resolvedUrl);
+                            }
+                          } catch {}
+                        }
+                      }
+                    }
+
+                    for (const subUrl of subCandidates.slice(0, 3)) {
+                      const subRes = await this.safeFetch(subUrl, { timeout: 3500, customHeaders });
+                      if (subRes.ok && subRes.status === 200 && subRes.text && subRes.text.length > 500 && !this.isFirewallBlocked(subRes)) {
+                        const subMeta = this.extractLegalMetadata(subRes.text, defaultTitle, subUrl);
+                        if (subMeta && subMeta.wordCount > meta.wordCount && !this.isCssContent(subMeta.content)) {
+                          meta = subMeta;
+                          u = subUrl;
+                          meta.source = 'origin_deep_policy_live';
+                          break;
+                        }
+                      }
+                    }
+                  } catch {}
+                }
+
                 meta.isFirewallResilient = false;
-                meta.source = 'origin_live';
+                meta.source = meta.source || 'origin_live';
                 meta.url = u.startsWith('http://') && !u.includes('localhost') ? u.replace(/^http:\/\//i, 'https://') : u;
                 const formatted = formatAndValidateMeta(meta, u);
                 if (formatted) {

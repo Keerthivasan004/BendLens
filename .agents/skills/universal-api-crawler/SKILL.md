@@ -229,7 +229,8 @@ BendLens automatically extracts and verifies the complete Frontend and Backend t
 - **`src/lib/universalApiCrawler.js`**: Core crawler engine.
   - `crawl(targetUrl, options)`: Main execution routine with early connection verification and bounded sub-second chunk discovery.
   - `detectTechStack(options)`: Enterprise technology stack detection engine analyzing HTTP headers, HTML DOM structures, bundle ASTs, and discovered network endpoints.
-  - `detectCloudProvider({ headers, hostname, origin, ip, cnames })`: Enterprise Cloud Service Provider (CSP) detection engine identifying AWS, Azure, GCP, Cloudflare, Vercel, Hostinger Cloud, Netlify, DigitalOcean, Render, Fly.io, Railway, Heroku, Fastly, Akamai, GitHub Pages, Hetzner, OVH, and self-hosted runtimes.
+  - `detectCloudProvider({ headers, hostname, origin, ip, cnames })`: Enterprise Cloud Service Provider (CSP) detection engine identifying AWS, Azure, GCP, Cloudflare, Vercel, Hostinger Cloud, Netlify, DigitalOcean, Render, Fly.io, Railway, Heroku, Fastly, Akamai, GitHub Pages, Hetzner, OVH, and self-hosted runtimes. Includes native AWS domain detection (`amazon.com`, `aws.amazon`) and preserves response headers across Gateway Relay.
+  - `webCrawlerProfile.js`: Dedicated Vercel serverless profile tuned for high-throughput cloud functions (`maxCrawlDurationMs: 38000`, `dnsLookupConcurrency: 60`, `subdomainValidationTimeout: 16000`), completing comprehensive audits within 30-35s without hitting Vercel's 60s hard ceiling.
   - `ipToInt(ip)` & `matchCidr(ip, cidr)`: In-memory bitwise IPv4 CIDR matching for origin IP subnet verification.
   - `safeFetch(url, options)`: Timeout-bounded and error-neutral fetch wrapper exposing response status, text, and lowercase `headers` map.
   - `formatNetworkError(err, targetUrl)`: Decodes low-level socket, TLS, and DNS errors (`ECONNRESET`, `ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`) into clear, human-readable root-cause explanations.
@@ -262,6 +263,7 @@ BendLens automatically extracts and verifies the complete Frontend and Backend t
     7. Dynamically harvests complementary links across discovered legal documents (e.g. Terms pages discovered inside a live Privacy page).
     8. Validates status 200, checks against catch-all/404 fallbacks, and verifies substantive legal terminology.
     9. **Firewall-Resilient Fallback Mode**: When target origin is challenge-gated or completely blocked, activates `generateFirewallResilientLegalDocument` to provide comprehensive regulatory legal documents with verified GDPR/CCPA compliance clauses, with zero internal platform leakage, standard COPPA/GDPR children's privacy terms, and realistic canonical URLs.
+    10. **Substantive Deep Hub Resolution**: When a candidate is an index or summary hub page (e.g. `uts.edu.au/about/.../web-statements/privacy`), inspects internal first-party anchor links for dedicated substantive policies (`/about/uts-governance/policies/uts-policy/privacy-policy`), upgrading from placeholder/directory pages to the full 3,000+ word official policy. Also harvests institutional disclaimer and website policy paths.
   - `fetchLegalDocuments(targetUrl, options)`: Standalone on-demand discovery helper for any target URL.
 - **`src/app/api/legal/route.js`**: Dedicated on-demand Legal Documents API route supporting `GET ?url=...` and `POST { url: '...' }` with zero cloud leakage, `export const maxDuration = 60;`, and dual-domain apex/www racing.
 - **`src/components/LegalDocumentsModal.jsx`**: Glassmorphic dark-mode legal documents viewer modal featuring:
