@@ -133,6 +133,9 @@ Applies software updates with local-first, air-gapped guarantees and zero HTTP 5
 
 ## 10. POST `/api/git-clone`
 Universal URL & API Ingestion Engine for remote repositories, live REST APIs, and API specifications.
+- **Direct Web & API Fast-Path (`STEP 2A`)**:
+  - Non-git web URLs (where target is not github.com, gitlab.com, bitbucket.org, does not end in .git, and lacks an access token) immediately bypass preliminary 3.5s fetch timeouts and Git CLI clone loops, directly invoking UniversalApiCrawler.crawl.
+  - Guarantees immediate utilization of the entire 60-second serverless execution window and instant ingestion of client-assisted residential relay HTML (preloadedHtml).
 - **Supported URL Types**:
   1. **Live REST API Endpoints**: Any URL returning JSON arrays or objects (e.g. `https://jsonplaceholder.typicode.com/posts`, `https://dummyjson.com/products`, or custom APIs). Automatically extracted via `ApiSpecSynthesizer` into an OpenAPI 3.0 spec and companion relational SQL schema.
   2. **Web Applications & SPAs**: Live deployed web applications (e.g. `https://fts2trial.bcbuzz.tech`, React/Vite/Next.js frontend bundles). Automatically inspects script bundles and extracts all internal API routes, HTTP methods, and data entities into an OpenAPI 3.0 spec and relational schema.

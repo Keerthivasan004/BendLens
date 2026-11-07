@@ -80,6 +80,79 @@ export async function POST(request) {
     }
 
     // =========================================================================
+    // STEP 2A: Direct Web Application & Live API Surface Discovery
+    // When the target is a Web URL (not a Git repository), immediately route
+    // to the Enterprise Universal Crawler without preliminary timeout gates,
+    // redundant pre-fetches, or fallback Git CLI clone attempts.
+    // =========================================================================
+    const isGitRepo = /github\.com|gitlab\.com|bitbucket\.org/i.test(repoUrl) || 
+                      repoUrl.endsWith('.git') || 
+                      Boolean(token) ||
+                      Boolean(ghBlobMatch) ||
+                      Boolean(glBlobMatch);
+
+    if (!isGitRepo && (targetFetchUrl.startsWith('http://') || targetFetchUrl.startsWith('https://'))) {
+      const crawlDepth = body.crawlDepth || 'deep';
+      const maxChunks = (typeof body.maxChunks === 'number' && body.maxChunks > 0) ? body.maxChunks : Infinity;
+      const concurrency = (typeof body.concurrency === 'number' && body.concurrency > 0) ? body.concurrency : 32;
+      const customHeaders = body.headers || body.customHeaders || {};
+      const preloadedHtml = body.preloadedHtml || body.html || null;
+
+      const crawlResult = await UniversalApiCrawler.crawl(targetFetchUrl, {
+        maxChunks,
+        concurrency,
+        customHeaders,
+        crawlDepth,
+        preloadedHtml
+      });
+
+      if (crawlResult?.telemetry?.crawlStatus === 'failed') {
+        return NextResponse.json(
+          { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetFetchUrl}. Please verify the URL and network connection.` },
+          { status: 400 }
+        );
+      }
+
+      if (crawlResult && crawlResult.openApiSpec) {
+        fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
+        if (crawlResult.sqlSchema) {
+          fs.writeFileSync(path.join(cloneDir, 'schema.sql'), crawlResult.sqlSchema, 'utf-8');
+        }
+
+        const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
+        result.projectName = crawlResult.projectName;
+        result.projectPath = targetFetchUrl;
+        result.targetUrl = targetFetchUrl;
+        result.openApiSpec = crawlResult.openApiSpec;
+        result.crawlerTelemetry = crawlResult.telemetry;
+        result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
+        result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
+        result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
+        result.isUrlCrawl = true;
+        result.legalDocuments = crawlResult.legalDocuments || crawlResult.telemetry?.legalDocuments || null;
+        result.timestamp = result.timestamp || new Date().toISOString();
+        result.scannedFilesCount = crawlResult.telemetry?.chunksCrawledCount || result.scannedFilesCount || 1;
+        if (!result.endpoints || result.endpoints.length === 0) {
+          result.endpoints = result.code?.endpoints || [];
+        }
+        if (!crawlResult.sqlSchema) {
+          result.schema = { tables: [], relationships: [] };
+        }
+
+        saveToHistory(result);
+
+        return NextResponse.json({
+          success: true,
+          data: result,
+          telemetry: crawlResult.telemetry,
+          techStack: result.techStack,
+          cloudProvider: result.cloudProvider,
+          legalDocuments: result.legalDocuments
+        });
+      }
+    }
+
+    // =========================================================================
     // STEP 2: Intelligent HTTP Fetch & AST Ingestion
     // Handles:
     //  - Live REST API endpoints returning JSON data (e.g. JSONPlaceholder, DummyJSON)
