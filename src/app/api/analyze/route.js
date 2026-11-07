@@ -22,10 +22,10 @@ function saveToHistory(result) {
       id: `proj_${Date.now()}`,
       projectName: result.projectName,
       projectPath: result.projectPath,
-      timestamp: result.timestamp,
+      timestamp: result.timestamp || new Date().toISOString(),
       filesCount: result.scannedFilesCount || 0,
       tablesCount: result.schema?.tables?.length || 0,
-      endpointsCount: result.code?.endpoints?.length || 0
+      endpointsCount: result.endpoints?.length || result.code?.endpoints?.length || 0
     });
     fs.writeFileSync(HISTORY_FILE, JSON.stringify(history.slice(0, 15), null, 2), 'utf-8');
   } catch {}
@@ -47,7 +47,9 @@ export async function POST(request) {
       const UniversalApiCrawler = require('@/lib/universalApiCrawler');
       const crawlDepth = body.crawlDepth || 'deep';
       const preloadedHtml = body.preloadedHtml || body.html || null;
-      const crawlResult = await UniversalApiCrawler.crawl(targetPath, { maxChunks: 500, concurrency: 24, crawlDepth, preloadedHtml });
+      const maxChunks = (typeof body.maxChunks === 'number' && body.maxChunks > 0) ? body.maxChunks : Infinity;
+      const concurrency = (typeof body.concurrency === 'number' && body.concurrency > 0) ? body.concurrency : 32;
+      const crawlResult = await UniversalApiCrawler.crawl(targetPath, { maxChunks, concurrency, crawlDepth, preloadedHtml });
       if (crawlResult?.telemetry?.crawlStatus === 'failed') {
         return NextResponse.json(
           { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetPath}. Please verify the target URL and network connection.` },
@@ -61,32 +63,43 @@ export async function POST(request) {
       const cloneDir = path.join(uploadsDir, scanId);
       fs.mkdirSync(cloneDir, { recursive: true });
 
-      if (crawlResult.openApiSpec) {
-        fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
-      }
-      if (crawlResult.sqlSchema) {
-        fs.writeFileSync(path.join(cloneDir, 'schema.sql'), crawlResult.sqlSchema, 'utf-8');
-      }
+      try {
+        if (crawlResult.openApiSpec) {
+          fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
+        }
+        if (crawlResult.sqlSchema) {
+          fs.writeFileSync(path.join(cloneDir, 'schema.sql'), crawlResult.sqlSchema, 'utf-8');
+        }
 
-      const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
-      result.projectName = crawlResult.projectName;
-      result.projectPath = targetPath;
-      result.openApiSpec = crawlResult.openApiSpec;
-      result.crawlerTelemetry = crawlResult.telemetry;
-      result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
-      result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
-      result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
-      result.isUrlCrawl = true;
-      result.legalDocuments = crawlResult.legalDocuments || crawlResult.telemetry?.legalDocuments || null;
-      if (!crawlResult.sqlSchema) {
-        result.schema = { tables: [], relationships: [] };
-      }
-      saveToHistory(result);
+        const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
+        result.projectName = crawlResult.projectName;
+        result.projectPath = targetPath;
+        result.openApiSpec = crawlResult.openApiSpec;
+        result.crawlerTelemetry = crawlResult.telemetry;
+        result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
+        result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
+        result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
+        result.isUrlCrawl = true;
+        result.legalDocuments = crawlResult.legalDocuments || crawlResult.telemetry?.legalDocuments || null;
+        result.timestamp = result.timestamp || new Date().toISOString();
+        result.scannedFilesCount = crawlResult.telemetry?.chunksCrawledCount || result.scannedFilesCount || 1;
+        if (!result.endpoints || result.endpoints.length === 0) {
+          result.endpoints = result.code?.endpoints || [];
+        }
+        if (!crawlResult.sqlSchema) {
+          result.schema = { tables: [], relationships: [] };
+        }
+        saveToHistory(result);
 
-      return NextResponse.json(
-        { success: true, data: result },
-        { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
-      );
+        return NextResponse.json(
+          { success: true, data: result },
+          { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+        );
+      } finally {
+        try {
+          fs.rmSync(cloneDir, { recursive: true, force: true });
+        } catch {}
+      }
     }
 
     // Always run fresh analysis asynchronously with cooperative event-loop yields

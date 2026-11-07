@@ -26,7 +26,7 @@ function saveToHistory(result) {
       timestamp: result.timestamp || new Date().toISOString(),
       filesCount: result.scannedFilesCount || 0,
       tablesCount: result.schema?.tables?.length || 0,
-      endpointsCount: result.code?.endpoints?.length || 0,
+      endpointsCount: result.endpoints?.length || result.code?.endpoints?.length || 0,
       source: result.isUrlCrawl ? 'web_crawler' : 'git_repo'
     });
     fs.writeFileSync(HISTORY_FILE, JSON.stringify(history.slice(0, 15), null, 2), 'utf-8');
@@ -177,7 +177,9 @@ export async function POST(request) {
               if (!hasMarkersNow) {
                 try {
                   const crawlDepth = body.crawlDepth || 'deep';
-                  const crawlResult = await UniversalApiCrawler.crawl(targetFetchUrl, { maxChunks: 500, concurrency: 24, crawlDepth, preloadedHtml: body.preloadedHtml });
+                  const maxChunks = (typeof body.maxChunks === 'number' && body.maxChunks > 0) ? body.maxChunks : Infinity;
+                  const concurrency = (typeof body.concurrency === 'number' && body.concurrency > 0) ? body.concurrency : 32;
+                  const crawlResult = await UniversalApiCrawler.crawl(targetFetchUrl, { maxChunks, concurrency, crawlDepth, preloadedHtml: body.preloadedHtml });
                   if (crawlResult && crawlResult.telemetry?.crawlStatus === 'success' && crawlResult.openApiSpec) {
                     fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
                     if (crawlResult.sqlSchema) {
@@ -193,6 +195,11 @@ export async function POST(request) {
                     result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
                     result.isUrlCrawl = true;
                     result.legalDocuments = crawlResult.legalDocuments || crawlResult.telemetry?.legalDocuments || null;
+                    result.timestamp = result.timestamp || new Date().toISOString();
+                    result.scannedFilesCount = crawlResult.telemetry?.chunksCrawledCount || result.scannedFilesCount || 1;
+                    if (!result.endpoints || result.endpoints.length === 0) {
+                      result.endpoints = result.code?.endpoints || [];
+                    }
                     if (!crawlResult.sqlSchema) {
                       result.schema = { tables: [], relationships: [] };
                     }
@@ -516,7 +523,9 @@ export async function POST(request) {
     // Final Zero-Error Fallback: Run Universal Web & API Crawler
     try {
       const crawlDepth = body.crawlDepth || 'deep';
-      const crawlResult = await UniversalApiCrawler.crawl(repoUrl, { maxChunks: 500, concurrency: 24, crawlDepth, preloadedHtml: body.preloadedHtml });
+      const maxChunks = (typeof body.maxChunks === 'number' && body.maxChunks > 0) ? body.maxChunks : Infinity;
+      const concurrency = (typeof body.concurrency === 'number' && body.concurrency > 0) ? body.concurrency : 32;
+      const crawlResult = await UniversalApiCrawler.crawl(repoUrl, { maxChunks, concurrency, crawlDepth, preloadedHtml: body.preloadedHtml });
       if (crawlResult && crawlResult.telemetry?.crawlStatus === 'success' && crawlResult.openApiSpec) {
         fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
         if (crawlResult.sqlSchema) {
@@ -532,6 +541,11 @@ export async function POST(request) {
         result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
         result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
         result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
+        result.timestamp = result.timestamp || new Date().toISOString();
+        result.scannedFilesCount = crawlResult.telemetry?.chunksCrawledCount || result.scannedFilesCount || 1;
+        if (!result.endpoints || result.endpoints.length === 0) {
+          result.endpoints = result.code?.endpoints || [];
+        }
         if (!crawlResult.sqlSchema) {
           result.schema = { tables: [], relationships: [] };
         }

@@ -16,10 +16,10 @@ const localCrawlerProfile = {
   name: 'local_development',
   isServerless: false,
 
-  // Chunk crawling budget
-  maxChunks: 1200,
+  // Chunk crawling budget - Unbounded by default; dynamic concurrency and queue drain
+  maxChunks: Infinity,
   maxCrawlDurationMs: 90000,
-  concurrency: 30,
+  concurrency: 32,
 
   // Subdomain discovery & verification limits
   dnsLookupConcurrency: 50,

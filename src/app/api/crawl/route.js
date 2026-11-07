@@ -21,17 +21,18 @@ function saveToHistory(result) {
       id: `crawl_${Date.now()}`,
       projectName: result.projectName,
       projectPath: result.projectPath,
-      timestamp: result.timestamp,
+      timestamp: result.timestamp || new Date().toISOString(),
       filesCount: result.scannedFilesCount || 0,
       tablesCount: result.schema?.tables?.length || 0,
-      endpointsCount: result.code?.endpoints?.length || 0,
+      endpointsCount: result.endpoints?.length || result.code?.endpoints?.length || 0,
       source: 'web_crawler'
     });
     fs.writeFileSync(HISTORY_FILE, JSON.stringify(history.slice(0, 15), null, 2), 'utf-8');
-  } catch {}
+  } catch { }
 }
 
 export async function POST(request) {
+  let cloneDir = null;
   try {
     const body = await request.json();
     let targetUrl = (body.url || body.repoUrl || body.targetUrl || '').trim();
@@ -53,48 +54,55 @@ export async function POST(request) {
     }
 
     const scanId = `crawl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const cloneDir = path.join(uploadsDir, scanId);
+    cloneDir = path.join(uploadsDir, scanId);
     fs.mkdirSync(cloneDir, { recursive: true });
 
-    const maxChunks = body.maxChunks || 500;
-    const concurrency = body.concurrency || 24;
+    const maxChunks = (typeof body.maxChunks === 'number' && body.maxChunks > 0) ? body.maxChunks : Infinity;
+    const concurrency = (typeof body.concurrency === 'number' && body.concurrency > 0) ? body.concurrency : 32;
     const customHeaders = body.headers || body.customHeaders || {};
     const crawlDepth = body.crawlDepth || 'deep';
     const preloadedHtml = body.preloadedHtml || body.html || null;
 
-    // Execute Enterprise Universal Crawler
-    const crawlResult = await UniversalApiCrawler.crawl(targetUrl, { maxChunks, concurrency, customHeaders, crawlDepth, preloadedHtml });
+      // Execute Enterprise Universal Crawler
+      const crawlResult = await UniversalApiCrawler.crawl(targetUrl, { maxChunks, concurrency, customHeaders, crawlDepth, preloadedHtml });
 
-    if (crawlResult?.telemetry?.crawlStatus === 'failed') {
-      return NextResponse.json(
-        { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetUrl}. Please verify the URL and network connection.` },
-        { status: 400 }
-      );
-    }
+      if (crawlResult?.telemetry?.crawlStatus === 'failed') {
+        return NextResponse.json(
+          { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetUrl}. Please verify the URL and network connection.` },
+          { status: 400 }
+        );
+      }
 
-    // Materialize OpenAPI and Relational Schemas for AST Analysis
-    if (crawlResult.openApiSpec) {
-      fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
-    }
-    if (crawlResult.sqlSchema) {
-      fs.writeFileSync(path.join(cloneDir, 'schema.sql'), crawlResult.sqlSchema, 'utf-8');
-    }
+      // Materialize OpenAPI and Relational Schemas for AST Analysis
+      if (crawlResult.openApiSpec) {
+        fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
+      }
+      if (crawlResult.sqlSchema) {
+        fs.writeFileSync(path.join(cloneDir, 'schema.sql'), crawlResult.sqlSchema, 'utf-8');
+      }
 
-    // Run AST Analysis, Diagram Generation & Blast Radius Engine
-    const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
-    result.projectName = crawlResult.projectName;
-    result.projectPath = targetUrl;
-    result.targetUrl = targetUrl;
-    result.openApiSpec = crawlResult.openApiSpec;
-    result.crawlerTelemetry = crawlResult.telemetry;
-    result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
-    result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
-    result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
-    result.isUrlCrawl = true;
-    result.legalDocuments = crawlResult.legalDocuments || crawlResult.telemetry?.legalDocuments || null;
-    result.schema = { tables: [], relationships: [] };
+      // Run AST Analysis, Diagram Generation & Blast Radius Engine
+      const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
+      result.projectName = crawlResult.projectName;
+      result.projectPath = targetUrl;
+      result.targetUrl = targetUrl;
+      result.openApiSpec = crawlResult.openApiSpec;
+      result.crawlerTelemetry = crawlResult.telemetry;
+      result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
+      result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
+      result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
+      result.isUrlCrawl = true;
+      result.legalDocuments = crawlResult.legalDocuments || crawlResult.telemetry?.legalDocuments || null;
+      result.timestamp = result.timestamp || new Date().toISOString();
+      result.scannedFilesCount = crawlResult.telemetry?.chunksCrawledCount || result.scannedFilesCount || 1;
+      if (!result.endpoints || result.endpoints.length === 0) {
+        result.endpoints = result.code?.endpoints || [];
+      }
+      if (!crawlResult.sqlSchema) {
+        result.schema = { tables: [], relationships: [] };
+      }
 
-    saveToHistory(result);
+      saveToHistory(result);
 
     return NextResponse.json({
       success: true,
@@ -110,5 +118,11 @@ export async function POST(request) {
       { success: false, error: error.message || 'Crawl failed' },
       { status: 500 }
     );
+  } finally {
+    if (cloneDir) {
+      try {
+        fs.rmSync(cloneDir, { recursive: true, force: true });
+      } catch { }
+    }
   }
 }

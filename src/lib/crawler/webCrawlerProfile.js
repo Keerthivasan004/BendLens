@@ -18,10 +18,10 @@ const webCrawlerProfile = {
   name: 'web_production_serverless',
   isServerless: true,
 
-  // Chunk crawling budget
-  maxChunks: 350,
-  maxCrawlDurationMs: 38000,
-  concurrency: 24,
+  // Chunk crawling budget - Unbounded by default; dynamic concurrency and queue drain
+  maxChunks: Infinity,
+  maxCrawlDurationMs: 46000,
+  concurrency: 32,
 
   // Subdomain discovery & verification limits (aligned with local profile for zero divergence)
   dnsLookupConcurrency: 60,
@@ -40,10 +40,10 @@ const webCrawlerProfile = {
   rapidDnsTimeout: 6000,
 
   // Stage budget calculators
-  canRunPhase2: (elapsed) => elapsed < 28000,
-  canRunGatewayProbes: (elapsed) => elapsed < 30000,
-  maxLegalWaitMs: (elapsed) => Math.max(3000, Math.min(8000, 38000 - elapsed)),
-  maxSubdomainBudgetMs: (elapsed) => Math.max(10000, Math.min(18000, 36000 - elapsed))
+  canRunPhase2: (elapsed) => elapsed < 43000,
+  canRunGatewayProbes: (elapsed) => elapsed < 42000,
+  maxLegalWaitMs: (elapsed) => Math.max(3000, Math.min(8000, 46000 - elapsed)),
+  maxSubdomainBudgetMs: (elapsed) => Math.max(10000, Math.min(18000, 42000 - elapsed))
 };
 
 module.exports = webCrawlerProfile;
