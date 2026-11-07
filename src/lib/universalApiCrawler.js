@@ -1419,10 +1419,6 @@ class UniversalApiCrawler {
             // Extract endpoints from standard chunk code (Immediate Deep Mode extraction when active)
             this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: !isNormalOnly, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
           }));
-
-          if (normalQueue.length > 0) {
-            await new Promise(r => setTimeout(r, 15));
-          }
         }
 
         // Freeze Phase 1 Normal Crawl Snapshot
@@ -1616,10 +1612,6 @@ class UniversalApiCrawler {
                 }
               }
             }));
-
-            if (deepQueue.length > 0) {
-              await new Promise(r => setTimeout(r, 15));
-            }
           }
 
           // Extract deep role-gated and lazy-loaded endpoints across all discovered chunks

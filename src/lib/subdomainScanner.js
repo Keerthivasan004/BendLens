@@ -10,18 +10,14 @@ const { getCrawlerProfile } = require('./crawler/index.js');
 
 // Shared high-speed non-blocking c-ares resolver
 const sharedResolver = new dns.Resolver();
-// In serverless environments (Vercel, AWS Lambda), do NOT override system nameservers because outbound port 53 to public IPs is restricted
-if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
-  try {
-    const sysServers = dns.getServers();
-    const hasLocal = sysServers.some(s => s === '127.0.0.1' || s === '::1');
-    if (!hasLocal) {
-      sharedResolver.setServers(['8.8.8.8', '1.1.1.1', '9.9.9.9']);
-    } else {
-      sharedResolver.setServers([...sysServers, '8.8.8.8', '1.1.1.1']);
-    }
-  } catch (_err) { }
-}
+try {
+  const sysServers = (dns.getServers() || []).filter(s => s !== '127.0.0.1' && s !== '::1' && !s.startsWith('fe80:'));
+  if (sysServers.length > 0) {
+    sharedResolver.setServers([...sysServers, '8.8.8.8', '1.1.1.1']);
+  } else {
+    sharedResolver.setServers(['8.8.8.8', '1.1.1.1', '1.0.0.1']);
+  }
+} catch (_err) { }
 
 const PERIMETER_CACHE_FILE = path.join(os.tmpdir(), '.bendlens_perimeter_cache.json');
 
@@ -328,80 +324,32 @@ class SubdomainScanner {
    * Subdomain Center Open Intelligence API
    * High-capacity reconnaissance returning 500+ active candidates in seconds with zero authentication
    */
-  static async getSubdomainCenterSubdomains(apexDomain, timeoutMs = 8000) {
+  static async getSubdomainCenterSubdomains(apexDomain, timeoutMs = 14000) {
     if (!apexDomain) return [];
-    return new Promise((resolve) => {
-      let settled = false;
-      const timer = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          resolve([]);
-        }
-      }, timeoutMs);
-
-      try {
-        const req = https.get(
-          `https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}`,
-          {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 BendLens/1.0',
-              'Accept': 'application/json, text/plain, */*'
-            },
-            timeout: timeoutMs
-          },
-          (res) => {
-            let data = '';
-            res.on('data', (chunk) => { data += chunk; });
-            res.on('end', () => {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timer);
-              if (res.statusCode !== 200 || !data || !data.trim().startsWith('[')) {
-                return resolve([]);
-              }
-              try {
-                const parsed = JSON.parse(data);
-                const results = [];
-                if (Array.isArray(parsed)) {
-                  for (const item of parsed) {
-                    if (item) {
-                      const clean = this.canonicalize(String(item));
-                      if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
-                        results.push(clean);
-                      }
-                    }
-                  }
-                }
-                resolve(results);
-              } catch (_err) {
-                resolve([]);
-              }
-            });
+    try {
+      const res = await fetch(`https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 BendLens/1.0',
+          'Accept': 'application/json, text/plain, */*'
+        },
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+      if (!res.ok) return [];
+      const parsed = await res.json();
+      if (!Array.isArray(parsed)) return [];
+      const results = [];
+      for (const item of parsed) {
+        if (item) {
+          const clean = this.canonicalize(String(item));
+          if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
+            results.push(clean);
           }
-        );
-        req.on('error', () => {
-          if (!settled) {
-            settled = true;
-            clearTimeout(timer);
-            resolve([]);
-          }
-        });
-        req.on('timeout', () => {
-          if (!settled) {
-            settled = true;
-            clearTimeout(timer);
-            try { req.destroy(); } catch (_e) { }
-            resolve([]);
-          }
-        });
-      } catch (_err) {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          resolve([]);
         }
       }
-    });
+      return results;
+    } catch (_err) {
+      return [];
+    }
   }
 
   /**
@@ -1027,38 +975,46 @@ class SubdomainScanner {
           }
         };
 
-        // 1. Fast non-blocking UDP c-ares resolution (IPv4 A, CNAME, IPv6 AAAA)
+        // Parallel non-blocking UDP c-ares resolution (IPv4 A & CNAME concurrently)
+        let aDone = false;
+        let cnameDone = false;
+
+        const checkCares = () => {
+          if (settled) return;
+          if (aDone && cnameDone) {
+            try {
+              sharedResolver.resolve6(host, (e6, a6) => {
+                if (settled) return;
+                if (!e6 && a6 && a6.length > 0) return onVerified();
+                settled = true;
+                clearTimeout(timer);
+                resolve();
+              });
+            } catch {
+              settled = true;
+              clearTimeout(timer);
+              resolve();
+            }
+          }
+        };
+
         try {
           sharedResolver.resolve4(host, (e4, addrs) => {
             if (settled) return;
             if (!e4 && addrs && addrs.length > 0) return onVerified();
-            sharedResolver.resolveCname(host, (cErr, cnames) => {
-              if (settled) return;
-              if (!cErr && cnames && cnames.length > 0) return onVerified();
-              sharedResolver.resolve6(host, (e6, a6) => {
-                if (settled) return;
-                if (!e6 && a6 && a6.length > 0) return onVerified();
-                caresFinished = true;
-                checkDone();
-              });
-            });
+            aDone = true;
+            checkCares();
           });
-        } catch (_err) {
-          caresFinished = true;
-          checkDone();
-        }
-
-        // 2. Concurrent resilient OS lookup (uses system 127.0.0.1 or local network DNS)
-        try {
-          dns.lookup(host, { all: false }, (err, addr) => {
+          sharedResolver.resolveCname(host, (cErr, cnames) => {
             if (settled) return;
-            if (!err && addr) return onVerified();
-            osLookupFinished = true;
-            checkDone();
+            if (!cErr && cnames && cnames.length > 0) return onVerified();
+            cnameDone = true;
+            checkCares();
           });
         } catch (_err) {
-          osLookupFinished = true;
-          checkDone();
+          settled = true;
+          clearTimeout(timer);
+          resolve();
         }
       });
     };
@@ -1234,21 +1190,8 @@ class SubdomainScanner {
       }
     }
 
-    // Preserve previously verified assets from perimeter cache
-    if (cached && cached.size > 0) {
-      for (const item of cached) {
-        if (!verifiedList.includes(item)) {
-          verifiedList.push(item);
-        }
-      }
-    }
-
-    // Save into perimeterCache: guarantees subsequent runs preserve all verified assets
-    const currentCached = this.perimeterCache.get(apex) || new Set();
-    for (const v of verifiedList) {
-      currentCached.add(v);
-    }
-    this.perimeterCache.set(apex, currentCached);
+    // Save into perimeterCache: guarantees deterministic preservation of currently verified live assets
+    this.perimeterCache.set(apex, new Set(verifiedList));
     saveDiskPerimeterCache(this.perimeterCache);
 
     return verifiedList;

@@ -20,18 +20,18 @@ const webCrawlerProfile = {
 
   // Chunk crawling budget - Unbounded by default; dynamic concurrency and queue drain
   maxChunks: Infinity,
-  maxCrawlDurationMs: 40000,
-  concurrency: 40,
+  maxCrawlDurationMs: 45000,
+  concurrency: 60,
 
   // Subdomain discovery & verification limits (aligned with local profile for zero divergence)
   dnsLookupConcurrency: 100,
   candidateTimeout: 1200,
-  subdomainValidationTimeout: 14000,
+  subdomainValidationTimeout: 16000,
   subdomainCandidateLimit: 1500,
   activeDnsPrefixes: 100,
 
   // Passive reconnaissance timeouts (concurrent parallel execution)
-  subdomainCenterTimeout: 12000,
+  subdomainCenterTimeout: 14000,
   alienVaultTimeout: 8000,
   certSpotterPages: 14,
   certSpotterTimeout: 12000,
@@ -39,11 +39,11 @@ const webCrawlerProfile = {
   hackerTargetTimeout: 5000,
   rapidDnsTimeout: 6000,
 
-  // Stage budget calculators (ensures parity while finishing safely within 38-42s, well before Vercel 60s ceiling)
-  canRunPhase2: (elapsed) => elapsed < 35000,
-  canRunGatewayProbes: (elapsed) => elapsed < 36000,
-  maxLegalWaitMs: (elapsed) => Math.max(3000, Math.min(8000, 38000 - elapsed)),
-  maxSubdomainBudgetMs: (elapsed) => Math.max(12000, Math.min(22000, 42000 - elapsed))
+  // Stage budget calculators (ensures parity while finishing safely within 42-45s, well before Vercel 60s ceiling)
+  canRunPhase2: (elapsed) => elapsed < 38000,
+  canRunGatewayProbes: (elapsed) => elapsed < 40000,
+  maxLegalWaitMs: (elapsed) => Math.max(3000, Math.min(8000, 42000 - elapsed)),
+  maxSubdomainBudgetMs: (elapsed) => Math.max(14000, Math.min(25000, 44000 - elapsed))
 };
 
 module.exports = webCrawlerProfile;
