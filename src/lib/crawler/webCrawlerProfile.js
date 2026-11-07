@@ -31,19 +31,19 @@ const webCrawlerProfile = {
   activeDnsPrefixes: 100,
 
   // Passive reconnaissance timeouts (concurrent parallel execution)
-  subdomainCenterTimeout: 5000,
-  alienVaultTimeout: 5000,
+  subdomainCenterTimeout: 12000,
+  alienVaultTimeout: 8000,
   certSpotterPages: 14,
-  certSpotterTimeout: 9000,
-  crtShTimeout: 6000,
-  hackerTargetTimeout: 4000,
-  rapidDnsTimeout: 4000,
+  certSpotterTimeout: 12000,
+  crtShTimeout: 8000,
+  hackerTargetTimeout: 5000,
+  rapidDnsTimeout: 6000,
 
   // Stage budget calculators (ensures parity while finishing safely within 38-42s, well before Vercel 60s ceiling)
   canRunPhase2: (elapsed) => elapsed < 35000,
   canRunGatewayProbes: (elapsed) => elapsed < 36000,
   maxLegalWaitMs: (elapsed) => Math.max(3000, Math.min(8000, 38000 - elapsed)),
-  maxSubdomainBudgetMs: (elapsed) => Math.max(10000, Math.min(20000, 38000 - elapsed))
+  maxSubdomainBudgetMs: (elapsed) => Math.max(12000, Math.min(22000, 42000 - elapsed))
 };
 
 module.exports = webCrawlerProfile;

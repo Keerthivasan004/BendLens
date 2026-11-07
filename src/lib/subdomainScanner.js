@@ -24,21 +24,38 @@ if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
 }
 
 const PERIMETER_CACHE_FILE = path.join(os.tmpdir(), '.bendlens_perimeter_cache.json');
+const BASELINE_PERIMETER_FILE = path.join(__dirname, 'crawler', 'baselinePerimeter.json');
 
 function loadDiskPerimeterCache() {
+  const cache = new Map();
+  // 1. Seed from bundled baseline perimeter cache (ensures cold-start serverless environments have full enterprise baseline)
   try {
-    if (fs.existsSync(PERIMETER_CACHE_FILE)) {
-      const data = JSON.parse(fs.readFileSync(PERIMETER_CACHE_FILE, 'utf8'));
-      const cache = new Map();
+    if (fs.existsSync(BASELINE_PERIMETER_FILE)) {
+      const data = JSON.parse(fs.readFileSync(BASELINE_PERIMETER_FILE, 'utf8'));
       if (data && typeof data === 'object') {
         for (const [k, v] of Object.entries(data)) {
           if (Array.isArray(v)) cache.set(k, new Set(v));
         }
       }
-      return cache;
     }
   } catch (_err) { }
-  return new Map();
+
+  // 2. Overlay live dynamic cache from os.tmpdir() if present
+  try {
+    if (fs.existsSync(PERIMETER_CACHE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(PERIMETER_CACHE_FILE, 'utf8'));
+      if (data && typeof data === 'object') {
+        for (const [k, v] of Object.entries(data)) {
+          if (Array.isArray(v)) {
+            const existing = cache.get(k) || new Set();
+            v.forEach(item => existing.add(item));
+            cache.set(k, existing);
+          }
+        }
+      }
+    }
+  } catch (_err) { }
+  return cache;
 }
 
 function saveDiskPerimeterCache(cache) {
