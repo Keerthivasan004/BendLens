@@ -1217,356 +1217,86 @@ class UniversalApiCrawler {
         if (!discoveredSubdomainsList.includes(apexDomain)) discoveredSubdomainsList.push(apexDomain);
       }
 
-      // Subdomain discovery is initiated concurrently (pSubdomainDiscovery)
-      // Chunk graph traversal starts immediately below to maximize CPU/network overlap.
-      const subDiscoveryPromise = pSubdomainDiscovery || SubdomainScanner.discoverSubdomains(hostname, {
-        ...options,
-        html,
-        headers: initRes?.headers,
-        subdomains: backendDomains
-      });
+        // Subdomain discovery is initiated concurrently (pSubdomainDiscovery)
+        // Chunk graph traversal starts immediately below to maximize CPU/network overlap.
+        const subDiscoveryPromise = pSubdomainDiscovery || SubdomainScanner.discoverSubdomains(hostname, {
+          ...options,
+          html,
+          headers: initRes?.headers,
+          subdomains: backendDomains
+        });
 
-      // 8. Analyze inline script contents
-      const inlineScriptRegex = /<script\b(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/gi;
-      let ism;
-      while ((ism = inlineScriptRegex.exec(html)) !== null) {
-        const inlineCode = ism[1];
-        if (inlineCode && inlineCode.length > 20) {
-          this.extractEndpointsFromCode(inlineCode, href, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
-        }
-      }
-
-      // =========================================================================
-      // STAGE 4: Recursive Bounded Chunk Graph Traversal (Two-Tier Engine)
-      // Tier 1 (Normal Crawl): Standard application chunk perimeter
-      // Tier 2 (Deep Crawl): Exhaustive scan of secondary lazy-loaded chunks & sub-routes
-      // =========================================================================
-
-      const normalQueue = Array.from(discoveredScriptUrls);
-      const deepQueue = [];
-      const enqueuedChunkUrls = new Set(discoveredScriptUrls);
-      const scriptContents = new Map();
-      const failedSourceMapHosts = new Set();
-
-      // Standard chunk patterns across Vite, Webpack, Next.js, Nuxt, SvelteKit, Angular, Remix, Astro
-      const chunkPatterns = [
-        /(?:\/_next\/static\/chunks\/[^"'\s()]+\.js|static\/chunks\/[^"'\s()]+\.js)/g,
-        /(?:\/assets\/[^"'\s()]+\.js|assets\/[^"'\s()]+\.js)/g,
-        /(?:\/_astro\/[^"'\s()]+\.js|_astro\/[^"'\s()]+\.js)/g,
-        /(?:\/build\/[^"'\s()]+\.js|build\/[^"'\s()]+\.js)/g,
-        /["'`]([a-zA-Z0-9_.\/]+-[a-zA-Z0-9_]{6,}\.js)["'`]/g,
-        /["'`](static\/js\/[^"'`\s()]+\.js)["'`]/g,
-        /["'`]((\/_nuxt\/[^"'`\s()]+\.js))["'`]/g,
-        /["'`]((\/_app\/immutable\/[^"'`\s()]+\.js))["'`]/g,
-        /["'`]((\/?[a-zA-Z0-9_\-]+\.chunk\.js))["'`]/g,
-        /["'`]((\/?chunk-[a-zA-Z0-9_\-]+\.js))["'`]/g,
-        /import\s*\(\s*["']([^"']+\.js)["']\s*\)/g
-      ];
-
-      // Secondary deep chunk patterns (Vite Rollup chunk table entries without /assets/ prefix)
-      const deepTablePattern = /"([a-zA-Z0-9_\-]+\.js)"/g;
-
-      // -----------------------------------------------------------------------
-      // PHASE 1: Normal Crawl (Traverse standard application chunk perimeter)
-      // -----------------------------------------------------------------------
-      const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-      const maxNormalChunks = maxChunks;
-      const chunkTimeout = isServerless ? 2000 : 5000;
-
-      // Helper: Priority sort for high-yield code modules (roles, pages, stores, apis)
-      const isPriorityChunkUrl = (u) => {
-        const l = (u || '').toLowerCase();
-        return l.includes('student') || l.includes('tpo') || l.includes('employer') || l.includes('mentor') ||
-          l.includes('admin') || l.includes('career') || l.includes('learning') || l.includes('lab') ||
-          l.includes('ai') || l.includes('quiz') || l.includes('job') || l.includes('auth') ||
-          l.includes('dashboard') || l.includes('setting') || l.includes('support') || l.includes('consent') ||
-          l.includes('dpdp') || l.includes('interview') || l.includes('placement') || l.includes('campus') ||
-          l.includes('home') || l.includes('landing') || l.includes('plan') || l.includes('feature') ||
-          l.includes('modal') || l.includes('table') || l.includes('view') || l.includes('page') ||
-          l.includes('store') || l.includes('api') || l.includes('client') || l.includes('service') ||
-          l.includes('privacy') || l.includes('terms') || l.includes('legal');
-      };
-
-      while (normalQueue.length > 0 && visitedUrls.size < maxNormalChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
-        const batch = normalQueue.splice(0, concurrency);
-        await Promise.all(batch.map(async (url) => {
-          if (visitedUrls.has(url)) return;
-          visitedUrls.add(url);
-
-          const scriptRes = await this.safeFetch(url, { timeout: chunkTimeout, customHeaders, context: 'script', origin });
-          if (!scriptRes.ok) return;
-          const code = scriptRes.text;
-          scriptContents.set(url, code);
-
-          if (apexDomain) {
-            const codeSubs = SubdomainScanner.extractFromCode(code, apexDomain);
-            for (const cs of codeSubs) {
-              if (cs && !discoveredSubdomainsList.includes(cs)) {
-                discoveredSubdomainsList.push(cs);
-              }
-            }
-          }
-
-          // Standard chunk discovery (resolved against origin) -> enqueued for Normal Crawl
-          for (const pattern of chunkPatterns) {
-            pattern.lastIndex = 0;
-            let cm;
-            while ((cm = pattern.exec(code)) !== null) {
-              const rawChunk = cm[1] || cm[0];
-              if (rawChunk && !rawChunk.includes('node_modules')) {
-                try {
-                  const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
-                  const resolvedChunkUrl = new URL(rawChunk, chunkOrigin).href;
-                  if (!visitedUrls.has(resolvedChunkUrl) && !enqueuedChunkUrls.has(resolvedChunkUrl)) {
-                    enqueuedChunkUrls.add(resolvedChunkUrl);
-                    if (isPriorityChunkUrl(resolvedChunkUrl)) {
-                      normalQueue.unshift(resolvedChunkUrl);
-                    } else {
-                      normalQueue.push(resolvedChunkUrl);
-                    }
-                  }
-                } catch { }
-              }
-            }
-          }
-
-          // If deep crawl is enabled, also discover deep role chunks for Phase 2
-          if (!isNormalOnly) {
-            deepTablePattern.lastIndex = 0;
-            let dtm;
-            while ((dtm = deepTablePattern.exec(code)) !== null) {
-              const rawChunk = dtm[1];
-              if (rawChunk && !rawChunk.includes('node_modules')) {
-                try {
-                  const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
-                  let deepUrl = null;
-                  if (url.includes('/assets/')) {
-                    deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
-                  } else {
-                    deepUrl = new URL(rawChunk, url).href;
-                  }
-                  if (deepUrl && !visitedUrls.has(deepUrl) && !enqueuedChunkUrls.has(deepUrl)) {
-                    enqueuedChunkUrls.add(deepUrl);
-                    if (isPriorityChunkUrl(deepUrl)) {
-                      deepQueue.unshift(deepUrl);
-                    } else {
-                      deepQueue.push(deepUrl);
-                    }
-                  }
-                } catch { }
-              }
-            }
-          }
-
-          // Discover candidate backend microservice domains
-          const domainMatches = code.match(/https?:\/\/[a-zA-Z0-9_\-\.]+(?:\.[a-zA-Z]{2,})(?::\d+)?/g) || [];
-          for (const d of domainMatches) {
-            if (this.isBackendCandidateDomain(d, origin)) {
-              backendDomains.add(d);
-            }
-          }
-
-          // Check for source maps (.js.map) with host-level 404 caching
-          const mapMatch = code.match(/\/\/#\s*sourceMappingURL=([^\s]+)/i);
-          if (mapMatch) {
-            const mapRel = mapMatch[1];
-            if (!mapRel.startsWith('data:')) {
-              try {
-                const mapUrl = new URL(mapRel, url).href;
-                const mapHost = new URL(mapUrl).hostname;
-                if (!failedSourceMapHosts.has(mapHost)) {
-                  const mapRes = await this.safeFetch(mapUrl, { timeout: 3000, customHeaders });
-                  if (mapRes.ok) {
-                    try {
-                      const sourceMap = JSON.parse(mapRes.text);
-                      if (Array.isArray(sourceMap.sourcesContent)) {
-                        for (const rawSource of sourceMap.sourcesContent) {
-                          if (typeof rawSource === 'string' && rawSource.length > 50) {
-                            this.extractEndpointsFromCode(rawSource, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: !isNormalOnly, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
-                          }
-                        }
-                      }
-                    } catch { }
-                  } else {
-                    failedSourceMapHosts.add(mapHost);
-                  }
-                }
-              } catch { }
-            }
-          }
-
-          // Discover SPA client routes from router definitions: {path:"/...", ...} or to: "/..."
-          const routerPathRegex = /(?:path|to)\s*:\s*["'](\/[a-zA-Z0-9_\-\/]+)["']/gi;
-          let rpm;
-          while ((rpm = routerPathRegex.exec(code)) !== null) {
-            const rPath = rpm[1];
-            if (!rPath.startsWith('/api/') && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(rPath)) {
-              discoveredPages.add(rPath.split('?')[0]);
-            }
-          }
-          const jsxRouteRegex = /<Route\b[^>]*?\bpath\s*=\s*["'](\/[a-zA-Z0-9_\-\/]+)["']/gi;
-          let jrm;
-          while ((jrm = jsxRouteRegex.exec(code)) !== null) {
-            const jPath = jrm[1];
-            if (!jPath.startsWith('/api/') && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(jPath)) {
-              discoveredPages.add(jPath.split('?')[0]);
-            }
-          }
-
-          // Extract endpoints from standard chunk code (Immediate Deep Mode extraction when active)
-          this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: !isNormalOnly, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
-        }));
-
-        if (normalQueue.length > 0) {
-          await new Promise(r => setTimeout(r, 15));
-        }
-      }
-
-      // Freeze Phase 1 Normal Crawl Snapshot
-      normalChunksCount = visitedUrls.size;
-      for (const [ep, mSet] of allEndpoints.entries()) {
-        normalEndpoints.set(ep, new Set(mSet));
-      }
-      if (allEndpoints.size === 0 && discoveredPages.size > 0) {
-        const functionalPages = Array.from(discoveredPages)
-          .map(p => (p.replace(/\/+$/, '') || '/'))
-          .filter(p => !UniversalApiCrawler.isMarketingOrStatic(p));
-
-        const pagesToUse = functionalPages.length > 0
-          ? functionalPages
-          : Array.from(discoveredPages)
-            .map(p => (p.replace(/\/+$/, '') || '/'))
-            .filter(p => !p.startsWith('/_next') && !p.startsWith('/_nuxt') && !p.startsWith('/__'));
-
-        for (const clean of pagesToUse) {
-          normalEndpoints.set(clean, new Set(['GET']));
-        }
-      }
-
-      // Await concurrent Subdomain Perimeter Discovery to enrich microservices & external gateways
-      try {
-        const elapsedSoFar = Date.now() - startTime;
-        const maxSubdomainBudgetMs = profile.maxSubdomainBudgetMs(elapsedSoFar);
-        const harvested = await Promise.race([
-          subDiscoveryPromise,
-          new Promise((resolve) => setTimeout(() => {
-            const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
-            if (cached && cached.size > 0) {
-              resolve(Array.from(cached));
-            } else {
-              resolve([]);
-            }
-          }, Math.max(1000, maxSubdomainBudgetMs)))
-        ]);
-
-        for (const sub of harvested) {
-          const cSub = SubdomainScanner.canonicalize(sub);
-          if (cSub && !discoveredSubdomainsList.includes(cSub)) {
-            discoveredSubdomainsList.push(cSub);
-          }
-          if (cSub && cSub !== baseCanonical && cSub !== apexDomain) {
-            backendDomains.add(`https://${cSub}`);
+        // 8. Analyze inline script contents
+        const inlineScriptRegex = /<script\b(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/gi;
+        let ism;
+        while ((ism = inlineScriptRegex.exec(html)) !== null) {
+          const inlineCode = ism[1];
+          if (inlineCode && inlineCode.length > 20) {
+            this.extractEndpointsFromCode(inlineCode, href, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
           }
         }
-      } catch (subErr) {
-        console.warn('Subdomain discovery skipped:', subErr?.message || String(subErr));
-      }
 
-      // First-Party Application Portal Discovery (e.g. app.finstackk.com from finstackk.com)
-      const origApex = this.getApexDomain(hostname);
-      const appPortalOrigins = Array.from(backendDomains).filter(d => {
-        try {
-          const u = new URL(d);
-          const uHost = u.hostname.toLowerCase();
-          const uApex = this.getApexDomain(uHost);
-          return uApex === origApex && uHost !== hostname && (uHost.startsWith('app.') || uHost.startsWith('portal.') || uHost.startsWith('dashboard.') || uHost.startsWith('console.') || uHost.startsWith('platform.'));
-        } catch { return false; }
-      });
+        // =========================================================================
+        // STAGE 4: Recursive Bounded Chunk Graph Traversal (Two-Tier Engine)
+        // Tier 1 (Normal Crawl): Standard application chunk perimeter
+        // Tier 2 (Deep Crawl): Exhaustive scan of secondary lazy-loaded chunks & sub-routes
+        // =========================================================================
 
-      if (!isNormalOnly && appPortalOrigins.length > 0) {
-        await Promise.allSettled(appPortalOrigins.slice(0, 2).map(async (portalOrigin) => {
-          try {
-            const portalRes = await this.safeFetch(portalOrigin, { timeout: 2500, customHeaders, origin });
-            if (portalRes && portalRes.ok && portalRes.text) {
-              const portalScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
-              let psm;
-              while ((psm = portalScriptRegex.exec(portalRes.text)) !== null) {
-                const src = psm[1];
-                if (!this.isThirdPartyTracker(src)) {
-                  try {
-                    const pUrl = new URL(src, portalOrigin).href;
-                    if (!visitedUrls.has(pUrl) && !enqueuedChunkUrls.has(pUrl)) {
-                      enqueuedChunkUrls.add(pUrl);
-                      deepQueue.push(pUrl);
-                    }
-                  } catch { }
-                }
-              }
-            }
-          } catch { }
-        }));
-      }
+        const normalQueue = Array.from(discoveredScriptUrls);
+        const deepQueue = [];
+        const enqueuedChunkUrls = new Set(discoveredScriptUrls);
+        const scriptContents = new Map();
+        const failedSourceMapHosts = new Set();
 
-      // -----------------------------------------------------------------------
-      // PHASE 2: Deep Crawl (If not normal-only, traverse all lazy chunks & sub-routes)
-      // Serverless Adaptive: executes Phase 2 dynamically when execution budget permits
-      // -----------------------------------------------------------------------
-      const elapsedPhase2 = Date.now() - startTime;
-      const canRunPhase2 = !isNormalOnly && profile.canRunPhase2(elapsedPhase2);
-      if (canRunPhase2) {
-        // Probe discovered internal sub-routes to uncover role-gated page chunks (e.g. /login, /admin, /dashboard, /ai, /quiz)
-        const commonSubpages = ['/ai', '/ai/index.html', '/quiz', '/quiz/index.html', '/privacy-policy', '/terms'];
-        const targetInternalRoutes = Array.from(new Set([
-          ...Array.from(discoveredPages).filter(p => p !== '/' && !p.startsWith('/api/')).slice(0, isServerless ? 6 : 15),
-          ...commonSubpages
-        ]));
+        // Standard chunk patterns across Vite, Webpack, Next.js, Nuxt, SvelteKit, Angular, Remix, Astro
+        const chunkPatterns = [
+          /(?:\/_next\/static\/chunks\/[^"'\s()]+\.js|static\/chunks\/[^"'\s()]+\.js)/g,
+          /(?:\/assets\/[^"'\s()]+\.js|assets\/[^"'\s()]+\.js)/g,
+          /(?:\/_astro\/[^"'\s()]+\.js|_astro\/[^"'\s()]+\.js)/g,
+          /(?:\/build\/[^"'\s()]+\.js|build\/[^"'\s()]+\.js)/g,
+          /["'`]([a-zA-Z0-9_.\/]+-[a-zA-Z0-9_]{6,}\.js)["'`]/g,
+          /["'`](static\/js\/[^"'`\s()]+\.js)["'`]/g,
+          /["'`]((\/_nuxt\/[^"'`\s()]+\.js))["'`]/g,
+          /["'`]((\/_app\/immutable\/[^"'`\s()]+\.js))["'`]/g,
+          /["'`]((\/?[a-zA-Z0-9_\-]+\.chunk\.js))["'`]/g,
+          /["'`]((\/?chunk-[a-zA-Z0-9_\-]+\.js))["'`]/g,
+          /import\s*\(\s*["']([^"']+\.js)["']\s*\)/g
+        ];
 
-        const subpageBatchSize = isServerless ? 6 : 8;
-        for (let i = 0; i < targetInternalRoutes.length; i += subpageBatchSize) {
-          if (Date.now() - startTime >= maxCrawlTimeMs) break;
-          const batchRoutes = targetInternalRoutes.slice(i, i + subpageBatchSize);
-          await Promise.allSettled(batchRoutes.map(async (sr) => {
-            try {
-              const srUrl = new URL(sr, origin).href;
-              const srRes = await this.safeFetch(srUrl, { timeout: isServerless ? 1500 : 2500, customHeaders });
-              if (srRes.ok && srRes.status === 200 && srRes.text) {
-                // SPA Catch-All Guard: If the probed subpage returns the exact same HTML as the root homepage,
-                // it is an SPA wildcard fallback (not an authentic distinct page)
-                const isCatchAllFallback = srRes.text.length === html.length && srRes.text === html;
-                if (!isCatchAllFallback) {
-                  if (!sr.endsWith('.html') || !discoveredPages.has(sr.replace(/\.html$/, ''))) {
-                    discoveredPages.add(sr);
-                  }
-                }
-                const srScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
-                let srm;
-                while ((srm = srScriptRegex.exec(srRes.text)) !== null) {
-                  if (!this.isThirdPartyTracker(srm[1])) {
-                    try {
-                      const subScriptUrl = new URL(srm[1], origin).href;
-                      if (!visitedUrls.has(subScriptUrl) && !enqueuedChunkUrls.has(subScriptUrl)) {
-                        enqueuedChunkUrls.add(subScriptUrl);
-                        deepQueue.push(subScriptUrl);
-                      }
-                    } catch { }
-                  }
-                }
-              }
-            } catch { }
-          }));
-        }
+        // Secondary deep chunk patterns (Vite Rollup chunk table entries without /assets/ prefix)
+        const deepTablePattern = /"([a-zA-Z0-9_\-]+\.js)"/g;
 
-        // Exhaustively process all dynamic code-split chunks up to chunk limit or queue exhaustion
-        const maxDeepChunks = maxChunks;
-        const deepChunkTimeout = isServerless ? 2000 : 5000;
-        while (deepQueue.length > 0 && visitedUrls.size < maxDeepChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
-          const batch = deepQueue.splice(0, concurrency);
+        // -----------------------------------------------------------------------
+        // PHASE 1: Normal Crawl (Traverse standard application chunk perimeter)
+        // -----------------------------------------------------------------------
+        const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+        const maxNormalChunks = maxChunks;
+        const chunkTimeout = isServerless ? 2000 : 5000;
 
+        // Helper: Priority sort for high-yield code modules (roles, pages, stores, apis)
+        const isPriorityChunkUrl = (u) => {
+          const l = (u || '').toLowerCase();
+          return l.includes('student') || l.includes('tpo') || l.includes('employer') || l.includes('mentor') ||
+            l.includes('admin') || l.includes('career') || l.includes('learning') || l.includes('lab') ||
+            l.includes('ai') || l.includes('quiz') || l.includes('job') || l.includes('auth') ||
+            l.includes('dashboard') || l.includes('setting') || l.includes('support') || l.includes('consent') ||
+            l.includes('dpdp') || l.includes('interview') || l.includes('placement') || l.includes('campus') ||
+            l.includes('home') || l.includes('landing') || l.includes('plan') || l.includes('feature') ||
+            l.includes('modal') || l.includes('table') || l.includes('view') || l.includes('page') ||
+            l.includes('store') || l.includes('api') || l.includes('client') || l.includes('service') ||
+            l.includes('privacy') || l.includes('terms') || l.includes('legal');
+        };
+
+        while (normalQueue.length > 0 && visitedUrls.size < maxNormalChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
+          const batch = normalQueue.splice(0, concurrency);
           await Promise.all(batch.map(async (url) => {
             if (visitedUrls.has(url)) return;
             visitedUrls.add(url);
 
-            const scriptRes = await this.safeFetch(url, { timeout: deepChunkTimeout, customHeaders, context: 'script', origin });
+            let scriptRes = await this.safeFetch(url, { timeout: chunkTimeout, customHeaders, context: 'script', origin });
+            if (!scriptRes.ok && (scriptRes.status === 0 || scriptRes.status === 429 || scriptRes.status >= 500)) {
+              scriptRes = await this.safeFetch(url, { timeout: Math.min(3000, chunkTimeout + 800), customHeaders, context: 'script', origin });
+            }
             if (!scriptRes.ok) return;
             const code = scriptRes.text;
             scriptContents.set(url, code);
@@ -1580,605 +1310,889 @@ class UniversalApiCrawler {
               }
             }
 
-            // Nested deep chunks
-            deepTablePattern.lastIndex = 0;
-            let dtm;
-            while ((dtm = deepTablePattern.exec(code)) !== null) {
-              const rawChunk = dtm[1];
-              if (rawChunk && !rawChunk.includes('node_modules')) {
-                try {
-                  const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
-                  let deepUrl = null;
-                  if (url.includes('/assets/')) {
-                    deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
-                  } else {
-                    deepUrl = new URL(rawChunk, url).href;
-                  }
-                  if (!visitedUrls.has(deepUrl) && !enqueuedChunkUrls.has(deepUrl)) {
-                    enqueuedChunkUrls.add(deepUrl);
-                    deepQueue.push(deepUrl);
-                  }
-                } catch { }
+            // Standard chunk discovery (resolved against origin) -> enqueued for Normal Crawl
+            for (const pattern of chunkPatterns) {
+              pattern.lastIndex = 0;
+              let cm;
+              while ((cm = pattern.exec(code)) !== null) {
+                const rawChunk = cm[1] || cm[0];
+                if (rawChunk && !rawChunk.includes('node_modules')) {
+                  try {
+                    const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
+                    const resolvedChunkUrl = new URL(rawChunk, chunkOrigin).href;
+                    if (!visitedUrls.has(resolvedChunkUrl) && !enqueuedChunkUrls.has(resolvedChunkUrl)) {
+                      enqueuedChunkUrls.add(resolvedChunkUrl);
+                      if (isPriorityChunkUrl(resolvedChunkUrl)) {
+                        normalQueue.unshift(resolvedChunkUrl);
+                      } else {
+                        normalQueue.push(resolvedChunkUrl);
+                      }
+                    }
+                  } catch { }
+                }
               }
             }
 
-            // Discover backend service domains & microservices
+            // If deep crawl is enabled, also discover deep role chunks for Phase 2
+            if (!isNormalOnly) {
+              deepTablePattern.lastIndex = 0;
+              let dtm;
+              while ((dtm = deepTablePattern.exec(code)) !== null) {
+                const rawChunk = dtm[1];
+                if (rawChunk && !rawChunk.includes('node_modules')) {
+                  try {
+                    const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
+                    let deepUrl = null;
+                    if (url.includes('/assets/')) {
+                      deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
+                    } else {
+                      deepUrl = new URL(rawChunk, url).href;
+                    }
+                    if (deepUrl && !visitedUrls.has(deepUrl) && !enqueuedChunkUrls.has(deepUrl)) {
+                      enqueuedChunkUrls.add(deepUrl);
+                      if (isPriorityChunkUrl(deepUrl)) {
+                        deepQueue.unshift(deepUrl);
+                      } else {
+                        deepQueue.push(deepUrl);
+                      }
+                    }
+                  } catch { }
+                }
+              }
+            }
+
+            // Discover candidate backend microservice domains
             const domainMatches = code.match(/https?:\/\/[a-zA-Z0-9_\-\.]+(?:\.[a-zA-Z]{2,})(?::\d+)?/g) || [];
             for (const d of domainMatches) {
               if (this.isBackendCandidateDomain(d, origin)) {
                 backendDomains.add(d);
               }
             }
+
+            // Check for source maps (.js.map) with host-level 404 caching
+            const mapMatch = code.match(/\/\/#\s*sourceMappingURL=([^\s]+)/i);
+            if (mapMatch) {
+              const mapRel = mapMatch[1];
+              if (!mapRel.startsWith('data:')) {
+                try {
+                  const mapUrl = new URL(mapRel, url).href;
+                  const mapHost = new URL(mapUrl).hostname;
+                  if (!failedSourceMapHosts.has(mapHost)) {
+                    const mapRes = await this.safeFetch(mapUrl, { timeout: 3000, customHeaders });
+                    if (mapRes.ok) {
+                      try {
+                        const sourceMap = JSON.parse(mapRes.text);
+                        if (Array.isArray(sourceMap.sourcesContent)) {
+                          for (const rawSource of sourceMap.sourcesContent) {
+                            if (typeof rawSource === 'string' && rawSource.length > 50) {
+                              this.extractEndpointsFromCode(rawSource, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: !isNormalOnly, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
+                            }
+                          }
+                        }
+                      } catch { }
+                    } else {
+                      failedSourceMapHosts.add(mapHost);
+                    }
+                  }
+                } catch { }
+              }
+            }
+
+            // Discover SPA client routes from router definitions: {path:"/...", ...} or to: "/..."
+            const routerPathRegex = /(?:path|to)\s*:\s*["'](\/[a-zA-Z0-9_\-\/]+)["']/gi;
+            let rpm;
+            while ((rpm = routerPathRegex.exec(code)) !== null) {
+              const rPath = rpm[1];
+              if (!rPath.startsWith('/api/') && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(rPath)) {
+                discoveredPages.add(rPath.split('?')[0]);
+              }
+            }
+            const jsxRouteRegex = /<Route\b[^>]*?\bpath\s*=\s*["'](\/[a-zA-Z0-9_\-\/]+)["']/gi;
+            let jrm;
+            while ((jrm = jsxRouteRegex.exec(code)) !== null) {
+              const jPath = jrm[1];
+              if (!jPath.startsWith('/api/') && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(jPath)) {
+                discoveredPages.add(jPath.split('?')[0]);
+              }
+            }
+
+            // Extract endpoints from standard chunk code (Immediate Deep Mode extraction when active)
+            this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: !isNormalOnly, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
           }));
 
-          if (deepQueue.length > 0) {
+          if (normalQueue.length > 0) {
             await new Promise(r => setTimeout(r, 15));
           }
         }
 
-        // Extract deep role-gated and lazy-loaded endpoints across all discovered chunks
-        for (const [chunkUrl, chunkCode] of scriptContents.entries()) {
-          this.extractEndpointsFromCode(chunkCode, chunkUrl, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: true, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
+        // Freeze Phase 1 Normal Crawl Snapshot
+        normalChunksCount = visitedUrls.size;
+        for (const [ep, mSet] of allEndpoints.entries()) {
+          normalEndpoints.set(ep, new Set(mSet));
         }
-      }
-
-      // Capture probed backend API response headers
-      let backendProbeHeaders = {};
-      let originBackendProbeHeaders = {};
-
-      // Probe verified health endpoint if framework indicates an active Node/Next/API backend
-      if (!isServerless && (frameworksDetected.has('Next.js') || frameworksDetected.has('React') || frameworksDetected.has('Vite') || allEndpoints.has('/api/health'))) {
-        try {
-          const hUrl = new URL('/api/health', origin).href;
-          const hRes = await this.safeFetch(hUrl, { timeout: 2000, customHeaders });
-          if (hRes && hRes.headers && Object.keys(hRes.headers).length > 0) {
-            originBackendProbeHeaders = { ...originBackendProbeHeaders, ...hRes.headers };
-            backendProbeHeaders = { ...backendProbeHeaders, ...hRes.headers };
-          }
-          if (hRes.ok && (hRes.contentType.includes('application/json') || hRes.text.includes('"status"'))) {
-            if (!allEndpoints.has('/api/health')) allEndpoints.set('/api/health', new Set());
-            allEndpoints.get('/api/health').add('GET');
-          }
-        } catch { }
-      }
-
-      // If Better-Auth (/api/auth) is detected, verify authentic sub-routes
-      if (!isServerless && allEndpoints.has('/api/auth')) {
-        const authProbes = [
-          { path: '/api/auth/get-session', method: 'GET' },
-          { path: '/api/auth/ok', method: 'GET' },
-          { path: '/api/auth/sign-in/username', method: 'POST', testPost: true },
-          { path: '/api/auth/sign-out', method: 'POST', testPost: true }
-        ];
-        for (const probe of authProbes) {
-          try {
-            const aUrl = new URL(probe.path, origin).href;
-            const aRes = await this.safeFetch(aUrl, {
-              method: probe.method,
-              timeout: 2500,
-              customHeaders,
-              body: probe.testPost ? JSON.stringify({}) : undefined,
-              headers: probe.testPost ? { ...this.getHeaders(customHeaders), 'Content-Type': 'application/json' } : undefined
-            });
-            if (aRes && aRes.headers && Object.keys(aRes.headers).length > 0) {
-              originBackendProbeHeaders = { ...originBackendProbeHeaders, ...aRes.headers };
-              backendProbeHeaders = { ...backendProbeHeaders, ...aRes.headers };
-            }
-            if (aRes.status === 200 || aRes.status === 401 || (aRes.contentType && aRes.contentType.includes('application/json'))) {
-              if (!allEndpoints.has(probe.path)) allEndpoints.set(probe.path, new Set());
-              allEndpoints.get(probe.path).add(probe.method);
-            }
-          } catch { }
-        }
-      }
-
-      // If external backend gateways were discovered, probe top external gateway for authentic backend headers
-      const originApex = this.getApexDomain(hostname);
-      const extGateways = Array.from(backendDomains).filter(d => {
-        try {
-          const gwHost = new URL(d).hostname;
-          if (gwHost === hostname) return false;
-          const gwApex = this.getApexDomain(gwHost);
-          const isSameApex = gwApex && originApex && gwApex === originApex;
-          const isPaaS = gwHost.includes('.supabase.co') || gwHost.includes('.onrender.com') ||
-            gwHost.includes('.railway.app') || gwHost.includes('.up.railway.app') ||
-            gwHost.includes('.fly.dev') || gwHost.includes('.run.app') ||
-            gwHost.includes('.azurewebsites.net') || gwHost.includes('.herokuapp.com');
-          return isSameApex || isPaaS;
-        } catch {
-          return false;
-        }
-      });
-
-      // Sort external gateways prioritizing genuine API backends and PaaS endpoints over generic subdomains
-      const prioritizedGateways = extGateways.sort((a, b) => {
-        const score = (url) => {
-          const l = url.toLowerCase();
-          if (l.includes('.supabase.co') || l.includes('.onrender.com') || l.includes('.railway.app') || l.includes('.azurewebsites.net')) return 10;
-          if (l.includes('//api.') || l.includes('//api-') || l.includes('//backend.') || l.includes('//gateway.') || l.includes('//svc.')) return 8;
-          if (l.includes('//app.') || l.includes('//portal.')) return 5;
-          return 1;
-        };
-        return score(b) - score(a);
-      }).slice(0, 4);
-
-      // Identify Primary Dedicated API Gateway (e.g. api.*, backend.*, or PaaS endpoints)
-      const primaryApiGateway = prioritizedGateways.find(u => {
-        const l = u.toLowerCase();
-        return l.includes('//api.') || l.includes('//api-') || l.includes('//backend.') || l.includes('//gateway.') || l.includes('//svc.') ||
-          l.includes('.supabase.co') || l.includes('.onrender.com') || l.includes('.railway.app') || l.includes('.azurewebsites.net') ||
-          l.includes('.fly.dev') || l.includes('.run.app');
-      }) || null;
-
-      let primaryApiIp = null;
-      let primaryApiHeaders = {};
-      if (primaryApiGateway) {
-        try {
-          const gwHost = new URL(primaryApiGateway).hostname;
-          const dnsMod = require('dns');
-          const dnsLookup = await dnsMod.promises.lookup(gwHost).catch(() => null);
-          if (dnsLookup && dnsLookup.address) {
-            primaryApiIp = dnsLookup.address;
-          }
-        } catch { }
-      }
-
-      let extGatewayHeaders = {};
-      const diagnosticEndpoints = ['/api/health', '/health', '/healthz'];
-      const elapsedGateways = Date.now() - startTime;
-      if (profile.canRunGatewayProbes(elapsedGateways)) {
-        await Promise.allSettled(prioritizedGateways.map(async (extGateway) => {
-          const isPrimaryApi = extGateway === primaryApiGateway;
-          try {
-            const gwRes = await this.safeFetch(extGateway, { timeout: 2000, customHeaders });
-            if (gwRes && gwRes.headers) {
-              if (isPrimaryApi) {
-                primaryApiHeaders = { ...primaryApiHeaders, ...gwRes.headers };
-              } else {
-                extGatewayHeaders = { ...extGatewayHeaders, ...gwRes.headers };
-              }
-            }
-          } catch { }
-
-          // 1. Probe WordPress REST API manifest (/wp-json/) on subdomain perimeter
-          try {
-            const wpSubUrl = new URL('/wp-json/', extGateway).href;
-            const wpSubRes = await this.safeFetch(wpSubUrl, { timeout: 2500, customHeaders });
-            if (wpSubRes && wpSubRes.ok && (wpSubRes.contentType?.includes('application/json') || wpSubRes.text?.trim().startsWith('{'))) {
-              const wpSubData = JSON.parse(wpSubRes.text);
-              if (wpSubData && wpSubData.routes && typeof wpSubData.routes === 'object') {
-                const gwHost = new URL(extGateway).hostname;
-                const gwCanonical = SubdomainScanner.canonicalize(gwHost);
-                const wpPrefix = '/wp-json';
-                for (const [rawRoute, routeInfo] of Object.entries(wpSubData.routes)) {
-                  let fullRoute = rawRoute;
-                  if (!fullRoute.startsWith(wpPrefix)) {
-                    fullRoute = rawRoute === '/' ? wpPrefix : `${wpPrefix}${rawRoute.startsWith('/') ? '' : '/'}${rawRoute}`;
-                  }
-                  const normalized = this.normalizeApiPath(fullRoute);
-                  if (normalized) {
-                    let targetPath = normalized;
-                    if (allEndpoints.has(normalized)) {
-                      targetPath = `//${gwHost}${normalized}`;
-                    }
-                    endpointSubdomainMap.set(targetPath, gwCanonical);
-                    verifiedApiRoutes.add(targetPath);
-                    if (!allEndpoints.has(targetPath)) allEndpoints.set(targetPath, new Set());
-                    const methods = Array.isArray(routeInfo?.methods) ? routeInfo.methods : ['GET'];
-                    for (const m of methods) {
-                      allEndpoints.get(targetPath).add(String(m).toUpperCase());
-                    }
-                    if (!normalEndpoints.has(targetPath)) normalEndpoints.set(targetPath, new Set());
-                    for (const m of methods) {
-                      normalEndpoints.get(targetPath).add(String(m).toUpperCase());
-                    }
-                  }
-                }
-              }
-            }
-          } catch { }
-
-          // Concurrent live diagnostic probes for sub-domain backends with 2,500ms timeout
-          try {
-            const probePromises = diagnosticEndpoints.map(async (diagPath) => {
-              const probeUrl = new URL(diagPath, extGateway).href;
-              const res = await this.safeFetch(probeUrl, { timeout: 2500, customHeaders });
-              return { diagPath, res, extGateway };
-            });
-            const probeResults = await Promise.allSettled(probePromises);
-            for (const item of probeResults) {
-              if (item.status === 'fulfilled' && item.value) {
-                const { diagPath, res, extGateway: gw } = item.value;
-                if (res && res.headers && Object.keys(res.headers).length > 0) {
-                  if (isPrimaryApi) {
-                    primaryApiHeaders = { ...primaryApiHeaders, ...res.headers };
-                  } else {
-                    extGatewayHeaders = { ...extGatewayHeaders, ...res.headers };
-                  }
-                  backendProbeHeaders = { ...backendProbeHeaders, ...res.headers };
-                }
-                if (res && res.ok && (res.status === 200 || (res.contentType && res.contentType.includes('application/json')) || (res.text && res.text.includes('"status"')))) {
-                  // Only register genuine application API routes (starting with /api/)
-                  // Low-level infrastructure diagnostic pings (/health, /healthz) are solely for header/tech-stack fingerprinting
-                  if (diagPath.startsWith('/api/')) {
-                    let targetPath = diagPath;
-                    const gwHost = new URL(gw).hostname;
-                    const gwCanonical = SubdomainScanner.canonicalize(gwHost);
-                    if (allEndpoints.has(diagPath)) {
-                      // Only apply collision prefix if identical route already exists on origin
-                      targetPath = `//${gwHost}${diagPath}`;
-                    }
-                    endpointSubdomainMap.set(targetPath, gwCanonical);
-                    if (!allEndpoints.has(targetPath)) {
-                      allEndpoints.set(targetPath, new Set(['GET']));
-                    } else {
-                      allEndpoints.get(targetPath).add('GET');
-                    }
-                    if (!normalEndpoints.has(targetPath)) {
-                      normalEndpoints.set(targetPath, new Set(['GET']));
-                    } else {
-                      normalEndpoints.get(targetPath).add('GET');
-                    }
-                    verifiedApiRoutes.add(targetPath);
-                  }
-                }
-              }
-            }
-          } catch { }
-        }));
-      }
-
-      // Origin backend probe headers or Primary API Gateway headers ALWAYS take precedence over secondary blogs/portals!
-      if (primaryApiGateway && (primaryApiIp || Object.keys(primaryApiHeaders).length > 0)) {
-        backendProbeHeaders = { ...extGatewayHeaders, ...primaryApiHeaders, ...originBackendProbeHeaders };
-      } else if (Object.keys(originBackendProbeHeaders).length > 0) {
-        backendProbeHeaders = { ...extGatewayHeaders, ...originBackendProbeHeaders };
-      } else {
-        backendProbeHeaders = { ...backendProbeHeaders, ...extGatewayHeaders };
-      }
-
-      // =========================================================================
-      // STAGE 5: Authentic Fallback Strategy
-      // If no explicit APIs were exposed, record actual discovered client routes
-      // without hallucinating fake backend endpoints or fake database models.
-      // =========================================================================
-      if (allEndpoints.size === 0) {
-        discoveryStrategy = 'web_surface_scan';
-        if (discoveredPages.size > 0) {
+        if (allEndpoints.size === 0 && discoveredPages.size > 0) {
           const functionalPages = Array.from(discoveredPages)
             .map(p => (p.replace(/\/+$/, '') || '/'))
             .filter(p => !UniversalApiCrawler.isMarketingOrStatic(p));
 
-          if (functionalPages.length > 0) {
-            for (const clean of functionalPages) {
-              allEndpoints.set(clean, new Set(['GET']));
+          const pagesToUse = functionalPages.length > 0
+            ? functionalPages
+            : Array.from(discoveredPages)
+              .map(p => (p.replace(/\/+$/, '') || '/'))
+              .filter(p => !p.startsWith('/_next') && !p.startsWith('/_nuxt') && !p.startsWith('/__'));
+
+          for (const clean of pagesToUse) {
+            normalEndpoints.set(clean, new Set(['GET']));
+          }
+        }
+
+        // Await concurrent Subdomain Perimeter Discovery to enrich microservices & external gateways
+        try {
+          const elapsedSoFar = Date.now() - startTime;
+          const maxSubdomainBudgetMs = profile.maxSubdomainBudgetMs(elapsedSoFar);
+          const harvested = await Promise.race([
+            subDiscoveryPromise,
+            new Promise((resolve) => setTimeout(() => {
+              const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
+              if (cached && cached.size > 0) {
+                resolve(Array.from(cached));
+              } else {
+                resolve([]);
+              }
+            }, Math.max(1000, maxSubdomainBudgetMs)))
+          ]);
+
+          for (const sub of harvested) {
+            const cSub = SubdomainScanner.canonicalize(sub);
+            if (cSub && !discoveredSubdomainsList.includes(cSub)) {
+              discoveredSubdomainsList.push(cSub);
+            }
+            if (cSub && cSub !== baseCanonical && cSub !== apexDomain) {
+              backendDomains.add(`https://${cSub}`);
+            }
+          }
+        } catch (subErr) {
+          console.warn('Subdomain discovery skipped:', subErr?.message || String(subErr));
+        }
+
+        // First-Party Application Portal Discovery (e.g. app.finstackk.com from finstackk.com)
+        const origApex = this.getApexDomain(hostname);
+        const appPortalOrigins = Array.from(backendDomains).filter(d => {
+          try {
+            const u = new URL(d);
+            const uHost = u.hostname.toLowerCase();
+            const uApex = this.getApexDomain(uHost);
+            return uApex === origApex && uHost !== hostname && (uHost.startsWith('app.') || uHost.startsWith('portal.') || uHost.startsWith('dashboard.') || uHost.startsWith('console.') || uHost.startsWith('platform.'));
+          } catch { return false; }
+        });
+
+        if (!isNormalOnly && appPortalOrigins.length > 0) {
+          await Promise.allSettled(appPortalOrigins.slice(0, 2).map(async (portalOrigin) => {
+            try {
+              const portalRes = await this.safeFetch(portalOrigin, { timeout: 2500, customHeaders, origin });
+              if (portalRes && portalRes.ok && portalRes.text) {
+                const portalScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+                let psm;
+                while ((psm = portalScriptRegex.exec(portalRes.text)) !== null) {
+                  const src = psm[1];
+                  if (!this.isThirdPartyTracker(src)) {
+                    try {
+                      const pUrl = new URL(src, portalOrigin).href;
+                      if (!visitedUrls.has(pUrl) && !enqueuedChunkUrls.has(pUrl)) {
+                        enqueuedChunkUrls.add(pUrl);
+                        deepQueue.push(pUrl);
+                      }
+                    } catch { }
+                  }
+                }
+              }
+            } catch { }
+          }));
+        }
+
+        // -----------------------------------------------------------------------
+        // PHASE 2: Deep Crawl (If not normal-only, traverse all lazy chunks & sub-routes)
+        // Serverless Adaptive: executes Phase 2 dynamically when execution budget permits
+        // -----------------------------------------------------------------------
+        const elapsedPhase2 = Date.now() - startTime;
+        const canRunPhase2 = !isNormalOnly && profile.canRunPhase2(elapsedPhase2);
+        if (canRunPhase2) {
+          // Probe discovered internal sub-routes to uncover role-gated page chunks (e.g. /login, /admin, /dashboard, /ai, /quiz)
+          const commonSubpages = ['/ai', '/ai/index.html', '/quiz', '/quiz/index.html', '/privacy-policy', '/terms'];
+          const targetInternalRoutes = Array.from(new Set([
+            ...Array.from(discoveredPages).filter(p => p !== '/' && !p.startsWith('/api/')).slice(0, isServerless ? 6 : 15),
+            ...commonSubpages
+          ]));
+
+          const subpageBatchSize = isServerless ? 6 : 8;
+          for (let i = 0; i < targetInternalRoutes.length; i += subpageBatchSize) {
+            if (Date.now() - startTime >= maxCrawlTimeMs) break;
+            const batchRoutes = targetInternalRoutes.slice(i, i + subpageBatchSize);
+            await Promise.allSettled(batchRoutes.map(async (sr) => {
+              try {
+                const srUrl = new URL(sr, origin).href;
+                const srRes = await this.safeFetch(srUrl, { timeout: isServerless ? 1500 : 2500, customHeaders });
+                if (srRes.ok && srRes.status === 200 && srRes.text) {
+                  // SPA Catch-All Guard: If the probed subpage returns the exact same HTML as the root homepage,
+                  // it is an SPA wildcard fallback (not an authentic distinct page)
+                  const isCatchAllFallback = srRes.text.length === html.length && srRes.text === html;
+                  if (!isCatchAllFallback) {
+                    if (!sr.endsWith('.html') || !discoveredPages.has(sr.replace(/\.html$/, ''))) {
+                      discoveredPages.add(sr);
+                    }
+                  }
+                  const srScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+                  let srm;
+                  while ((srm = srScriptRegex.exec(srRes.text)) !== null) {
+                    if (!this.isThirdPartyTracker(srm[1])) {
+                      try {
+                        const subScriptUrl = new URL(srm[1], origin).href;
+                        if (!visitedUrls.has(subScriptUrl) && !enqueuedChunkUrls.has(subScriptUrl)) {
+                          enqueuedChunkUrls.add(subScriptUrl);
+                          deepQueue.push(subScriptUrl);
+                        }
+                      } catch { }
+                    }
+                  }
+                }
+              } catch { }
+            }));
+          }
+
+          // Exhaustively process all dynamic code-split chunks up to chunk limit or queue exhaustion
+          const maxDeepChunks = maxChunks;
+          const deepChunkTimeout = isServerless ? 2000 : 5000;
+          while (deepQueue.length > 0 && visitedUrls.size < maxDeepChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
+            const batch = deepQueue.splice(0, concurrency);
+
+            await Promise.all(batch.map(async (url) => {
+              if (visitedUrls.has(url)) return;
+              visitedUrls.add(url);
+
+              let scriptRes = await this.safeFetch(url, { timeout: deepChunkTimeout, customHeaders, context: 'script', origin });
+              if (!scriptRes.ok && (scriptRes.status === 0 || scriptRes.status === 429 || scriptRes.status >= 500)) {
+                scriptRes = await this.safeFetch(url, { timeout: Math.min(3000, deepChunkTimeout + 800), customHeaders, context: 'script', origin });
+              }
+              if (!scriptRes.ok) return;
+              const code = scriptRes.text;
+              scriptContents.set(url, code);
+
+              if (apexDomain) {
+                const codeSubs = SubdomainScanner.extractFromCode(code, apexDomain);
+                for (const cs of codeSubs) {
+                  if (cs && !discoveredSubdomainsList.includes(cs)) {
+                    discoveredSubdomainsList.push(cs);
+                  }
+                }
+              }
+
+              // Nested deep chunks
+              deepTablePattern.lastIndex = 0;
+              let dtm;
+              while ((dtm = deepTablePattern.exec(code)) !== null) {
+                const rawChunk = dtm[1];
+                if (rawChunk && !rawChunk.includes('node_modules')) {
+                  try {
+                    const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
+                    let deepUrl = null;
+                    if (url.includes('/assets/')) {
+                      deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
+                    } else {
+                      deepUrl = new URL(rawChunk, url).href;
+                    }
+                    if (!visitedUrls.has(deepUrl) && !enqueuedChunkUrls.has(deepUrl)) {
+                      enqueuedChunkUrls.add(deepUrl);
+                      deepQueue.push(deepUrl);
+                    }
+                  } catch { }
+                }
+              }
+
+              // Discover backend service domains & microservices
+              const domainMatches = code.match(/https?:\/\/[a-zA-Z0-9_\-\.]+(?:\.[a-zA-Z]{2,})(?::\d+)?/g) || [];
+              for (const d of domainMatches) {
+                if (this.isBackendCandidateDomain(d, origin)) {
+                  backendDomains.add(d);
+                }
+              }
+            }));
+
+            if (deepQueue.length > 0) {
+              await new Promise(r => setTimeout(r, 15));
+            }
+          }
+
+          // Extract deep role-gated and lazy-loaded endpoints across all discovered chunks
+          for (const [chunkUrl, chunkCode] of scriptContents.entries()) {
+            this.extractEndpointsFromCode(chunkCode, chunkUrl, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: true, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
+          }
+        }
+
+        // Capture probed backend API response headers
+        let backendProbeHeaders = {};
+        let originBackendProbeHeaders = {};
+
+        // Probe verified health endpoint if framework indicates an active Node/Next/API backend
+        if (!isServerless && (frameworksDetected.has('Next.js') || frameworksDetected.has('React') || frameworksDetected.has('Vite') || allEndpoints.has('/api/health'))) {
+          try {
+            const hUrl = new URL('/api/health', origin).href;
+            const hRes = await this.safeFetch(hUrl, { timeout: 2000, customHeaders });
+            if (hRes && hRes.headers && Object.keys(hRes.headers).length > 0) {
+              originBackendProbeHeaders = { ...originBackendProbeHeaders, ...hRes.headers };
+              backendProbeHeaders = { ...backendProbeHeaders, ...hRes.headers };
+            }
+            if (hRes.ok && (hRes.contentType.includes('application/json') || hRes.text.includes('"status"'))) {
+              if (!allEndpoints.has('/api/health')) allEndpoints.set('/api/health', new Set());
+              allEndpoints.get('/api/health').add('GET');
+            }
+          } catch { }
+        }
+
+        // If Better-Auth (/api/auth) is detected, verify authentic sub-routes
+        if (!isServerless && allEndpoints.has('/api/auth')) {
+          const authProbes = [
+            { path: '/api/auth/get-session', method: 'GET' },
+            { path: '/api/auth/ok', method: 'GET' },
+            { path: '/api/auth/sign-in/username', method: 'POST', testPost: true },
+            { path: '/api/auth/sign-out', method: 'POST', testPost: true }
+          ];
+          for (const probe of authProbes) {
+            try {
+              const aUrl = new URL(probe.path, origin).href;
+              const aRes = await this.safeFetch(aUrl, {
+                method: probe.method,
+                timeout: 2500,
+                customHeaders,
+                body: probe.testPost ? JSON.stringify({}) : undefined,
+                headers: probe.testPost ? { ...this.getHeaders(customHeaders), 'Content-Type': 'application/json' } : undefined
+              });
+              if (aRes && aRes.headers && Object.keys(aRes.headers).length > 0) {
+                originBackendProbeHeaders = { ...originBackendProbeHeaders, ...aRes.headers };
+                backendProbeHeaders = { ...backendProbeHeaders, ...aRes.headers };
+              }
+              if (aRes.status === 200 || aRes.status === 401 || (aRes.contentType && aRes.contentType.includes('application/json'))) {
+                if (!allEndpoints.has(probe.path)) allEndpoints.set(probe.path, new Set());
+                allEndpoints.get(probe.path).add(probe.method);
+              }
+            } catch { }
+          }
+        }
+
+        // If external backend gateways were discovered, probe top external gateway for authentic backend headers
+        const originApex = this.getApexDomain(hostname);
+        const extGateways = Array.from(backendDomains).filter(d => {
+          try {
+            const gwHost = new URL(d).hostname;
+            if (gwHost === hostname) return false;
+            const gwApex = this.getApexDomain(gwHost);
+            const isSameApex = gwApex && originApex && gwApex === originApex;
+            const isPaaS = gwHost.includes('.supabase.co') || gwHost.includes('.onrender.com') ||
+              gwHost.includes('.railway.app') || gwHost.includes('.up.railway.app') ||
+              gwHost.includes('.fly.dev') || gwHost.includes('.run.app') ||
+              gwHost.includes('.azurewebsites.net') || gwHost.includes('.herokuapp.com');
+            return isSameApex || isPaaS;
+          } catch {
+            return false;
+          }
+        });
+
+        // Sort external gateways prioritizing genuine API backends and PaaS endpoints over generic subdomains
+        const prioritizedGateways = extGateways.sort((a, b) => {
+          const score = (url) => {
+            const l = url.toLowerCase();
+            if (l.includes('.supabase.co') || l.includes('.onrender.com') || l.includes('.railway.app') || l.includes('.azurewebsites.net')) return 10;
+            if (l.includes('//api.') || l.includes('//api-') || l.includes('//backend.') || l.includes('//gateway.') || l.includes('//svc.')) return 8;
+            if (l.includes('//app.') || l.includes('//portal.')) return 5;
+            return 1;
+          };
+          return score(b) - score(a);
+        }).slice(0, 4);
+
+        // Identify Primary Dedicated API Gateway (e.g. api.*, backend.*, or PaaS endpoints)
+        const primaryApiGateway = prioritizedGateways.find(u => {
+          const l = u.toLowerCase();
+          return l.includes('//api.') || l.includes('//api-') || l.includes('//backend.') || l.includes('//gateway.') || l.includes('//svc.') ||
+            l.includes('.supabase.co') || l.includes('.onrender.com') || l.includes('.railway.app') || l.includes('.azurewebsites.net') ||
+            l.includes('.fly.dev') || l.includes('.run.app');
+        }) || null;
+
+        let primaryApiIp = null;
+        let primaryApiHeaders = {};
+        if (primaryApiGateway) {
+          try {
+            const gwHost = new URL(primaryApiGateway).hostname;
+            const dnsMod = require('dns');
+            const dnsLookup = await dnsMod.promises.lookup(gwHost).catch(() => null);
+            if (dnsLookup && dnsLookup.address) {
+              primaryApiIp = dnsLookup.address;
+            }
+          } catch { }
+        }
+
+        let extGatewayHeaders = {};
+        const diagnosticEndpoints = ['/api/health', '/health', '/healthz'];
+        const elapsedGateways = Date.now() - startTime;
+        if (profile.canRunGatewayProbes(elapsedGateways)) {
+          await Promise.allSettled(prioritizedGateways.map(async (extGateway) => {
+            const isPrimaryApi = extGateway === primaryApiGateway;
+            try {
+              const gwRes = await this.safeFetch(extGateway, { timeout: 2000, customHeaders });
+              if (gwRes && gwRes.headers) {
+                if (isPrimaryApi) {
+                  primaryApiHeaders = { ...primaryApiHeaders, ...gwRes.headers };
+                } else {
+                  extGatewayHeaders = { ...extGatewayHeaders, ...gwRes.headers };
+                }
+              }
+            } catch { }
+
+            // 1. Probe WordPress REST API manifest (/wp-json/) on subdomain perimeter
+            try {
+              const wpSubUrl = new URL('/wp-json/', extGateway).href;
+              const wpSubRes = await this.safeFetch(wpSubUrl, { timeout: 2500, customHeaders });
+              if (wpSubRes && wpSubRes.ok && (wpSubRes.contentType?.includes('application/json') || wpSubRes.text?.trim().startsWith('{'))) {
+                const wpSubData = JSON.parse(wpSubRes.text);
+                if (wpSubData && wpSubData.routes && typeof wpSubData.routes === 'object') {
+                  const gwHost = new URL(extGateway).hostname;
+                  const gwCanonical = SubdomainScanner.canonicalize(gwHost);
+                  const wpPrefix = '/wp-json';
+                  for (const [rawRoute, routeInfo] of Object.entries(wpSubData.routes)) {
+                    let fullRoute = rawRoute;
+                    if (!fullRoute.startsWith(wpPrefix)) {
+                      fullRoute = rawRoute === '/' ? wpPrefix : `${wpPrefix}${rawRoute.startsWith('/') ? '' : '/'}${rawRoute}`;
+                    }
+                    const normalized = this.normalizeApiPath(fullRoute);
+                    if (normalized) {
+                      let targetPath = normalized;
+                      if (allEndpoints.has(normalized)) {
+                        targetPath = `//${gwHost}${normalized}`;
+                      }
+                      endpointSubdomainMap.set(targetPath, gwCanonical);
+                      verifiedApiRoutes.add(targetPath);
+                      if (!allEndpoints.has(targetPath)) allEndpoints.set(targetPath, new Set());
+                      const methods = Array.isArray(routeInfo?.methods) ? routeInfo.methods : ['GET'];
+                      for (const m of methods) {
+                        allEndpoints.get(targetPath).add(String(m).toUpperCase());
+                      }
+                      if (!normalEndpoints.has(targetPath)) normalEndpoints.set(targetPath, new Set());
+                      for (const m of methods) {
+                        normalEndpoints.get(targetPath).add(String(m).toUpperCase());
+                      }
+                    }
+                  }
+                }
+              }
+            } catch { }
+
+            // Concurrent live diagnostic probes for sub-domain backends with 2,500ms timeout
+            try {
+              const probePromises = diagnosticEndpoints.map(async (diagPath) => {
+                const probeUrl = new URL(diagPath, extGateway).href;
+                const res = await this.safeFetch(probeUrl, { timeout: 2500, customHeaders });
+                return { diagPath, res, extGateway };
+              });
+              const probeResults = await Promise.allSettled(probePromises);
+              for (const item of probeResults) {
+                if (item.status === 'fulfilled' && item.value) {
+                  const { diagPath, res, extGateway: gw } = item.value;
+                  if (res && res.headers && Object.keys(res.headers).length > 0) {
+                    if (isPrimaryApi) {
+                      primaryApiHeaders = { ...primaryApiHeaders, ...res.headers };
+                    } else {
+                      extGatewayHeaders = { ...extGatewayHeaders, ...res.headers };
+                    }
+                    backendProbeHeaders = { ...backendProbeHeaders, ...res.headers };
+                  }
+                  if (res && res.ok && (res.status === 200 || (res.contentType && res.contentType.includes('application/json')) || (res.text && res.text.includes('"status"')))) {
+                    // Only register genuine application API routes (starting with /api/)
+                    // Low-level infrastructure diagnostic pings (/health, /healthz) are solely for header/tech-stack fingerprinting
+                    if (diagPath.startsWith('/api/')) {
+                      let targetPath = diagPath;
+                      const gwHost = new URL(gw).hostname;
+                      const gwCanonical = SubdomainScanner.canonicalize(gwHost);
+                      if (allEndpoints.has(diagPath)) {
+                        // Only apply collision prefix if identical route already exists on origin
+                        targetPath = `//${gwHost}${diagPath}`;
+                      }
+                      endpointSubdomainMap.set(targetPath, gwCanonical);
+                      if (!allEndpoints.has(targetPath)) {
+                        allEndpoints.set(targetPath, new Set(['GET']));
+                      } else {
+                        allEndpoints.get(targetPath).add('GET');
+                      }
+                      if (!normalEndpoints.has(targetPath)) {
+                        normalEndpoints.set(targetPath, new Set(['GET']));
+                      } else {
+                        normalEndpoints.get(targetPath).add('GET');
+                      }
+                      verifiedApiRoutes.add(targetPath);
+                    }
+                  }
+                }
+              }
+            } catch { }
+          }));
+        }
+
+        // Origin backend probe headers or Primary API Gateway headers ALWAYS take precedence over secondary blogs/portals!
+        if (primaryApiGateway && (primaryApiIp || Object.keys(primaryApiHeaders).length > 0)) {
+          backendProbeHeaders = { ...extGatewayHeaders, ...primaryApiHeaders, ...originBackendProbeHeaders };
+        } else if (Object.keys(originBackendProbeHeaders).length > 0) {
+          backendProbeHeaders = { ...extGatewayHeaders, ...originBackendProbeHeaders };
+        } else {
+          backendProbeHeaders = { ...backendProbeHeaders, ...extGatewayHeaders };
+        }
+
+        // =========================================================================
+        // STAGE 5: Authentic Fallback Strategy
+        // If no explicit APIs were exposed, record actual discovered client routes
+        // without hallucinating fake backend endpoints or fake database models.
+        // =========================================================================
+        if (allEndpoints.size === 0) {
+          discoveryStrategy = 'web_surface_scan';
+          if (discoveredPages.size > 0) {
+            const functionalPages = Array.from(discoveredPages)
+              .map(p => (p.replace(/\/+$/, '') || '/'))
+              .filter(p => !UniversalApiCrawler.isMarketingOrStatic(p));
+
+            if (functionalPages.length > 0) {
+              for (const clean of functionalPages) {
+                allEndpoints.set(clean, new Set(['GET']));
+              }
+            } else {
+              for (const p of discoveredPages) {
+                const clean = p.replace(/\/+$/, '') || '/';
+                if (!clean.startsWith('/_next') && !clean.startsWith('/_nuxt') && !clean.startsWith('/__')) {
+                  allEndpoints.set(clean, new Set(['GET']));
+                }
+              }
             }
           } else {
-            for (const p of discoveredPages) {
-              const clean = p.replace(/\/+$/, '') || '/';
-              if (!clean.startsWith('/_next') && !clean.startsWith('/_nuxt') && !clean.startsWith('/__')) {
-                allEndpoints.set(clean, new Set(['GET']));
+            allEndpoints.set('/', new Set(['GET']));
+          }
+        }
+
+        // Mathematical Invariant Guarantee:
+        // Normal Crawl is strictly a subset of Deep Crawl (normalEndpoints ⊆ allEndpoints).
+        // Any pruned or excluded route cannot be counted as a normal crawl route.
+        for (const ep of normalEndpoints.keys()) {
+          if (!allEndpoints.has(ep)) {
+            normalEndpoints.delete(ep);
+          }
+        }
+
+        // =========================================================================
+        // STAGE 6: OpenAPI 3.0 & Relational Architecture Representation
+        // =========================================================================
+        // When the target origin returns an edge challenge/WAF barrier on the apex page,
+        // or only yields a stub challenge/footer link (e.g. /gp/help/...),
+        // but authentic live subdomains were verified (e.g. accounts.emirates.com, api.emirates.com, aws.amazon.com),
+        // synthesize the authentic service mesh architecture from the verified perimeter:
+        const genuineScrapedApis = Array.from(allEndpoints.keys()).filter(ep => {
+          if (ep === '/' || ep.startsWith('/api/health') || ep.startsWith('/health')) return false;
+          if (ep.startsWith('/gp/') || ep.startsWith('/help') || ep.includes('display.html') || ep.includes('privacy') || ep.includes('terms') || ep.includes('conditions')) return false;
+          return true;
+        });
+        const genuineScrapedEndpoints = Array.from(allEndpoints.keys()).filter(ep => ep !== '/' && !ep.startsWith('/api/health') && !ep.startsWith('/health'));
+        if ((genuineScrapedApis.length === 0 || genuineScrapedEndpoints.length <= 5 || isWafChallenge || visitedUrls.size <= 3) && discoveredSubdomainsList.length > 1) {
+          for (const sub of discoveredSubdomainsList) {
+            const s = sub.toLowerCase();
+            if (s === hostname.toLowerCase() || s === `www.${hostname.toLowerCase()}` || s === apexDomain.toLowerCase() || s === `www.${apexDomain.toLowerCase()}`) continue;
+            const prefix = s.split('.')[0];
+            if (/^\d+[-_.]/.test(prefix)) continue;
+            const serviceRoute = `/${prefix}`;
+            if (!allEndpoints.has(serviceRoute)) {
+              allEndpoints.set(serviceRoute, new Set(['GET']));
+              normalEndpoints.set(serviceRoute, new Set(['GET']));
+              endpointSubdomainMap.set(serviceRoute, sub);
+              if (prefix.includes('api') || prefix.includes('auth') || prefix.includes('account') || prefix.includes('mobile') || prefix.includes('service') || prefix.includes('app') || prefix.includes('booking') || prefix.includes('pay') || prefix.includes('fly') || prefix.includes('aws') || prefix.includes('prime') || prefix.includes('music') || prefix.includes('seller') || prefix.includes('advertising') || prefix.includes('shop') || prefix.includes('cloud') || prefix.includes('business') || prefix.includes('developer')) {
+                verifiedApiRoutes.add(serviceRoute);
               }
             }
           }
-        } else {
+        }
+
+        if (allEndpoints.size === 0) {
           allEndpoints.set('/', new Set(['GET']));
+          normalEndpoints.set('/', new Set(['GET']));
         }
-      }
 
-      // Mathematical Invariant Guarantee:
-      // Normal Crawl is strictly a subset of Deep Crawl (normalEndpoints ⊆ allEndpoints).
-      // Any pruned or excluded route cannot be counted as a normal crawl route.
-      for (const ep of normalEndpoints.keys()) {
-        if (!allEndpoints.has(ep)) {
-          normalEndpoints.delete(ep);
-        }
-      }
+        const paths = {};
+        let genuineApisCount = 0;
+        let uiPagesCount = 0;
 
-      // =========================================================================
-      // STAGE 6: OpenAPI 3.0 & Relational Architecture Representation
-      // =========================================================================
-      // When the target origin returns an edge challenge/WAF barrier on the apex page,
-      // or only yields a stub challenge/footer link (e.g. /gp/help/...),
-      // but authentic live subdomains were verified (e.g. accounts.emirates.com, api.emirates.com, aws.amazon.com),
-      // synthesize the authentic service mesh architecture from the verified perimeter:
-      const genuineScrapedApis = Array.from(allEndpoints.keys()).filter(ep => {
-        if (ep === '/' || ep.startsWith('/api/health') || ep.startsWith('/health')) return false;
-        if (ep.startsWith('/gp/') || ep.startsWith('/help') || ep.includes('display.html') || ep.includes('privacy') || ep.includes('terms') || ep.includes('conditions')) return false;
-        return true;
-      });
-      const genuineScrapedEndpoints = Array.from(allEndpoints.keys()).filter(ep => ep !== '/' && !ep.startsWith('/api/health') && !ep.startsWith('/health'));
-      if ((genuineScrapedApis.length === 0 || genuineScrapedEndpoints.length <= 5 || isWafChallenge || visitedUrls.size <= 3) && discoveredSubdomainsList.length > 1) {
-        for (const sub of discoveredSubdomainsList) {
-          const s = sub.toLowerCase();
-          if (s === hostname.toLowerCase() || s === `www.${hostname.toLowerCase()}` || s === apexDomain.toLowerCase() || s === `www.${apexDomain.toLowerCase()}`) continue;
-          const prefix = s.split('.')[0];
-          if (/^\d+[-_.]/.test(prefix)) continue;
-          const serviceRoute = `/${prefix}`;
-          if (!allEndpoints.has(serviceRoute)) {
-            allEndpoints.set(serviceRoute, new Set(['GET']));
-            normalEndpoints.set(serviceRoute, new Set(['GET']));
-            endpointSubdomainMap.set(serviceRoute, sub);
-            if (prefix.includes('api') || prefix.includes('auth') || prefix.includes('account') || prefix.includes('mobile') || prefix.includes('service') || prefix.includes('app') || prefix.includes('booking') || prefix.includes('pay') || prefix.includes('fly') || prefix.includes('aws') || prefix.includes('prime') || prefix.includes('music') || prefix.includes('seller') || prefix.includes('advertising') || prefix.includes('shop') || prefix.includes('cloud') || prefix.includes('business') || prefix.includes('developer')) {
-              verifiedApiRoutes.add(serviceRoute);
+        for (const [ep, methods] of allEndpoints.entries()) {
+          const isExplicitApi = verifiedApiRoutes.has(ep) ||
+            ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') ||
+            ep.startsWith('/auth/') || ep.startsWith('/oauth/') || ep.startsWith('/rest/') || ep.startsWith('/graphql') ||
+            ep.startsWith('/wp-json/') || ep.startsWith('/wp/v2/') ||
+            ep.startsWith('/business-formation/') ||
+            Array.from(methods).some(m => ['POST', 'PUT', 'DELETE', 'PATCH'].includes(String(m).toUpperCase()));
+
+          const isKnownUiPage = discoveredPages.has(ep) ||
+            discoveredPages.has(ep.replace(/\{[^}]+\}/g, '')) ||
+            (!isExplicitApi && ['/privacy-policy', '/privacy-policies', '/terms', '/careers', '/events', '/about', '/contact', '/faq', '/pricing'].some(p => ep.startsWith(p)));
+
+          const routeType = (!isExplicitApi && isKnownUiPage) ? 'PAGE' : 'API';
+          const isUiRoute = routeType === 'PAGE';
+
+          if (isUiRoute) {
+            uiPagesCount++;
+          } else {
+            genuineApisCount++;
+          }
+
+          paths[ep] = {};
+          const segments = ep.split('/').filter(Boolean);
+          const tag = segments.length > 1 ? this.capitalize(segments[1] || segments[0]) : 'General';
+          const actionName = segments[segments.length - 1] || 'resource';
+
+          const isLazyLoaded = !normalEndpoints.has(ep);
+          const crawlTier = isLazyLoaded ? 'deep' : 'normal';
+          const discoveryScope = isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)';
+
+          const effectiveMethods = methods.size > 0 ? methods : new Set([this.inferMethodFromKeyword(ep)]);
+
+          for (const m of effectiveMethods) {
+            const method = m.toLowerCase();
+            let epSubdomain = (ep.startsWith('//')
+              ? SubdomainScanner.canonicalize(ep.slice(2).split('/')[0])
+              : (endpointSubdomainMap.get(ep) || null));
+
+            // If no explicit subdomain was mapped, but route matches dedicated API prefixes,
+            // associate with discovered API gateway subdomains if present in perimeter
+            if (!epSubdomain && discoveredSubdomainsList.length > 1) {
+              const isApiPattern = ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') || ep.startsWith('/graphql') || ep.startsWith('/rest/') || ep.startsWith('/auth/');
+              if (isApiPattern) {
+                const apiSub = discoveredSubdomainsList.find(s => {
+                  const ls = s.toLowerCase();
+                  return ls.startsWith('api.') || ls.startsWith('api-') || ls.includes('mobileapi') || ls.includes('gateway') || ls.includes('services');
+                });
+                if (apiSub) epSubdomain = apiSub;
+              }
+            }
+
+            if (!epSubdomain) {
+              epSubdomain = SubdomainScanner.canonicalize(hostname);
+            }
+
+            const epOrigin = (ep.startsWith('//')
+              ? `https://${ep.slice(2).split('/')[0]}`
+              : (epSubdomain ? `https://${epSubdomain}` : origin)) || origin;
+
+            paths[ep][method] = {
+              tags: [tag],
+              summary: `${m} ${ep}`,
+              description: isUiRoute ? `Frontend UI Page route for ${actionName}` : `API route for ${actionName}`,
+              'x-crawl-tier': crawlTier,
+              'x-lazy-loaded': isLazyLoaded,
+              'x-discovery-scope': discoveryScope,
+              'x-route-type': routeType,
+              'x-is-ui-route': isUiRoute,
+              'x-subdomain': epSubdomain,
+              'x-origin': epOrigin,
+              responses: {
+                '200': { description: 'Successful execution' }
+              }
+            };
+
+            const paramMatches = ep.match(/\{([a-zA-Z0-9_]+)\}/g);
+            if (paramMatches) {
+              paths[ep][method].parameters = paramMatches.map(p => ({
+                name: p.slice(1, -1),
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }));
             }
           }
         }
-      }
 
-      if (allEndpoints.size === 0) {
-        allEndpoints.set('/', new Set(['GET']));
-        normalEndpoints.set('/', new Set(['GET']));
-      }
+        // External website URLs only expose client & API surfaces; server-side SQL database
+        // schemas are completely private and cannot be inspected over external HTTP requests.
+        const sqlStatements = [];
+        const schemas = {};
 
-      const paths = {};
-      let genuineApisCount = 0;
-      let uiPagesCount = 0;
-
-      for (const [ep, methods] of allEndpoints.entries()) {
-        const isExplicitApi = verifiedApiRoutes.has(ep) ||
-          ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') ||
-          ep.startsWith('/auth/') || ep.startsWith('/oauth/') || ep.startsWith('/rest/') || ep.startsWith('/graphql') ||
-          ep.startsWith('/wp-json/') || ep.startsWith('/wp/v2/') ||
-          ep.startsWith('/business-formation/') ||
-          Array.from(methods).some(m => ['POST', 'PUT', 'DELETE', 'PATCH'].includes(String(m).toUpperCase()));
-
-        const isKnownUiPage = discoveredPages.has(ep) ||
-          discoveredPages.has(ep.replace(/\{[^}]+\}/g, '')) ||
-          (!isExplicitApi && ['/privacy-policy', '/privacy-policies', '/terms', '/careers', '/events', '/about', '/contact', '/faq', '/pricing'].some(p => ep.startsWith(p)));
-
-        const routeType = (!isExplicitApi && isKnownUiPage) ? 'PAGE' : 'API';
-        const isUiRoute = routeType === 'PAGE';
-
-        if (isUiRoute) {
-          uiPagesCount++;
-        } else {
-          genuineApisCount++;
-        }
-
-        paths[ep] = {};
-        const segments = ep.split('/').filter(Boolean);
-        const tag = segments.length > 1 ? this.capitalize(segments[1] || segments[0]) : 'General';
-        const actionName = segments[segments.length - 1] || 'resource';
-
-        const isLazyLoaded = !normalEndpoints.has(ep);
-        const crawlTier = isLazyLoaded ? 'deep' : 'normal';
-        const discoveryScope = isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)';
-
-        const effectiveMethods = methods.size > 0 ? methods : new Set([this.inferMethodFromKeyword(ep)]);
-
-        for (const m of effectiveMethods) {
-          const method = m.toLowerCase();
-          let epSubdomain = (ep.startsWith('//')
-            ? SubdomainScanner.canonicalize(ep.slice(2).split('/')[0])
-            : (endpointSubdomainMap.get(ep) || null));
-
-          // If no explicit subdomain was mapped, but route matches dedicated API prefixes,
-          // associate with discovered API gateway subdomains if present in perimeter
-          if (!epSubdomain && discoveredSubdomainsList.length > 1) {
-            const isApiPattern = ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') || ep.startsWith('/graphql') || ep.startsWith('/rest/') || ep.startsWith('/auth/');
-            if (isApiPattern) {
-              const apiSub = discoveredSubdomainsList.find(s => {
-                const ls = s.toLowerCase();
-                return ls.startsWith('api.') || ls.startsWith('api-') || ls.includes('mobileapi') || ls.includes('gateway') || ls.includes('services');
-              });
-              if (apiSub) epSubdomain = apiSub;
-            }
+        const openApiSpec = {
+          openapi: '3.0.3',
+          info: {
+            title: projectName,
+            version: '1.0.0',
+            description: `API Architecture reverse-engineered from ${targetUrl}`
+          },
+          servers: [
+            { url: origin, description: `Live Origin Gateway (${SubdomainScanner.canonicalize(hostname)})` },
+            ...discoveredSubdomainsList
+              .filter(s => s !== SubdomainScanner.canonicalize(hostname))
+              .map(d => ({ url: `https://${d}`, description: `Discovered Subdomain Gateway (${d})` }))
+          ],
+          'x-subdomains': discoveredSubdomainsList,
+          paths,
+          components: {
+            schemas
           }
+        };
 
-          if (!epSubdomain) {
-            epSubdomain = SubdomainScanner.canonicalize(hostname);
+        const crawlDurationMs = Date.now() - startTime;
+        let totalApiOperationsCount = 0;
+        for (const mSet of allEndpoints.values()) {
+          totalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
+        }
+
+        let normalApiOperationsCount = 0;
+        for (const [p, mSet] of normalEndpoints.entries()) {
+          normalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
+        }
+        normalApiOperationsCount = Math.min(normalApiOperationsCount || normalEndpoints.size, totalApiOperationsCount);
+
+        const normalCount = normalApiOperationsCount;
+        const deepCount = totalApiOperationsCount;
+        const lazyCount = Math.max(0, deepCount - normalCount);
+
+        const techStack = this.detectTechStack({
+          targetUrl,
+          origin,
+          hostname,
+          resolvedIp,
+          resolvedIps,
+          cnameRecords,
+          nsRecords,
+          html,
+          headers: initRes?.headers || {},
+          backendHeaders: backendProbeHeaders,
+          primaryApiGateway,
+          primaryApiIp,
+          primaryApiHeaders,
+          scriptUrls: Array.from(visitedUrls),
+          scriptContents,
+          allEndpoints,
+          backendDomains,
+          frameworksDetected
+        });
+        // Resolve authentic Privacy Policy & Terms of Service documents
+        let legalDocuments = { hasLegalDocuments: false, privacyPolicy: null, termsOfService: null };
+        const safeLegalTarget = (initRes?.finalUrl || href || origin || '').replace(/^http:\/\//i, 'https://');
+        const safeLegalOrigin = (origin || '').replace(/^http:\/\//i, 'https://');
+        try {
+          if (pLegalDocuments) {
+            const elapsed = Date.now() - startTime;
+            const maxLegalWaitMs = profile.maxLegalWaitMs(elapsed);
+            legalDocuments = await Promise.race([
+              pLegalDocuments,
+              new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
+            ]);
           }
-
-          const epOrigin = (ep.startsWith('//')
-            ? `https://${ep.slice(2).split('/')[0]}`
-            : (epSubdomain ? `https://${epSubdomain}` : origin)) || origin;
-
-          paths[ep][method] = {
-            tags: [tag],
-            summary: `${m} ${ep}`,
-            description: isUiRoute ? `Frontend UI Page route for ${actionName}` : `API route for ${actionName}`,
-            'x-crawl-tier': crawlTier,
-            'x-lazy-loaded': isLazyLoaded,
-            'x-discovery-scope': discoveryScope,
-            'x-route-type': routeType,
-            'x-is-ui-route': isUiRoute,
-            'x-subdomain': epSubdomain,
-            'x-origin': epOrigin,
-            responses: {
-              '200': { description: 'Successful execution' }
-            }
-          };
-
-          const paramMatches = ep.match(/\{([a-zA-Z0-9_]+)\}/g);
-          if (paramMatches) {
-            paths[ep][method].parameters = paramMatches.map(p => ({
-              name: p.slice(1, -1),
-              in: 'path',
-              required: true,
-              schema: { type: 'string' }
-            }));
+          if (!legalDocuments || !legalDocuments.hasLegalDocuments || !legalDocuments.privacyPolicy || !legalDocuments.termsOfService) {
+            const privacy = legalDocuments?.privacyPolicy || this.generateFirewallResilientLegalDocument(safeLegalTarget, 'privacy', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack });
+            const terms = legalDocuments?.termsOfService || this.generateFirewallResilientLegalDocument(safeLegalTarget, 'terms', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack });
+            legalDocuments = {
+              hasLegalDocuments: true,
+              isFirewallResilient: Boolean(privacy?.isFirewallResilient || terms?.isFirewallResilient),
+              privacyPolicy: privacy,
+              termsOfService: terms
+            };
           }
-        }
-      }
-
-      // External website URLs only expose client & API surfaces; server-side SQL database
-      // schemas are completely private and cannot be inspected over external HTTP requests.
-      const sqlStatements = [];
-      const schemas = {};
-
-      const openApiSpec = {
-        openapi: '3.0.3',
-        info: {
-          title: projectName,
-          version: '1.0.0',
-          description: `API Architecture reverse-engineered from ${targetUrl}`
-        },
-        servers: [
-          { url: origin, description: `Live Origin Gateway (${SubdomainScanner.canonicalize(hostname)})` },
-          ...discoveredSubdomainsList
-            .filter(s => s !== SubdomainScanner.canonicalize(hostname))
-            .map(d => ({ url: `https://${d}`, description: `Discovered Subdomain Gateway (${d})` }))
-        ],
-        'x-subdomains': discoveredSubdomainsList,
-        paths,
-        components: {
-          schemas
-        }
-      };
-
-      const crawlDurationMs = Date.now() - startTime;
-      let totalApiOperationsCount = 0;
-      for (const mSet of allEndpoints.values()) {
-        totalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
-      }
-
-      let normalApiOperationsCount = 0;
-      for (const [p, mSet] of normalEndpoints.entries()) {
-        normalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
-      }
-      normalApiOperationsCount = Math.min(normalApiOperationsCount || normalEndpoints.size, totalApiOperationsCount);
-
-      const normalCount = normalApiOperationsCount;
-      const deepCount = totalApiOperationsCount;
-      const lazyCount = Math.max(0, deepCount - normalCount);
-
-      const techStack = this.detectTechStack({
-        targetUrl,
-        origin,
-        hostname,
-        resolvedIp,
-        resolvedIps,
-        cnameRecords,
-        nsRecords,
-        html,
-        headers: initRes?.headers || {},
-        backendHeaders: backendProbeHeaders,
-        primaryApiGateway,
-        primaryApiIp,
-        primaryApiHeaders,
-        scriptUrls: Array.from(visitedUrls),
-        scriptContents,
-        allEndpoints,
-        backendDomains,
-        frameworksDetected
-      });
-      // Resolve authentic Privacy Policy & Terms of Service documents
-      let legalDocuments = { hasLegalDocuments: false, privacyPolicy: null, termsOfService: null };
-      const safeLegalTarget = (initRes?.finalUrl || href || origin || '').replace(/^http:\/\//i, 'https://');
-      const safeLegalOrigin = (origin || '').replace(/^http:\/\//i, 'https://');
-      try {
-        if (pLegalDocuments) {
-          const elapsed = Date.now() - startTime;
-          const maxLegalWaitMs = profile.maxLegalWaitMs(elapsed);
-          legalDocuments = await Promise.race([
-            pLegalDocuments,
-            new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
-          ]);
-        }
-        if (!legalDocuments || !legalDocuments.hasLegalDocuments || !legalDocuments.privacyPolicy || !legalDocuments.termsOfService) {
-          const privacy = legalDocuments?.privacyPolicy || this.generateFirewallResilientLegalDocument(safeLegalTarget, 'privacy', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack });
-          const terms = legalDocuments?.termsOfService || this.generateFirewallResilientLegalDocument(safeLegalTarget, 'terms', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack });
+        } catch (legalErr) {
+          console.warn('Legal documents discovery fallback:', legalErr?.message || String(legalErr));
           legalDocuments = {
             hasLegalDocuments: true,
-            isFirewallResilient: Boolean(privacy?.isFirewallResilient || terms?.isFirewallResilient),
-            privacyPolicy: privacy,
-            termsOfService: terms
+            isFirewallResilient: true,
+            privacyPolicy: this.generateFirewallResilientLegalDocument(safeLegalTarget, 'privacy', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack }),
+            termsOfService: this.generateFirewallResilientLegalDocument(safeLegalTarget, 'terms', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack })
           };
         }
-      } catch (legalErr) {
-        console.warn('Legal documents discovery fallback:', legalErr?.message || String(legalErr));
-        legalDocuments = {
-          hasLegalDocuments: true,
-          isFirewallResilient: true,
-          privacyPolicy: this.generateFirewallResilientLegalDocument(safeLegalTarget, 'privacy', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack }),
-          termsOfService: this.generateFirewallResilientLegalDocument(safeLegalTarget, 'terms', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack })
-        };
-      }
 
-      // Safety Net: If subdomain discovery was still running in background, harvest its results
-      if (discoveredSubdomainsList.length <= 1 && pSubdomainDiscovery) {
-        try {
-          const remainingBudget = Math.max(0, Math.min(8000, maxCrawlTimeMs - (Date.now() - startTime)));
-          if (remainingBudget > 500) {
-            const lateHarvest = await Promise.race([
-              pSubdomainDiscovery,
-              new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
-            ]);
-            for (const s of lateHarvest) {
+        // Safety Net: If subdomain discovery was still running in background, harvest its results
+        if (discoveredSubdomainsList.length <= 1 && pSubdomainDiscovery) {
+          try {
+            const remainingBudget = Math.max(0, Math.min(8000, maxCrawlTimeMs - (Date.now() - startTime)));
+            if (remainingBudget > 500) {
+              const lateHarvest = await Promise.race([
+                pSubdomainDiscovery,
+                new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
+              ]);
+              for (const s of lateHarvest) {
+                const cs = SubdomainScanner.canonicalize(s);
+                if (cs && !discoveredSubdomainsList.includes(cs)) {
+                  discoveredSubdomainsList.push(cs);
+                }
+              }
+            }
+          } catch (_lateErr) { }
+        }
+
+        // Final fallback to perimeter cache if still only 1 entry
+        if (discoveredSubdomainsList.length <= 1) {
+          const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
+          if (cached && cached.size > 0) {
+            for (const s of cached) {
               const cs = SubdomainScanner.canonicalize(s);
               if (cs && !discoveredSubdomainsList.includes(cs)) {
                 discoveredSubdomainsList.push(cs);
               }
             }
           }
-        } catch (_lateErr) { }
-      }
-
-      // Final fallback to perimeter cache if still only 1 entry
-      if (discoveredSubdomainsList.length <= 1) {
-        const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
-        if (cached && cached.size > 0) {
-          for (const s of cached) {
-            const cs = SubdomainScanner.canonicalize(s);
-            if (cs && !discoveredSubdomainsList.includes(cs)) {
-              discoveredSubdomainsList.push(cs);
-            }
-          }
         }
-      }
 
-      return {
-        projectName,
-        openApiSpec,
-        sqlSchema: '',
-        techStack,
-        cloudProvider: techStack.cloudProvider,
-        legalDocuments,
-        subdomains: discoveredSubdomainsList,
-        telemetry: {
-          targetUrl,
-          crawlDurationMs,
-          chunksCrawledCount: visitedUrls.size,
-          normalChunksCount: normalChunksCount || 1,
-          deepChunksCount: visitedUrls.size,
-          totalEndpointsCount: totalApiOperationsCount,
-          uniquePathsCount: allEndpoints.size,
-          normalCrawlCount: normalCount,
-          deepCrawlCount: deepCount,
-          lazyLoadedEndpointsCount: lazyCount,
-          genuineApisCount: genuineApisCount || normalCount,
-          genuineEndpointsCount: genuineApisCount || normalCount,
-          uiPagesCount: uiPagesCount || 0,
-          totalSurfacesCount: allEndpoints.size,
-          crawlDepth: {
-            mode: crawlDepth,
-            normal: {
-              endpointsCount: normalCount,
-              chunksCount: normalChunksCount || 1
-            },
-            deep: {
-              endpointsCount: deepCount,
-              chunksCount: visitedUrls.size
-            },
-            lazyLoadedCount: lazyCount
-          },
-          backendDomains: Array.from(backendDomains),
-          subdomains: discoveredSubdomainsList,
-          entitiesCount: 0,
-          frameworksDetected: Array.from(frameworksDetected),
+        const deterministicSubdomains = Array.from(new Set(discoveredSubdomainsList)).sort((a, b) => {
+          const cleanA = a.toLowerCase().trim();
+          const cleanB = b.toLowerCase().trim();
+          if (cleanA === hostname.toLowerCase()) return -1;
+          if (cleanB === hostname.toLowerCase()) return 1;
+          return cleanA.localeCompare(cleanB);
+        });
+
+        return {
+          projectName,
+          openApiSpec,
+          sqlSchema: '',
           techStack,
           cloudProvider: techStack.cloudProvider,
           legalDocuments,
-          discoveryStrategy,
-          crawlStatus: 'success',
-          notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
-        }
-      };
-    } catch (unexpectedErr) {
-      return this.emergencyFallback(targetUrl, hostname, origin, unexpectedErr, startTime);
+          subdomains: deterministicSubdomains,
+          telemetry: {
+            targetUrl,
+            crawlDurationMs,
+            chunksCrawledCount: visitedUrls.size,
+            normalChunksCount: normalChunksCount || 1,
+            deepChunksCount: visitedUrls.size,
+            totalEndpointsCount: totalApiOperationsCount,
+            uniquePathsCount: allEndpoints.size,
+            normalCrawlCount: normalCount,
+            deepCrawlCount: deepCount,
+            lazyLoadedEndpointsCount: lazyCount,
+            genuineApisCount: genuineApisCount || normalCount,
+            genuineEndpointsCount: genuineApisCount || normalCount,
+            uiPagesCount: uiPagesCount || 0,
+            totalSurfacesCount: allEndpoints.size,
+            crawlDepth: {
+              mode: crawlDepth,
+              normal: {
+                endpointsCount: normalCount,
+                chunksCount: normalChunksCount || 1
+              },
+              deep: {
+                endpointsCount: deepCount,
+                chunksCount: visitedUrls.size
+              },
+              lazyLoadedCount: lazyCount
+            },
+            backendDomains: Array.from(backendDomains).sort(),
+            subdomains: deterministicSubdomains,
+            entitiesCount: 0,
+            frameworksDetected: Array.from(frameworksDetected),
+            techStack,
+            cloudProvider: techStack.cloudProvider,
+            legalDocuments,
+            discoveryStrategy,
+            crawlStatus: 'success',
+            notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
+          }
+        };
+      } catch (unexpectedErr) {
+        return this.emergencyFallback(targetUrl, hostname, origin, unexpectedErr, startTime);
+      }
     }
-  }
 
   /**
    * Reverse-engineer API calls and route patterns from code snippets and AST tokens.

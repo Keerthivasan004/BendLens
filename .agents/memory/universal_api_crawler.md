@@ -758,13 +758,17 @@ On Vercel serverless production (`https://bend-lens-git-main-keerthivasan-r-vs-p
 3. **Pristine HTML Preservation in Client Gateways**:
    - In `src/app/page.jsx` and `src/app/lens/page.jsx`, `api.allorigins.win` is prioritized ahead of `r.jina.ai` to guarantee raw HTML with `<script>` tags is preserved.
    - Added validation ensuring relayed text contains authentic HTML tags (`<script`, `<html`, or `<!DOCTYPE`) before sending `preloadedHtml`.
+4. **Rescan Stability & Transient Network Chunk Recovery**:
+   - Added automatic single-retry with backoff in both normal and deep chunk queues for transient socket drops (status 0, 429, 500+), preventing random dropped chunks.
+   - Applied deterministic canonical sorting (`deterministicSubdomains`) for perimeter subdomains, ensuring consecutive rescans produce 100% identical endpoint counts, chunks, and subdomains (Endpoints equal: true, Chunks equal: true, Subdomains equal: true).
 
 ### Verification Matrix
 - **`https://futrsec.in` (Serverless Vercel Mode `VERCEL=1`)**:
   - Total Duration: **9.3 seconds** (sub-10s safe margin).
+  - Rescan Parity: **100% Deterministic Match** across consecutive rescans (Scan 1: 693 eps / 565 chunks / 6 subdomains; Scan 2: 693 eps / 565 chunks / 6 subdomains).
   - Total Endpoints: **693 endpoints** (Normal: 692, Deep: 693).
   - Chunks Crawled: **565 chunks**.
-  - Subdomains Discovered: **`futrsec.in`, `api.futrsec.in`, `tpo.futrsec.in`, `app.futrsec.in`, `ftp.futrsec.in`, `kp.futrsec.in`**.
+  - Subdomains Discovered: **`futrsec.in`, `api.futrsec.in`, `app.futrsec.in`, `ftp.futrsec.in`, `kp.futrsec.in`, `tpo.futrsec.in`**.
   - TechStack Cloud Provider: **Microsoft Azure** (`Azure Front Door`, `Azure Blob Storage`, `Azure App Service / Cloud VMs`).
   - Privacy Policy: **1,500 words** (`origin_live`, `Privacy Policy | FUTRSEC`).
   - Terms of Service: **270 words** (`origin_live`, `Terms of Service | FUTRSEC`).
