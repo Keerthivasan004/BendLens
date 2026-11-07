@@ -1217,70 +1217,14 @@ class UniversalApiCrawler {
         if (!discoveredSubdomainsList.includes(apexDomain)) discoveredSubdomainsList.push(apexDomain);
       }
 
-      try {
-        const elapsedSoFar = Date.now() - startTime;
-        const maxSubdomainBudgetMs = profile.maxSubdomainBudgetMs(elapsedSoFar);
-        const subDiscoveryPromise = pSubdomainDiscovery || SubdomainScanner.discoverSubdomains(hostname, {
-          ...options,
-          html,
-          headers: initRes?.headers,
-          subdomains: backendDomains
-        });
-
-        const harvested = await Promise.race([
-          subDiscoveryPromise,
-          new Promise((resolve) => setTimeout(() => {
-            // If timer expires, salvage whatever assets are already in perimeterCache
-            const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
-            if (cached && cached.size > 0) {
-              resolve(Array.from(cached));
-            } else {
-              resolve([]);
-            }
-          }, maxSubdomainBudgetMs))
-        ]);
-
-        for (const sub of harvested) {
-          const cSub = SubdomainScanner.canonicalize(sub);
-          if (cSub && !discoveredSubdomainsList.includes(cSub)) {
-            discoveredSubdomainsList.push(cSub);
-          }
-          if (cSub && cSub !== baseCanonical && cSub !== apexDomain) {
-            backendDomains.add(`https://${cSub}`);
-          }
-        }
-      } catch (subErr) {
-        console.warn('Subdomain discovery skipped:', subErr?.message || String(subErr));
-      }
-
-      // First-Party Application Portal Discovery (e.g. app.finstackk.com from finstackk.com)
-      const origApex = this.getApexDomain(hostname);
-      const appPortalOrigins = Array.from(backendDomains).filter(d => {
-        try {
-          const u = new URL(d);
-          const uHost = u.hostname.toLowerCase();
-          const uApex = this.getApexDomain(uHost);
-          return uApex === origApex && uHost !== hostname && (uHost.startsWith('app.') || uHost.startsWith('portal.') || uHost.startsWith('dashboard.') || uHost.startsWith('console.') || uHost.startsWith('platform.'));
-        } catch { return false; }
+      // Subdomain discovery is initiated concurrently (pSubdomainDiscovery)
+      // Chunk graph traversal starts immediately below to maximize CPU/network overlap.
+      const subDiscoveryPromise = pSubdomainDiscovery || SubdomainScanner.discoverSubdomains(hostname, {
+        ...options,
+        html,
+        headers: initRes?.headers,
+        subdomains: backendDomains
       });
-
-      await Promise.allSettled(appPortalOrigins.slice(0, 2).map(async (portalOrigin) => {
-        try {
-          const portalRes = await this.safeFetch(portalOrigin, { timeout: 3000, customHeaders, origin });
-          if (portalRes && portalRes.ok && portalRes.text) {
-            const portalScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
-            let psm;
-            while ((psm = portalScriptRegex.exec(portalRes.text)) !== null) {
-              const src = psm[1];
-              if (!this.isThirdPartyTracker(src)) {
-                try {
-                  discoveredScriptUrls.add(new URL(src, portalOrigin).href);
-                } catch { }
-              }
-            }
-          }
-        } catch { }
-      }));
 
       // 8. Analyze inline script contents
       const inlineScriptRegex = /<script\b(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/gi;
@@ -1497,6 +1441,70 @@ class UniversalApiCrawler {
         for (const clean of pagesToUse) {
           normalEndpoints.set(clean, new Set(['GET']));
         }
+      }
+
+      // Await concurrent Subdomain Perimeter Discovery to enrich microservices & external gateways
+      try {
+        const elapsedSoFar = Date.now() - startTime;
+        const maxSubdomainBudgetMs = profile.maxSubdomainBudgetMs(elapsedSoFar);
+        const harvested = await Promise.race([
+          subDiscoveryPromise,
+          new Promise((resolve) => setTimeout(() => {
+            const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
+            if (cached && cached.size > 0) {
+              resolve(Array.from(cached));
+            } else {
+              resolve([]);
+            }
+          }, Math.max(1000, maxSubdomainBudgetMs)))
+        ]);
+
+        for (const sub of harvested) {
+          const cSub = SubdomainScanner.canonicalize(sub);
+          if (cSub && !discoveredSubdomainsList.includes(cSub)) {
+            discoveredSubdomainsList.push(cSub);
+          }
+          if (cSub && cSub !== baseCanonical && cSub !== apexDomain) {
+            backendDomains.add(`https://${cSub}`);
+          }
+        }
+      } catch (subErr) {
+        console.warn('Subdomain discovery skipped:', subErr?.message || String(subErr));
+      }
+
+      // First-Party Application Portal Discovery (e.g. app.finstackk.com from finstackk.com)
+      const origApex = this.getApexDomain(hostname);
+      const appPortalOrigins = Array.from(backendDomains).filter(d => {
+        try {
+          const u = new URL(d);
+          const uHost = u.hostname.toLowerCase();
+          const uApex = this.getApexDomain(uHost);
+          return uApex === origApex && uHost !== hostname && (uHost.startsWith('app.') || uHost.startsWith('portal.') || uHost.startsWith('dashboard.') || uHost.startsWith('console.') || uHost.startsWith('platform.'));
+        } catch { return false; }
+      });
+
+      if (!isNormalOnly && appPortalOrigins.length > 0) {
+        await Promise.allSettled(appPortalOrigins.slice(0, 2).map(async (portalOrigin) => {
+          try {
+            const portalRes = await this.safeFetch(portalOrigin, { timeout: 2500, customHeaders, origin });
+            if (portalRes && portalRes.ok && portalRes.text) {
+              const portalScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+              let psm;
+              while ((psm = portalScriptRegex.exec(portalRes.text)) !== null) {
+                const src = psm[1];
+                if (!this.isThirdPartyTracker(src)) {
+                  try {
+                    const pUrl = new URL(src, portalOrigin).href;
+                    if (!visitedUrls.has(pUrl) && !enqueuedChunkUrls.has(pUrl)) {
+                      enqueuedChunkUrls.add(pUrl);
+                      deepQueue.push(pUrl);
+                    }
+                  } catch { }
+                }
+              }
+            }
+          } catch { }
+        }));
       }
 
       // -----------------------------------------------------------------------

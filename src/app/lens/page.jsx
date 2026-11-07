@@ -178,15 +178,16 @@ export default function LensDashboard() {
       if ((!result || !result.success) && isRemoteUrl) {
         try {
           const clientGateways = [
-            `https://r.jina.ai/${normalizedRemote}`,
-            `https://api.allorigins.win/raw?url=${encodeURIComponent(normalizedRemote)}`
+            `https://api.allorigins.win/raw?url=${encodeURIComponent(normalizedRemote)}`,
+            `https://r.jina.ai/${normalizedRemote}`
           ];
           for (const gw of clientGateways) {
             try {
               const gwRes = await fetch(gw, { signal: AbortSignal.timeout(7000) });
               if (gwRes.ok) {
                 const htmlText = await gwRes.text();
-                if (htmlText && htmlText.length > 200) {
+                // Ensure the relayed text contains authentic HTML/scripts for AST chunk traversal
+                if (htmlText && htmlText.length > 200 && (htmlText.includes('<script') || htmlText.includes('<html') || htmlText.includes('<!DOCTYPE'))) {
                   const retryRes = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

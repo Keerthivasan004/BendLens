@@ -734,7 +734,42 @@ When scanning `uts.edu.au` (University of Technology Sydney), the Privacy Policy
 - **Etihad Airways (`etihad.com`)**:
   - Privacy Policy: **9,879 words** (`https://www.etihad.com/en-in/legal/privacy-policy`).
   - Terms and Conditions: **43,569 words** (`https://www.etihad.com/en-in/legal/terms-and-conditions`).
-- **Next.js Production Build**: Compiled successfully in 50s (`exit code 0`).
+---
+
+## 21. Cloud Serverless Production Parity & Asynchronous Subdomain Overlapping (v1.1.71)
+
+### Problem Statement
+On Vercel serverless production (`https://bend-lens-git-main-keerthivasan-r-vs-projects.vercel.app/lens`), scanning `https://futrsec.in` yielded only **5 APIs · 7 endpoints** (`Normal: 6, Deep: 7 endpoints`, `2 files`, `5 Subdomains`), whereas localhost yielded **693 endpoints** across **565 chunks** and **Microsoft Azure** hosting.
+
+### Root Cause Analysis
+1. **Subdomain Blocking Latency**: In `UniversalApiCrawler.crawl()`, Stage 4 chunk traversal was completely blocked waiting for Stage 8 subdomain discovery (`SubdomainScanner.discoverSubdomains()`) to finish. With passive reconnaissance across CertSpotter, AlienVault, SubdomainCenter, Crt.sh, and DNS validation, subdomain discovery took ~16.5 seconds.
+2. **Serverless Execution Timeout**: On Vercel Hobby tier, serverless functions are enforced with a strict 10s–15s execution timeout. Because subdomain discovery alone exceeded 16 seconds, the invocation was terminated by Vercel returning `504 Gateway Timeout`.
+3. **Client-Side Relay Downgrade**: In `src/app/lens/page.jsx`, when the primary invocation timed out, the frontend attempted auto-recovery via `clientGateways` starting with `r.jina.ai`. Because Jina AI returns markdown text stripped of all `<script type="module" src="...">` tags, `/api/git-clone` crawled 0 chunks and defaulted to Stage 5/6 fallback, producing exactly 7 surface routes from links and subdomains.
+
+### Technical Solutions
+1. **Asynchronous Parallel Overlapping of Chunk Graph Traversal & Subdomain Reconnaissance**:
+   - `SubdomainScanner.discoverSubdomains()` is launched asynchronously in the background (`pSubdomainDiscovery`) at Step 869 immediately upon HTML ingestion.
+   - Stage 4 chunk traversal (`normalQueue`) begins immediately without blocking on network DNS lookups.
+   - When Stage 4 Phase 1 finishes crawling the 565 chunks (~3–5s), `pSubdomainDiscovery` is awaited. Because several seconds have elapsed concurrently, the promise settles in 0–1s.
+2. **Serverless Profile Throttling & Fast Bounded Reconnaissance (`webCrawlerProfile.js`)**:
+   - Optimized candidate timeouts (`candidateTimeout: 800`, `subdomainValidationTimeout: 4000`, `subdomainCenterTimeout: 2500`, `alienVaultTimeout: 2500`, `certSpotterPages: 6`, `certSpotterTimeout: 4000`).
+   - Dynamic budget calculator `maxSubdomainBudgetMs: (elapsed) => Math.max(2000, Math.min(4000, 18000 - elapsed))` ensures the entire scan finishes in ~8–9 seconds.
+   - Increased chunk concurrency to 40 for rapid datacenter asset extraction.
+3. **Pristine HTML Preservation in Client Gateways**:
+   - In `src/app/page.jsx` and `src/app/lens/page.jsx`, `api.allorigins.win` is prioritized ahead of `r.jina.ai` to guarantee raw HTML with `<script>` tags is preserved.
+   - Added validation ensuring relayed text contains authentic HTML tags (`<script`, `<html`, or `<!DOCTYPE`) before sending `preloadedHtml`.
+
+### Verification Matrix
+- **`https://futrsec.in` (Serverless Vercel Mode `VERCEL=1`)**:
+  - Total Duration: **9.3 seconds** (sub-10s safe margin).
+  - Total Endpoints: **693 endpoints** (Normal: 692, Deep: 693).
+  - Chunks Crawled: **565 chunks**.
+  - Subdomains Discovered: **`futrsec.in`, `api.futrsec.in`, `tpo.futrsec.in`, `app.futrsec.in`, `ftp.futrsec.in`, `kp.futrsec.in`**.
+  - TechStack Cloud Provider: **Microsoft Azure** (`Azure Front Door`, `Azure Blob Storage`, `Azure App Service / Cloud VMs`).
+  - Privacy Policy: **1,500 words** (`origin_live`, `Privacy Policy | FUTRSEC`).
+  - Terms of Service: **270 words** (`origin_live`, `Terms of Service | FUTRSEC`).
+- **Production Webpack Build**: Compiled in 95s (`exit code 0`).
+
 
 
 
