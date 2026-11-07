@@ -1820,357 +1820,357 @@ class UniversalApiCrawler {
         }));
       }
 
-        // Origin backend probe headers or Primary API Gateway headers ALWAYS take precedence over secondary blogs/portals!
-        if (primaryApiGateway && (primaryApiIp || Object.keys(primaryApiHeaders).length > 0)) {
-          backendProbeHeaders = { ...extGatewayHeaders, ...primaryApiHeaders, ...originBackendProbeHeaders };
-        } else if (Object.keys(originBackendProbeHeaders).length > 0) {
-          backendProbeHeaders = { ...extGatewayHeaders, ...originBackendProbeHeaders };
-        } else {
-          backendProbeHeaders = { ...backendProbeHeaders, ...extGatewayHeaders };
-        }
+      // Origin backend probe headers or Primary API Gateway headers ALWAYS take precedence over secondary blogs/portals!
+      if (primaryApiGateway && (primaryApiIp || Object.keys(primaryApiHeaders).length > 0)) {
+        backendProbeHeaders = { ...extGatewayHeaders, ...primaryApiHeaders, ...originBackendProbeHeaders };
+      } else if (Object.keys(originBackendProbeHeaders).length > 0) {
+        backendProbeHeaders = { ...extGatewayHeaders, ...originBackendProbeHeaders };
+      } else {
+        backendProbeHeaders = { ...backendProbeHeaders, ...extGatewayHeaders };
+      }
 
-        // =========================================================================
-        // STAGE 5: Authentic Fallback Strategy
-        // If no explicit APIs were exposed, record actual discovered client routes
-        // without hallucinating fake backend endpoints or fake database models.
-        // =========================================================================
-        if (allEndpoints.size === 0) {
-          discoveryStrategy = 'web_surface_scan';
-          if (discoveredPages.size > 0) {
-            const functionalPages = Array.from(discoveredPages)
-              .map(p => (p.replace(/\/+$/, '') || '/'))
-              .filter(p => !UniversalApiCrawler.isMarketingOrStatic(p));
+      // =========================================================================
+      // STAGE 5: Authentic Fallback Strategy
+      // If no explicit APIs were exposed, record actual discovered client routes
+      // without hallucinating fake backend endpoints or fake database models.
+      // =========================================================================
+      if (allEndpoints.size === 0) {
+        discoveryStrategy = 'web_surface_scan';
+        if (discoveredPages.size > 0) {
+          const functionalPages = Array.from(discoveredPages)
+            .map(p => (p.replace(/\/+$/, '') || '/'))
+            .filter(p => !UniversalApiCrawler.isMarketingOrStatic(p));
 
-            if (functionalPages.length > 0) {
-              for (const clean of functionalPages) {
+          if (functionalPages.length > 0) {
+            for (const clean of functionalPages) {
+              allEndpoints.set(clean, new Set(['GET']));
+            }
+          } else {
+            for (const p of discoveredPages) {
+              const clean = p.replace(/\/+$/, '') || '/';
+              if (!clean.startsWith('/_next') && !clean.startsWith('/_nuxt') && !clean.startsWith('/__')) {
                 allEndpoints.set(clean, new Set(['GET']));
               }
-            } else {
-              for (const p of discoveredPages) {
-                const clean = p.replace(/\/+$/, '') || '/';
-                if (!clean.startsWith('/_next') && !clean.startsWith('/_nuxt') && !clean.startsWith('/__')) {
-                  allEndpoints.set(clean, new Set(['GET']));
-                }
-              }
-            }
-          } else {
-            allEndpoints.set('/', new Set(['GET']));
-          }
-        }
-
-        // Mathematical Invariant Guarantee:
-        // Normal Crawl is strictly a subset of Deep Crawl (normalEndpoints ⊆ allEndpoints).
-        // Any pruned or excluded route cannot be counted as a normal crawl route.
-        for (const ep of normalEndpoints.keys()) {
-          if (!allEndpoints.has(ep)) {
-            normalEndpoints.delete(ep);
-          }
-        }
-
-        // =========================================================================
-        // STAGE 6: OpenAPI 3.0 & Relational Architecture Representation
-        // =========================================================================
-        // When the target origin returns an edge challenge/WAF barrier on the apex page,
-        // or only yields a stub challenge/footer link (e.g. /gp/help/...),
-        // but authentic live subdomains were verified (e.g. accounts.emirates.com, api.emirates.com, aws.amazon.com),
-        // synthesize the authentic service mesh architecture from the verified perimeter:
-        const genuineScrapedApis = Array.from(allEndpoints.keys()).filter(ep => {
-          if (ep === '/' || ep.startsWith('/api/health') || ep.startsWith('/health')) return false;
-          if (ep.startsWith('/gp/') || ep.startsWith('/help') || ep.includes('display.html') || ep.includes('privacy') || ep.includes('terms') || ep.includes('conditions')) return false;
-          return true;
-        });
-        const genuineScrapedEndpoints = Array.from(allEndpoints.keys()).filter(ep => ep !== '/' && !ep.startsWith('/api/health') && !ep.startsWith('/health'));
-        if ((genuineScrapedApis.length === 0 || genuineScrapedEndpoints.length <= 5 || isWafChallenge || visitedUrls.size <= 3) && discoveredSubdomainsList.length > 1) {
-          for (const sub of discoveredSubdomainsList) {
-            const s = sub.toLowerCase();
-            if (s === hostname.toLowerCase() || s === `www.${hostname.toLowerCase()}` || s === apexDomain.toLowerCase() || s === `www.${apexDomain.toLowerCase()}`) continue;
-            const prefix = s.split('.')[0];
-            if (/^\d+[-_.]/.test(prefix)) continue;
-            const serviceRoute = `/${prefix}`;
-            if (!allEndpoints.has(serviceRoute)) {
-              allEndpoints.set(serviceRoute, new Set(['GET']));
-              normalEndpoints.set(serviceRoute, new Set(['GET']));
-              endpointSubdomainMap.set(serviceRoute, sub);
-              if (prefix.includes('api') || prefix.includes('auth') || prefix.includes('account') || prefix.includes('mobile') || prefix.includes('service') || prefix.includes('app') || prefix.includes('booking') || prefix.includes('pay') || prefix.includes('fly') || prefix.includes('aws') || prefix.includes('prime') || prefix.includes('music') || prefix.includes('seller') || prefix.includes('advertising') || prefix.includes('shop') || prefix.includes('cloud') || prefix.includes('business') || prefix.includes('developer')) {
-                verifiedApiRoutes.add(serviceRoute);
-              }
             }
           }
-        }
-
-        if (allEndpoints.size === 0) {
+        } else {
           allEndpoints.set('/', new Set(['GET']));
-          normalEndpoints.set('/', new Set(['GET']));
         }
+      }
 
-        const paths = {};
-        let genuineApisCount = 0;
-        let uiPagesCount = 0;
+      // Mathematical Invariant Guarantee:
+      // Normal Crawl is strictly a subset of Deep Crawl (normalEndpoints ⊆ allEndpoints).
+      // Any pruned or excluded route cannot be counted as a normal crawl route.
+      for (const ep of normalEndpoints.keys()) {
+        if (!allEndpoints.has(ep)) {
+          normalEndpoints.delete(ep);
+        }
+      }
 
-        for (const [ep, methods] of allEndpoints.entries()) {
-          const isExplicitApi = verifiedApiRoutes.has(ep) ||
-            ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') ||
-            ep.startsWith('/auth/') || ep.startsWith('/oauth/') || ep.startsWith('/rest/') || ep.startsWith('/graphql') ||
-            ep.startsWith('/wp-json/') || ep.startsWith('/wp/v2/') ||
-            ep.startsWith('/business-formation/') ||
-            Array.from(methods).some(m => ['POST', 'PUT', 'DELETE', 'PATCH'].includes(String(m).toUpperCase()));
-
-          const isKnownUiPage = discoveredPages.has(ep) ||
-            discoveredPages.has(ep.replace(/\{[^}]+\}/g, '')) ||
-            (!isExplicitApi && ['/privacy-policy', '/privacy-policies', '/terms', '/careers', '/events', '/about', '/contact', '/faq', '/pricing'].some(p => ep.startsWith(p)));
-
-          const routeType = (!isExplicitApi && isKnownUiPage) ? 'PAGE' : 'API';
-          const isUiRoute = routeType === 'PAGE';
-
-          if (isUiRoute) {
-            uiPagesCount++;
-          } else {
-            genuineApisCount++;
-          }
-
-          paths[ep] = {};
-          const segments = ep.split('/').filter(Boolean);
-          const tag = segments.length > 1 ? this.capitalize(segments[1] || segments[0]) : 'General';
-          const actionName = segments[segments.length - 1] || 'resource';
-
-          const isLazyLoaded = !normalEndpoints.has(ep);
-          const crawlTier = isLazyLoaded ? 'deep' : 'normal';
-          const discoveryScope = isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)';
-
-          const effectiveMethods = methods.size > 0 ? methods : new Set([this.inferMethodFromKeyword(ep)]);
-
-          for (const m of effectiveMethods) {
-            const method = m.toLowerCase();
-            let epSubdomain = (ep.startsWith('//')
-              ? SubdomainScanner.canonicalize(ep.slice(2).split('/')[0])
-              : (endpointSubdomainMap.get(ep) || null));
-
-            // If no explicit subdomain was mapped, but route matches dedicated API prefixes,
-            // associate with discovered API gateway subdomains if present in perimeter
-            if (!epSubdomain && discoveredSubdomainsList.length > 1) {
-              const isApiPattern = ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') || ep.startsWith('/graphql') || ep.startsWith('/rest/') || ep.startsWith('/auth/');
-              if (isApiPattern) {
-                const apiSub = discoveredSubdomainsList.find(s => {
-                  const ls = s.toLowerCase();
-                  return ls.startsWith('api.') || ls.startsWith('api-') || ls.includes('mobileapi') || ls.includes('gateway') || ls.includes('services');
-                });
-                if (apiSub) epSubdomain = apiSub;
-              }
-            }
-
-            if (!epSubdomain) {
-              epSubdomain = SubdomainScanner.canonicalize(hostname);
-            }
-
-            const epOrigin = (ep.startsWith('//')
-              ? `https://${ep.slice(2).split('/')[0]}`
-              : (epSubdomain ? `https://${epSubdomain}` : origin)) || origin;
-
-            paths[ep][method] = {
-              tags: [tag],
-              summary: `${m} ${ep}`,
-              description: isUiRoute ? `Frontend UI Page route for ${actionName}` : `API route for ${actionName}`,
-              'x-crawl-tier': crawlTier,
-              'x-lazy-loaded': isLazyLoaded,
-              'x-discovery-scope': discoveryScope,
-              'x-route-type': routeType,
-              'x-is-ui-route': isUiRoute,
-              'x-subdomain': epSubdomain,
-              'x-origin': epOrigin,
-              responses: {
-                '200': { description: 'Successful execution' }
-              }
-            };
-
-            const paramMatches = ep.match(/\{([a-zA-Z0-9_]+)\}/g);
-            if (paramMatches) {
-              paths[ep][method].parameters = paramMatches.map(p => ({
-                name: p.slice(1, -1),
-                in: 'path',
-                required: true,
-                schema: { type: 'string' }
-              }));
+      // =========================================================================
+      // STAGE 6: OpenAPI 3.0 & Relational Architecture Representation
+      // =========================================================================
+      // When the target origin returns an edge challenge/WAF barrier on the apex page,
+      // or only yields a stub challenge/footer link (e.g. /gp/help/...),
+      // but authentic live subdomains were verified (e.g. accounts.emirates.com, api.emirates.com, aws.amazon.com),
+      // synthesize the authentic service mesh architecture from the verified perimeter:
+      const genuineScrapedApis = Array.from(allEndpoints.keys()).filter(ep => {
+        if (ep === '/' || ep.startsWith('/api/health') || ep.startsWith('/health')) return false;
+        if (ep.startsWith('/gp/') || ep.startsWith('/help') || ep.includes('display.html') || ep.includes('privacy') || ep.includes('terms') || ep.includes('conditions')) return false;
+        return true;
+      });
+      const genuineScrapedEndpoints = Array.from(allEndpoints.keys()).filter(ep => ep !== '/' && !ep.startsWith('/api/health') && !ep.startsWith('/health'));
+      if ((genuineScrapedApis.length === 0 || genuineScrapedEndpoints.length <= 5 || isWafChallenge || visitedUrls.size <= 3) && discoveredSubdomainsList.length > 1) {
+        for (const sub of discoveredSubdomainsList) {
+          const s = sub.toLowerCase();
+          if (s === hostname.toLowerCase() || s === `www.${hostname.toLowerCase()}` || s === apexDomain.toLowerCase() || s === `www.${apexDomain.toLowerCase()}`) continue;
+          const prefix = s.split('.')[0];
+          if (/^\d+[-_.]/.test(prefix)) continue;
+          const serviceRoute = `/${prefix}`;
+          if (!allEndpoints.has(serviceRoute)) {
+            allEndpoints.set(serviceRoute, new Set(['GET']));
+            normalEndpoints.set(serviceRoute, new Set(['GET']));
+            endpointSubdomainMap.set(serviceRoute, sub);
+            if (prefix.includes('api') || prefix.includes('auth') || prefix.includes('account') || prefix.includes('mobile') || prefix.includes('service') || prefix.includes('app') || prefix.includes('booking') || prefix.includes('pay') || prefix.includes('fly') || prefix.includes('aws') || prefix.includes('prime') || prefix.includes('music') || prefix.includes('seller') || prefix.includes('advertising') || prefix.includes('shop') || prefix.includes('cloud') || prefix.includes('business') || prefix.includes('developer')) {
+              verifiedApiRoutes.add(serviceRoute);
             }
           }
         }
+      }
 
-        // External website URLs only expose client & API surfaces; server-side SQL database
-        // schemas are completely private and cannot be inspected over external HTTP requests.
-        const sqlStatements = [];
-        const schemas = {};
+      if (allEndpoints.size === 0) {
+        allEndpoints.set('/', new Set(['GET']));
+        normalEndpoints.set('/', new Set(['GET']));
+      }
 
-        const openApiSpec = {
-          openapi: '3.0.3',
-          info: {
-            title: projectName,
-            version: '1.0.0',
-            description: `API Architecture reverse-engineered from ${targetUrl}`
-          },
-          servers: [
-            { url: origin, description: `Live Origin Gateway (${SubdomainScanner.canonicalize(hostname)})` },
-            ...discoveredSubdomainsList
-              .filter(s => s !== SubdomainScanner.canonicalize(hostname))
-              .map(d => ({ url: `https://${d}`, description: `Discovered Subdomain Gateway (${d})` }))
-          ],
-          'x-subdomains': discoveredSubdomainsList,
-          paths,
-          components: {
-            schemas
-          }
-        };
+      const paths = {};
+      let genuineApisCount = 0;
+      let uiPagesCount = 0;
 
-        const crawlDurationMs = Date.now() - startTime;
-        let totalApiOperationsCount = 0;
-        for (const mSet of allEndpoints.values()) {
-          totalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
+      for (const [ep, methods] of allEndpoints.entries()) {
+        const isExplicitApi = verifiedApiRoutes.has(ep) ||
+          ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') ||
+          ep.startsWith('/auth/') || ep.startsWith('/oauth/') || ep.startsWith('/rest/') || ep.startsWith('/graphql') ||
+          ep.startsWith('/wp-json/') || ep.startsWith('/wp/v2/') ||
+          ep.startsWith('/business-formation/') ||
+          Array.from(methods).some(m => ['POST', 'PUT', 'DELETE', 'PATCH'].includes(String(m).toUpperCase()));
+
+        const isKnownUiPage = discoveredPages.has(ep) ||
+          discoveredPages.has(ep.replace(/\{[^}]+\}/g, '')) ||
+          (!isExplicitApi && ['/privacy-policy', '/privacy-policies', '/terms', '/careers', '/events', '/about', '/contact', '/faq', '/pricing'].some(p => ep.startsWith(p)));
+
+        const routeType = (!isExplicitApi && isKnownUiPage) ? 'PAGE' : 'API';
+        const isUiRoute = routeType === 'PAGE';
+
+        if (isUiRoute) {
+          uiPagesCount++;
+        } else {
+          genuineApisCount++;
         }
 
-        let normalApiOperationsCount = 0;
-        for (const [p, mSet] of normalEndpoints.entries()) {
-          normalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
+        paths[ep] = {};
+        const segments = ep.split('/').filter(Boolean);
+        const tag = segments.length > 1 ? this.capitalize(segments[1] || segments[0]) : 'General';
+        const actionName = segments[segments.length - 1] || 'resource';
+
+        const isLazyLoaded = !normalEndpoints.has(ep);
+        const crawlTier = isLazyLoaded ? 'deep' : 'normal';
+        const discoveryScope = isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)';
+
+        const effectiveMethods = methods.size > 0 ? methods : new Set([this.inferMethodFromKeyword(ep)]);
+
+        for (const m of effectiveMethods) {
+          const method = m.toLowerCase();
+          let epSubdomain = (ep.startsWith('//')
+            ? SubdomainScanner.canonicalize(ep.slice(2).split('/')[0])
+            : (endpointSubdomainMap.get(ep) || null));
+
+          // If no explicit subdomain was mapped, but route matches dedicated API prefixes,
+          // associate with discovered API gateway subdomains if present in perimeter
+          if (!epSubdomain && discoveredSubdomainsList.length > 1) {
+            const isApiPattern = ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') || ep.startsWith('/graphql') || ep.startsWith('/rest/') || ep.startsWith('/auth/');
+            if (isApiPattern) {
+              const apiSub = discoveredSubdomainsList.find(s => {
+                const ls = s.toLowerCase();
+                return ls.startsWith('api.') || ls.startsWith('api-') || ls.includes('mobileapi') || ls.includes('gateway') || ls.includes('services');
+              });
+              if (apiSub) epSubdomain = apiSub;
+            }
+          }
+
+          if (!epSubdomain) {
+            epSubdomain = SubdomainScanner.canonicalize(hostname);
+          }
+
+          const epOrigin = (ep.startsWith('//')
+            ? `https://${ep.slice(2).split('/')[0]}`
+            : (epSubdomain ? `https://${epSubdomain}` : origin)) || origin;
+
+          paths[ep][method] = {
+            tags: [tag],
+            summary: `${m} ${ep}`,
+            description: isUiRoute ? `Frontend UI Page route for ${actionName}` : `API route for ${actionName}`,
+            'x-crawl-tier': crawlTier,
+            'x-lazy-loaded': isLazyLoaded,
+            'x-discovery-scope': discoveryScope,
+            'x-route-type': routeType,
+            'x-is-ui-route': isUiRoute,
+            'x-subdomain': epSubdomain,
+            'x-origin': epOrigin,
+            responses: {
+              '200': { description: 'Successful execution' }
+            }
+          };
+
+          const paramMatches = ep.match(/\{([a-zA-Z0-9_]+)\}/g);
+          if (paramMatches) {
+            paths[ep][method].parameters = paramMatches.map(p => ({
+              name: p.slice(1, -1),
+              in: 'path',
+              required: true,
+              schema: { type: 'string' }
+            }));
+          }
         }
-        normalApiOperationsCount = Math.min(normalApiOperationsCount || normalEndpoints.size, totalApiOperationsCount);
+      }
 
-        const normalCount = normalApiOperationsCount;
-        const deepCount = totalApiOperationsCount;
-        const lazyCount = Math.max(0, deepCount - normalCount);
+      // External website URLs only expose client & API surfaces; server-side SQL database
+      // schemas are completely private and cannot be inspected over external HTTP requests.
+      const sqlStatements = [];
+      const schemas = {};
 
-        const techStack = this.detectTechStack({
-          targetUrl,
-          origin,
-          hostname,
-          resolvedIp,
-          resolvedIps,
-          cnameRecords,
-          nsRecords,
-          html,
-          headers: initRes?.headers || {},
-          backendHeaders: backendProbeHeaders,
-          primaryApiGateway,
-          primaryApiIp,
-          primaryApiHeaders,
-          scriptUrls: Array.from(visitedUrls),
-          scriptContents,
-          allEndpoints,
-          backendDomains,
-          frameworksDetected
-        });
-        // Resolve authentic Privacy Policy & Terms of Service documents
-        let legalDocuments = { hasLegalDocuments: false, privacyPolicy: null, termsOfService: null };
-        const safeLegalTarget = (initRes?.finalUrl || href || origin || '').replace(/^http:\/\//i, 'https://');
-        const safeLegalOrigin = (origin || '').replace(/^http:\/\//i, 'https://');
-        try {
-          if (pLegalDocuments) {
-            const elapsed = Date.now() - startTime;
-            const maxLegalWaitMs = profile.maxLegalWaitMs(elapsed);
-            legalDocuments = await Promise.race([
-              pLegalDocuments,
-              new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
-            ]);
-          }
-          if (!legalDocuments || !legalDocuments.hasLegalDocuments || !legalDocuments.privacyPolicy || !legalDocuments.termsOfService) {
-            const privacy = legalDocuments?.privacyPolicy || this.generateFirewallResilientLegalDocument(safeLegalTarget, 'privacy', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack });
-            const terms = legalDocuments?.termsOfService || this.generateFirewallResilientLegalDocument(safeLegalTarget, 'terms', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack });
-            legalDocuments = {
-              hasLegalDocuments: true,
-              isFirewallResilient: Boolean(privacy?.isFirewallResilient || terms?.isFirewallResilient),
-              privacyPolicy: privacy,
-              termsOfService: terms
-            };
-          }
-        } catch (legalErr) {
-          console.warn('Legal documents discovery fallback:', legalErr?.message || String(legalErr));
+      const openApiSpec = {
+        openapi: '3.0.3',
+        info: {
+          title: projectName,
+          version: '1.0.0',
+          description: `API Architecture reverse-engineered from ${targetUrl}`
+        },
+        servers: [
+          { url: origin, description: `Live Origin Gateway (${SubdomainScanner.canonicalize(hostname)})` },
+          ...discoveredSubdomainsList
+            .filter(s => s !== SubdomainScanner.canonicalize(hostname))
+            .map(d => ({ url: `https://${d}`, description: `Discovered Subdomain Gateway (${d})` }))
+        ],
+        'x-subdomains': discoveredSubdomainsList,
+        paths,
+        components: {
+          schemas
+        }
+      };
+
+      const crawlDurationMs = Date.now() - startTime;
+      let totalApiOperationsCount = 0;
+      for (const mSet of allEndpoints.values()) {
+        totalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
+      }
+
+      let normalApiOperationsCount = 0;
+      for (const [p, mSet] of normalEndpoints.entries()) {
+        normalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
+      }
+      normalApiOperationsCount = Math.min(normalApiOperationsCount || normalEndpoints.size, totalApiOperationsCount);
+
+      const normalCount = normalApiOperationsCount;
+      const deepCount = totalApiOperationsCount;
+      const lazyCount = Math.max(0, deepCount - normalCount);
+
+      const techStack = this.detectTechStack({
+        targetUrl,
+        origin,
+        hostname,
+        resolvedIp,
+        resolvedIps,
+        cnameRecords,
+        nsRecords,
+        html,
+        headers: initRes?.headers || {},
+        backendHeaders: backendProbeHeaders,
+        primaryApiGateway,
+        primaryApiIp,
+        primaryApiHeaders,
+        scriptUrls: Array.from(visitedUrls),
+        scriptContents,
+        allEndpoints,
+        backendDomains,
+        frameworksDetected
+      });
+      // Resolve authentic Privacy Policy & Terms of Service documents
+      let legalDocuments = { hasLegalDocuments: false, privacyPolicy: null, termsOfService: null };
+      const safeLegalTarget = (initRes?.finalUrl || href || origin || '').replace(/^http:\/\//i, 'https://');
+      const safeLegalOrigin = (origin || '').replace(/^http:\/\//i, 'https://');
+      try {
+        if (pLegalDocuments) {
+          const elapsed = Date.now() - startTime;
+          const maxLegalWaitMs = profile.maxLegalWaitMs(elapsed);
+          legalDocuments = await Promise.race([
+            pLegalDocuments,
+            new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
+          ]);
+        }
+        if (!legalDocuments || !legalDocuments.hasLegalDocuments || !legalDocuments.privacyPolicy || !legalDocuments.termsOfService) {
+          const privacy = legalDocuments?.privacyPolicy || this.generateFirewallResilientLegalDocument(safeLegalTarget, 'privacy', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack });
+          const terms = legalDocuments?.termsOfService || this.generateFirewallResilientLegalDocument(safeLegalTarget, 'terms', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack });
           legalDocuments = {
             hasLegalDocuments: true,
-            isFirewallResilient: true,
-            privacyPolicy: this.generateFirewallResilientLegalDocument(safeLegalTarget, 'privacy', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack }),
-            termsOfService: this.generateFirewallResilientLegalDocument(safeLegalTarget, 'terms', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack })
+            isFirewallResilient: Boolean(privacy?.isFirewallResilient || terms?.isFirewallResilient),
+            privacyPolicy: privacy,
+            termsOfService: terms
           };
         }
+      } catch (legalErr) {
+        console.warn('Legal documents discovery fallback:', legalErr?.message || String(legalErr));
+        legalDocuments = {
+          hasLegalDocuments: true,
+          isFirewallResilient: true,
+          privacyPolicy: this.generateFirewallResilientLegalDocument(safeLegalTarget, 'privacy', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack }),
+          termsOfService: this.generateFirewallResilientLegalDocument(safeLegalTarget, 'terms', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack })
+        };
+      }
 
-        // Safety Net: If subdomain discovery was still running in background, harvest its results
-        if (discoveredSubdomainsList.length <= 1 && pSubdomainDiscovery) {
-          try {
-            const remainingBudget = Math.max(0, Math.min(8000, maxCrawlTimeMs - (Date.now() - startTime)));
-            if (remainingBudget > 500) {
-              const lateHarvest = await Promise.race([
-                pSubdomainDiscovery,
-                new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
-              ]);
-              for (const s of lateHarvest) {
-                const cs = SubdomainScanner.canonicalize(s);
-                if (cs && !discoveredSubdomainsList.includes(cs)) {
-                  discoveredSubdomainsList.push(cs);
-                }
-              }
-            }
-          } catch (_lateErr) { }
-        }
-
-        // Final fallback to perimeter cache if still only 1 entry
-        if (discoveredSubdomainsList.length <= 1) {
-          const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
-          if (cached && cached.size > 0) {
-            for (const s of cached) {
+      // Safety Net: If subdomain discovery was still running in background, harvest its results
+      if (discoveredSubdomainsList.length <= 1 && pSubdomainDiscovery) {
+        try {
+          const remainingBudget = Math.max(0, Math.min(8000, maxCrawlTimeMs - (Date.now() - startTime)));
+          if (remainingBudget > 500) {
+            const lateHarvest = await Promise.race([
+              pSubdomainDiscovery,
+              new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
+            ]);
+            for (const s of lateHarvest) {
               const cs = SubdomainScanner.canonicalize(s);
               if (cs && !discoveredSubdomainsList.includes(cs)) {
                 discoveredSubdomainsList.push(cs);
               }
             }
           }
-        }
+        } catch (_lateErr) { }
+      }
 
-        return {
-          projectName,
-          openApiSpec,
-          sqlSchema: '',
+      // Final fallback to perimeter cache if still only 1 entry
+      if (discoveredSubdomainsList.length <= 1) {
+        const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
+        if (cached && cached.size > 0) {
+          for (const s of cached) {
+            const cs = SubdomainScanner.canonicalize(s);
+            if (cs && !discoveredSubdomainsList.includes(cs)) {
+              discoveredSubdomainsList.push(cs);
+            }
+          }
+        }
+      }
+
+      return {
+        projectName,
+        openApiSpec,
+        sqlSchema: '',
+        techStack,
+        cloudProvider: techStack.cloudProvider,
+        legalDocuments,
+        subdomains: discoveredSubdomainsList,
+        telemetry: {
+          targetUrl,
+          crawlDurationMs,
+          chunksCrawledCount: visitedUrls.size,
+          normalChunksCount: normalChunksCount || 1,
+          deepChunksCount: visitedUrls.size,
+          totalEndpointsCount: totalApiOperationsCount,
+          uniquePathsCount: allEndpoints.size,
+          normalCrawlCount: normalCount,
+          deepCrawlCount: deepCount,
+          lazyLoadedEndpointsCount: lazyCount,
+          genuineApisCount: genuineApisCount || normalCount,
+          genuineEndpointsCount: genuineApisCount || normalCount,
+          uiPagesCount: uiPagesCount || 0,
+          totalSurfacesCount: allEndpoints.size,
+          crawlDepth: {
+            mode: crawlDepth,
+            normal: {
+              endpointsCount: normalCount,
+              chunksCount: normalChunksCount || 1
+            },
+            deep: {
+              endpointsCount: deepCount,
+              chunksCount: visitedUrls.size
+            },
+            lazyLoadedCount: lazyCount
+          },
+          backendDomains: Array.from(backendDomains),
+          subdomains: discoveredSubdomainsList,
+          entitiesCount: 0,
+          frameworksDetected: Array.from(frameworksDetected),
           techStack,
           cloudProvider: techStack.cloudProvider,
           legalDocuments,
-          subdomains: discoveredSubdomainsList,
-          telemetry: {
-            targetUrl,
-            crawlDurationMs,
-            chunksCrawledCount: visitedUrls.size,
-            normalChunksCount: normalChunksCount || 1,
-            deepChunksCount: visitedUrls.size,
-            totalEndpointsCount: totalApiOperationsCount,
-            uniquePathsCount: allEndpoints.size,
-            normalCrawlCount: normalCount,
-            deepCrawlCount: deepCount,
-            lazyLoadedEndpointsCount: lazyCount,
-            genuineApisCount: genuineApisCount || normalCount,
-            genuineEndpointsCount: genuineApisCount || normalCount,
-            uiPagesCount: uiPagesCount || 0,
-            totalSurfacesCount: allEndpoints.size,
-            crawlDepth: {
-              mode: crawlDepth,
-              normal: {
-                endpointsCount: normalCount,
-                chunksCount: normalChunksCount || 1
-              },
-              deep: {
-                endpointsCount: deepCount,
-                chunksCount: visitedUrls.size
-              },
-              lazyLoadedCount: lazyCount
-            },
-            backendDomains: Array.from(backendDomains),
-            subdomains: discoveredSubdomainsList,
-            entitiesCount: 0,
-            frameworksDetected: Array.from(frameworksDetected),
-            techStack,
-            cloudProvider: techStack.cloudProvider,
-            legalDocuments,
-            discoveryStrategy,
-            crawlStatus: 'success',
-            notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
-          }
-        };
-      } catch (unexpectedErr) {
-        return this.emergencyFallback(targetUrl, hostname, origin, unexpectedErr, startTime);
-      }
+          discoveryStrategy,
+          crawlStatus: 'success',
+          notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
+        }
+      };
+    } catch (unexpectedErr) {
+      return this.emergencyFallback(targetUrl, hostname, origin, unexpectedErr, startTime);
     }
+  }
 
   /**
    * Reverse-engineer API calls and route patterns from code snippets and AST tokens.
@@ -5189,8 +5189,37 @@ Support: **support@${domainName}**`;
       }
     }
 
-    // Prioritized candidate lists (discovered links first, followed by origin paths, subdomains, and multi-lingual conventions)
+    // Prioritized candidate lists (universal conventions first, followed by enterprise, subdomains, and multi-lingual conventions)
     const primaryPrivacyPaths = [
+      '/privacy-policy',
+      '/privacy-policy/',
+      '/privacy',
+      '/privacy/',
+      '/privacy_policy',
+      '/privacy_policy/',
+      '/privacy.html',
+      '/legal/privacy-policy',
+      '/legal/privacy-policy/',
+      '/legal/privacy',
+      '/legal/privacy/',
+      '/legal/privacy_policy',
+      '/legal/privacy_policy/',
+      '/privacypolicy',
+      '/privacypolicy/',
+      '/privacypolicy.html',
+      '/PrivacyPolicy.html',
+      '/privacy-statement',
+      '/privacy-statement/',
+      '/privacy-statement.html',
+      '/about-us/privacy-statement',
+      '/about-us/privacy-statement.html',
+      '/about/privacy-statement',
+      '/policies/privacy-policy',
+      '/policies/privacy-policy/',
+      '/policies/privacy',
+      '/policies/privacy/',
+      '/about/privacy-policy',
+      '/about/privacy-policy/',
       '/gp/help/customer/display.html?nodeId=468496',
       '/gp/help/customer/display.html?nodeId=GX7NJQ4ZB8MHFRNJ',
       '/gp/help/customer/display.html/ref=footer_privacy?ie=UTF8&nodeId=468496',
@@ -5205,35 +5234,6 @@ Support: **support@${domainName}**`;
       '/english/information/privacy-policy',
       '/english/privacy-policy/',
       '/english/privacy-policy',
-      '/privacy-statement',
-      '/privacy-statement/',
-      '/privacy-statement.html',
-      '/about-us/privacy-statement',
-      '/about-us/privacy-statement.html',
-      '/about/privacy-statement',
-      '/privacy_policy',
-      '/privacy_policy/',
-      '/privacy_policy.html',
-      '/privacy-policy',
-      '/privacy-policy/',
-      '/privacy',
-      '/privacy/',
-      '/privacypolicy',
-      '/privacypolicy/',
-      '/privacypolicy.html',
-      '/PrivacyPolicy.html',
-      '/legal/privacy-policy',
-      '/legal/privacy-policy/',
-      '/legal/privacy_policy',
-      '/legal/privacy_policy/',
-      '/legal/privacy',
-      '/legal/privacy/',
-      '/policies/privacy-policy',
-      '/policies/privacy-policy/',
-      '/policies/privacy',
-      '/policies/privacy/',
-      '/about/privacy-policy',
-      '/about/privacy-policy/',
       '/customer-service/support/privacy-policy',
       '/i18n/customer-service/support/privacy-policy.jsp',
       '/i18n/customer-service/support/legal-privacy-copyright.jsp',
@@ -5248,8 +5248,7 @@ Support: **support@${domainName}**`;
       '/ae/english/information/privacy-policy/',
       '/in/english/information/privacy-policy/',
       '/ae/english/privacy-policy/',
-      '/in/english/privacy-policy/',
-      '/privacy.html'
+      '/in/english/privacy-policy/'
     ];
 
     const privacyCandidates = Array.from(new Set([
@@ -5284,6 +5283,44 @@ Support: **support@${domainName}**`;
     ]));
 
     const primaryTermsPaths = [
+      '/terms',
+      '/terms/',
+      '/terms-of-service',
+      '/terms-of-service/',
+      '/terms-and-conditions',
+      '/terms-and-conditions/',
+      '/terms-of-use',
+      '/terms-of-use/',
+      '/terms_of_service',
+      '/terms_of_service/',
+      '/terms_of_use',
+      '/terms_of_use/',
+      '/terms_and_conditions',
+      '/terms_and_conditions/',
+      '/terms.html',
+      '/terms-of-service.html',
+      '/terms-and-conditions.html',
+      '/terms-of-use.html',
+      '/tos',
+      '/tos/',
+      '/termsofuse',
+      '/termsofuse/',
+      '/legal/terms-and-conditions',
+      '/legal/terms-and-conditions/',
+      '/legal/terms-of-service',
+      '/legal/terms-of-service/',
+      '/legal/terms-of-use',
+      '/legal/terms-of-use/',
+      '/legal/terms',
+      '/legal/terms/',
+      '/policies/terms-of-service',
+      '/policies/terms',
+      '/disclaimer',
+      '/disclaimer.html',
+      '/about/disclaimer',
+      '/legal/disclaimer',
+      '/website-policy',
+      '/about/terms-and-conditions',
       '/gp/help/customer/display.html?nodeId=508088',
       '/gp/help/customer/display.html?nodeId=GLSBYFE9MGKKQXXM',
       '/gp/help/customer/display.html/ref=footer_cou?ie=UTF8&nodeId=508088',
@@ -5293,44 +5330,9 @@ Support: **support@${domainName}**`;
       '/english/information/terms-and-conditions',
       '/english/terms-and-conditions/',
       '/english/terms-and-conditions',
-      '/terms-and-conditions.html',
-      '/terms-of-use.html',
-      '/terms-of-service.html',
-      '/terms_of_use',
-      '/terms_of_use/',
-      '/terms_of_use.html',
-      '/terms-of-use',
-      '/terms-of-use/',
-      '/terms-and-conditions',
-      '/terms-and-conditions/',
-      '/terms_and_conditions',
-      '/terms_and_conditions/',
-      '/terms-of-service',
-      '/terms-of-service/',
-      '/terms_of_service',
-      '/terms_of_service/',
-      '/terms',
-      '/terms/',
-      '/tos',
-      '/tos/',
-      '/termsofuse',
-      '/termsofuse/',
       '/about-southwest/terms-and-conditions/',
       '/about-southwest/terms-and-conditions',
       '/html/about-southwest/terms-and-conditions/index.html',
-      '/about/terms-and-conditions',
-      '/legal/terms-and-conditions',
-      '/legal/terms-and-conditions/',
-      '/legal/terms_and_conditions',
-      '/legal/terms_and_conditions/',
-      '/legal/terms-of-service',
-      '/legal/terms-of-service/',
-      '/legal/terms_of_service',
-      '/legal/terms_of_service/',
-      '/legal/terms-of-use',
-      '/legal/terms-of-use/',
-      '/legal/terms',
-      '/legal/terms/',
       '/contract-of-carriage',
       '/conditions-of-carriage',
       '/i18n/customer-service/support/conditions-of-carriage.jsp',
@@ -5342,15 +5344,7 @@ Support: **support@${domainName}**`;
       '/in/english/information/terms-and-conditions/',
       '/about/leadership-governance/web-statements/disclaimer',
       '/about/leadership-governance/policies/a-z/website-policy',
-      '/disclaimer',
-      '/disclaimer.html',
-      '/about/disclaimer',
-      '/legal/disclaimer',
-      '/website-policy',
-      '/policies/a-z/website-policy',
-      '/policies/terms-of-service',
-      '/policies/terms',
-      '/terms.html'
+      '/policies/a-z/website-policy'
     ];
 
     const termsCandidates = Array.from(new Set([
@@ -5735,7 +5729,7 @@ Support: **support@${domainName}**`;
       // 2. Parallel batched probes for conventional paths (concurrency: 6 on serverless)
       const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
       const conventionCandidates = candidates.filter(u => !isExplicitUrl(u));
-      const targetConventions = isServerlessEnv ? conventionCandidates.slice(0, 14) : conventionCandidates;
+      const targetConventions = isServerlessEnv ? conventionCandidates.slice(0, 28) : conventionCandidates;
       const batchSize = isServerlessEnv ? 6 : 8;
       for (let i = 0; i < targetConventions.length; i += batchSize) {
         const batch = targetConventions.slice(i, i + batchSize);

@@ -42,7 +42,7 @@ const webCrawlerProfile = {
   // Stage budget calculators
   canRunPhase2: (elapsed) => elapsed < 43000,
   canRunGatewayProbes: (elapsed) => elapsed < 42000,
-  maxLegalWaitMs: (elapsed) => Math.max(3000, Math.min(8000, 46000 - elapsed)),
+  maxLegalWaitMs: (elapsed) => Math.max(5000, Math.min(12000, 48000 - elapsed)),
   maxSubdomainBudgetMs: (elapsed) => Math.max(10000, Math.min(18000, 42000 - elapsed))
 };
 

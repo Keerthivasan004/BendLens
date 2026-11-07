@@ -659,6 +659,41 @@ When scanning `amazon.com` and other enterprise targets on the production Vercel
   - Subdomains: **977**
   - Endpoints: **895**
   - Cloud Provider: **Amazon Web Services (AWS) (`aws`)**
+
+---
+
+## 20. Legal Documents Localhost vs. HTTPS Serverless Parity (v1.1.70)
+
+### Problem Statement & Root Cause
+When scanning targets on the HTTPS production deployment (Vercel / serverless runtime), legal documents (Privacy Policy and Terms of Service) diverged significantly from localhost:
+- **Localhost**: Accurately extracted authentic live origin documents (e.g., for `futrsec.in`: Privacy Policy with 1,500 words at `https://futrsec.in/privacy-policy`, Terms of Service with 270 words at `https://futrsec.in/terms`, `isFirewallResilient: false`, source: `origin_live`).
+- **HTTPS Production / Serverless**: Fell back to degraded SPA component extraction (`origin_live_spa`, 224 words) or generic synthetic templates (`firewall_resilient`, 1,376 words).
+
+### Root Cause Analysis:
+1. **Candidate Path Ordering**:
+   `primaryPrivacyPaths` and `primaryTermsPaths` previously listed enterprise, university (UTS), and airline-specific paths (e.g. `/gp/help/...`, `/about/uts-governance/...`, `/aa/about-us/...`, `/english/information/...`) in positions 0 through 13, pushing universal standard web paths (`/privacy-policy`, `/privacy`, `/terms`, `/terms-of-service`) down to indices 22–27.
+2. **Serverless Array Slicing**:
+   In `tryFetchCandidates`, `targetConventions = isServerlessEnv ? conventionCandidates.slice(0, 14) : conventionCandidates`.
+   Because standard web targets (like `futrsec.in`) render links via client-side React rather than raw initial HTML, `discoveredPrivacyUrls` was empty, forcing convention path resolution. On serverless, the `slice(0, 14)` strictly stopped before reaching index 23 (`/privacy-policy`) or index 26 (`/terms`), causing all 14 probed airline/university paths to 404.
+3. **Premature Fallback**:
+   Because `tryFetchCandidates` failed on serverless, the crawler fell back to `extractSpaLegalDocuments` (224 words) and `generateFirewallResilientLegalDocument`.
+
+### Technical Solutions:
+1. **Universal Canonical Path Prioritization**:
+   Restructured `primaryPrivacyPaths` and `primaryTermsPaths` to place the highest-probability universal web paths at the very top:
+   - Privacy: `/privacy-policy`, `/privacy-policy/`, `/privacy`, `/privacy/`, `/privacy_policy`, `/privacy_policy/`, `/privacy.html`, `/legal/privacy-policy`.
+   - Terms: `/terms`, `/terms/`, `/terms-of-service`, `/terms-of-service/`, `/terms-and-conditions`, `/terms-of-use`.
+2. **Batch 0 Sub-Second Early Exit**:
+   Because universal paths are now placed at indices 0–5, `tryFetchCandidates` probes them in parallel in Batch 0 and exits immediately upon receiving HTTP 200 OK (in under 800ms), bypassing subsequent batches and eliminating unnecessary latency.
+3. **Expanded Serverless Convention Window & Increased Legal Timeout Budget**:
+   Expanded `targetConventions` slice from 14 to 28 on serverless, and raised `maxLegalWaitMs` in `webCrawlerProfile.js` from `Math.max(3000, Math.min(8000, 46000 - elapsed))` to `Math.max(5000, Math.min(12000, 48000 - elapsed))`.
+
+### Verification Parity:
+Under both `process.env.VERCEL = false` (localhost) and `process.env.VERCEL = '1'` (HTTPS serverless):
+- Privacy Policy: **1,500 words** (`https://futrsec.in/privacy-policy`), Title: `Privacy Policy | FUTRSEC`, Source: `origin_live`.
+- Terms of Service: **270 words** (`https://futrsec.in/terms`), Title: `Terms of Service | FUTRSEC`, Source: `origin_live`.
+- `isFirewallResilient: false` (Zero synthetic fallback).
+- Execution time: **763ms** on serverless.
   - Privacy Notice: **4,686 words** (official retail Amazon Privacy Notice)
 - **Compilation**: `npm run build` completed with exit code 0 across all static and dynamic routes.
 - **Bcbuzz (`bcbuzz.io`)**: Privacy Policy (968 words), Terms of Service (267 words).
