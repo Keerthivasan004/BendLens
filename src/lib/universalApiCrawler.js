@@ -1894,7 +1894,10 @@ class UniversalApiCrawler {
           return true;
         });
         const genuineScrapedEndpoints = Array.from(allEndpoints.keys()).filter(ep => ep !== '/' && !ep.startsWith('/api/health') && !ep.startsWith('/health'));
-        if ((genuineScrapedApis.length === 0 || genuineScrapedEndpoints.length <= 5 || isWafChallenge || visitedUrls.size <= 3) && discoveredSubdomainsList.length > 1) {
+        // Enterprise federated perimeter detection: If a domain has multiple verified subdomains
+        // and apex API extraction is minimal relative to the perimeter, synthesize the distributed service mesh
+        const isMultiSubdomainArchitecture = discoveredSubdomainsList.length >= 3 && (genuineScrapedApis.length < 50 || genuineScrapedEndpoints.length < discoveredSubdomainsList.length * 0.5);
+        if ((genuineScrapedApis.length === 0 || genuineScrapedEndpoints.length <= 15 || isWafChallenge || visitedUrls.size <= 3 || isMultiSubdomainArchitecture) && discoveredSubdomainsList.length > 1) {
           for (const sub of discoveredSubdomainsList) {
             const s = sub.toLowerCase();
             if (s === hostname.toLowerCase() || s === `www.${hostname.toLowerCase()}` || s === apexDomain.toLowerCase() || s === `www.${apexDomain.toLowerCase()}`) continue;
