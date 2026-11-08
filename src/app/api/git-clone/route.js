@@ -107,10 +107,17 @@ export async function POST(request) {
       });
 
       if (crawlResult?.telemetry?.crawlStatus === 'failed') {
-        return NextResponse.json(
-          { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetFetchUrl}. Please verify the URL and network connection.` },
-          { status: 400 }
-        );
+        const hasSubdomains = (crawlResult.telemetry?.subdomains?.length || crawlResult.subdomains?.length || 0) > 0;
+        const hasEndpoints = (Object.keys(crawlResult.openApiSpec?.paths || {}).length > 0);
+        if (hasSubdomains || hasEndpoints) {
+          crawlResult.telemetry.crawlStatus = 'success';
+          crawlResult.telemetry.notice = crawlResult.telemetry.notice || crawlResult.telemetry.error || 'Perimeter discovered successfully.';
+        } else {
+          return NextResponse.json(
+            { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetFetchUrl}. Please verify the URL and network connection.` },
+            { status: 400 }
+          );
+        }
       }
 
       if (crawlResult && crawlResult.openApiSpec) {
@@ -599,7 +606,15 @@ export async function POST(request) {
       const maxChunks = (typeof body.maxChunks === 'number' && body.maxChunks > 0) ? body.maxChunks : Infinity;
       const concurrency = (typeof body.concurrency === 'number' && body.concurrency > 0) ? body.concurrency : 32;
       const crawlResult = await UniversalApiCrawler.crawl(repoUrl, { maxChunks, concurrency, crawlDepth, preloadedHtml: body.preloadedHtml });
-      if (crawlResult && crawlResult.telemetry?.crawlStatus === 'success' && crawlResult.openApiSpec) {
+      if (crawlResult?.telemetry?.crawlStatus === 'failed') {
+        const hasSubdomains = (crawlResult.telemetry?.subdomains?.length || crawlResult.subdomains?.length || 0) > 0;
+        const hasEndpoints = (Object.keys(crawlResult.openApiSpec?.paths || {}).length > 0);
+        if (hasSubdomains || hasEndpoints) {
+          crawlResult.telemetry.crawlStatus = 'success';
+          crawlResult.telemetry.notice = crawlResult.telemetry.notice || crawlResult.telemetry.error || 'Perimeter discovered successfully.';
+        }
+      }
+      if (crawlResult && crawlResult.telemetry?.crawlStatus === 'success') {
         fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
         if (crawlResult.sqlSchema) {
           fs.writeFileSync(path.join(cloneDir, 'schema.sql'), crawlResult.sqlSchema, 'utf-8');

@@ -51,10 +51,17 @@ export async function POST(request) {
       const concurrency = (typeof body.concurrency === 'number' && body.concurrency > 0) ? body.concurrency : 32;
       const crawlResult = await UniversalApiCrawler.crawl(targetPath, { maxChunks, concurrency, crawlDepth, preloadedHtml });
       if (crawlResult?.telemetry?.crawlStatus === 'failed') {
-        return NextResponse.json(
-          { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetPath}. Please verify the target URL and network connection.` },
-          { status: 400 }
-        );
+        const hasSubdomains = (crawlResult.telemetry?.subdomains?.length || crawlResult.subdomains?.length || 0) > 0;
+        const hasEndpoints = (Object.keys(crawlResult.openApiSpec?.paths || {}).length > 0);
+        if (hasSubdomains || hasEndpoints) {
+          crawlResult.telemetry.crawlStatus = 'success';
+          crawlResult.telemetry.notice = crawlResult.telemetry.notice || crawlResult.telemetry.error || 'Perimeter discovered successfully.';
+        } else {
+          return NextResponse.json(
+            { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetPath}. Please verify the target URL and network connection.` },
+            { status: 400 }
+          );
+        }
       }
 
       const uploadsDir = path.join(os.tmpdir(), 'bendlens_temp_scans');

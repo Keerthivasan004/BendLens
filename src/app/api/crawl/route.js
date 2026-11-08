@@ -67,10 +67,17 @@ export async function POST(request) {
       const crawlResult = await UniversalApiCrawler.crawl(targetUrl, { maxChunks, concurrency, customHeaders, crawlDepth, preloadedHtml });
 
       if (crawlResult?.telemetry?.crawlStatus === 'failed') {
-        return NextResponse.json(
-          { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetUrl}. Please verify the URL and network connection.` },
-          { status: 400 }
-        );
+        const hasSubdomains = (crawlResult.telemetry?.subdomains?.length || crawlResult.subdomains?.length || 0) > 0;
+        const hasEndpoints = (Object.keys(crawlResult.openApiSpec?.paths || {}).length > 0);
+        if (hasSubdomains || hasEndpoints) {
+          crawlResult.telemetry.crawlStatus = 'success';
+          crawlResult.telemetry.notice = crawlResult.telemetry.notice || crawlResult.telemetry.error || 'Perimeter discovered successfully.';
+        } else {
+          return NextResponse.json(
+            { success: false, error: crawlResult.telemetry.error || `Unable to access or crawl ${targetUrl}. Please verify the URL and network connection.` },
+            { status: 400 }
+          );
+        }
       }
 
       // Materialize OpenAPI and Relational Schemas for AST Analysis

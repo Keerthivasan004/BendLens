@@ -446,16 +446,16 @@ CREATE TABLE orders (
       if (!json.success && !signal?.aborted) {
         try {
           const clientGateways = [
-            `https://api.allorigins.win/raw?url=${encodeURIComponent(normalizedUrl)}`,
-            `https://r.jina.ai/${normalizedUrl}`
+            { url: `https://r.jina.ai/${normalizedUrl}`, headers: { 'X-Return-Format': 'html' } },
+            { url: `https://api.allorigins.win/raw?url=${encodeURIComponent(normalizedUrl)}`, headers: {} }
           ];
           for (const gw of clientGateways) {
             try {
-              const gwRes = await fetch(gw, { signal: AbortSignal.timeout(7000) });
+              const gwRes = await fetch(gw.url, { headers: gw.headers, signal: AbortSignal.timeout(9000) });
               if (gwRes.ok) {
                 const htmlText = await gwRes.text();
-                // Ensure the relayed text contains authentic HTML/scripts for AST chunk traversal
-                if (htmlText && htmlText.length > 200 && (htmlText.includes('<script') || htmlText.includes('<html') || htmlText.includes('<!DOCTYPE'))) {
+                // Ensure the relayed text contains authentic HTML/scripts or content for AST chunk traversal
+                if (htmlText && htmlText.length > 200 && (htmlText.includes('<script') || htmlText.includes('<html') || htmlText.includes('<!DOCTYPE') || htmlText.includes('Title:') || htmlText.includes('Markdown Content:'))) {
                   const retryRes = await runCrawlRequest(signal, htmlText);
                   let retryJson = null;
                   try {

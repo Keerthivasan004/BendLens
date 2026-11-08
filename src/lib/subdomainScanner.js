@@ -8,14 +8,21 @@ const path = require('path');
 const os = require('os');
 const { getCrawlerProfile } = require('./crawler/index.js');
 
+const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+
 // Shared high-speed non-blocking c-ares resolver
 const sharedResolver = new dns.Resolver();
 try {
   const sysServers = (dns.getServers() || []).filter(s => s !== '127.0.0.1' && s !== '::1' && !s.startsWith('fe80:'));
-  if (sysServers.length > 0) {
-    sharedResolver.setServers([...sysServers, '8.8.8.8', '1.1.1.1']);
+  if (isServerlessEnv) {
+    // In AWS Lambda / Vercel, do NOT override with public DNS (8.8.8.8 UDP:53 is blocked by AWS VPC security groups)
+    if (sysServers.length > 0) sharedResolver.setServers(sysServers);
   } else {
-    sharedResolver.setServers(['8.8.8.8', '1.1.1.1', '1.0.0.1']);
+    if (sysServers.length > 0) {
+      sharedResolver.setServers([...sysServers, '8.8.8.8', '1.1.1.1']);
+    } else {
+      sharedResolver.setServers(['8.8.8.8', '1.1.1.1', '1.0.0.1']);
+    }
   }
 } catch (_err) { }
 
@@ -741,11 +748,20 @@ class SubdomainScanner {
   try {
     hasWildcard = await new Promise((resolve) => {
       const timer = setTimeout(() => resolve(false), 2000);
-      sharedResolver.resolve4(`__bendlens_wildcard_${Date.now()}.${apexDomain}`, (err, addrs) => {
-        clearTimeout(timer);
-        if (!err && addrs && addrs.length > 0) return resolve(true);
-        resolve(false);
-      });
+      const testHost = `__bendlens_wildcard_${Date.now()}.${apexDomain}`;
+      if (isServerlessEnv) {
+        dns.lookup(testHost, (err, addr) => {
+          clearTimeout(timer);
+          if (!err && addr) return resolve(true);
+          resolve(false);
+        });
+      } else {
+        sharedResolver.resolve4(testHost, (err, addrs) => {
+          clearTimeout(timer);
+          if (!err && addrs && addrs.length > 0) return resolve(true);
+          resolve(false);
+        });
+      }
     });
   } catch (_err) {
     hasWildcard = false;
@@ -809,6 +825,19 @@ class SubdomainScanner {
             resolve();
           }
         }, 2500);
+
+        if (isServerlessEnv) {
+          dns.lookup(fqdn, (err, addr) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            if (!err && addr) {
+              discovered.push(fqdn);
+            }
+            resolve();
+          });
+          return;
+        }
 
         sharedResolver.resolve4(fqdn, (err, addrs) => {
           if (done) return;
@@ -965,7 +994,7 @@ class SubdomainScanner {
           }
         };
 
-        // Parallel non-blocking UDP c-ares resolution (IPv4 A & CNAME concurrently)
+        // High-speed non-blocking c-ares UDP resolution (IPv4 A & CNAME concurrently) with OS getaddrinfo fallback
         let aDone = false;
         let cnameDone = false;
 
@@ -976,14 +1005,22 @@ class SubdomainScanner {
               sharedResolver.resolve6(host, (e6, a6) => {
                 if (settled) return;
                 if (!e6 && a6 && a6.length > 0) return onVerified();
+                dns.lookup(host, (lErr, addr) => {
+                  if (settled) return;
+                  if (!lErr && addr) return onVerified();
+                  settled = true;
+                  clearTimeout(timer);
+                  resolve();
+                });
+              });
+            } catch {
+              dns.lookup(host, (lErr, addr) => {
+                if (settled) return;
+                if (!lErr && addr) return onVerified();
                 settled = true;
                 clearTimeout(timer);
                 resolve();
               });
-            } catch {
-              settled = true;
-              clearTimeout(timer);
-              resolve();
             }
           }
         };
@@ -1002,9 +1039,13 @@ class SubdomainScanner {
             checkCares();
           });
         } catch (_err) {
-          settled = true;
-          clearTimeout(timer);
-          resolve();
+          dns.lookup(host, (lErr, addr) => {
+            if (settled) return;
+            if (!lErr && addr) return onVerified();
+            settled = true;
+            clearTimeout(timer);
+            resolve();
+          });
         }
       });
     };
