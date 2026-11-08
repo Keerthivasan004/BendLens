@@ -233,7 +233,18 @@ export default function Header({
 
                       const statusMap = analysisData.subdomainStatusMap || analysisData.crawlerTelemetry?.subdomainStatusMap || {};
                       const liveSet = new Set(analysisData.liveSubdomains || analysisData.crawlerTelemetry?.liveSubdomains || []);
-                      const primaryCandidateHost = primaryCandidate ? primaryCandidate.toLowerCase().replace(/^www\./, '') : null;
+                      const primaryCandidateHost = (() => {
+                        const candidates = [analysisData.projectPath, analysisData.projectName, analysisData.targetUrl, analysisData.crawlerTelemetry?.targetUrl];
+                        for (const c of candidates) {
+                          if (c && typeof c === 'string') {
+                            try {
+                              const h = new URL(c.startsWith('http') ? c : `https://${c}`).hostname.toLowerCase().replace(/^www\./, '');
+                              if (h && h.includes('.')) return h;
+                            } catch {}
+                          }
+                        }
+                        return subdomainsList[0] || null;
+                      })();
                       const liveCount = subdomainsList.filter(s => liveSet.has(s) || statusMap[s] === 'live' || s === primaryCandidateHost).length;
                       const histCount = Math.max(0, subdomainsList.length - liveCount);
 
