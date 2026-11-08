@@ -23,13 +23,13 @@ const localCrawlerProfile = {
 
   // Subdomain discovery & verification limits
   dnsLookupConcurrency: 100,
-  candidateTimeout: 1200,
+  candidateTimeout: 1800,
   subdomainValidationTimeout: 35000,
   subdomainCandidateLimit: 1500,
-  activeDnsPrefixes: 150,
+  activeDnsPrefixes: 350,
 
   // Passive reconnaissance timeouts
-  subdomainCenterTimeout: 14000,
+  subdomainCenterTimeout: 18000,
   alienVaultTimeout: 10000,
   certSpotterPages: 15,
   certSpotterTimeout: 20000,
