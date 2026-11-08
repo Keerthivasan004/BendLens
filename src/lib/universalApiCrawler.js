@@ -264,6 +264,7 @@ class UniversalApiCrawler {
     const backendDomains = new Set();
     const endpointSubdomainMap = new Map(); // path -> subdomain
     let discoveredSubdomainsList = [];
+    let pSubdomainDiscovery = null;
     const distinctEntities = new Set();
     const frameworksDetected = new Set();
     const visitedUrls = new Set();
@@ -271,6 +272,14 @@ class UniversalApiCrawler {
     let projectName = hostname;
     let pageTitle = '';
     let discoveryStrategy = isNormalOnly ? 'standard_chunk_crawler' : 'deep_chunk_crawler';
+
+    // Early trigger for multi-signal subdomain perimeter discovery to run concurrently with initial probe
+    try {
+      pSubdomainDiscovery = SubdomainScanner.discoverSubdomains(hostname, {
+        ...options,
+        subdomains: backendDomains
+      });
+    } catch (_subEarlyErr) { }
 
     let preloadedInitRes = null;
     if (options.preloadedHtml && typeof options.preloadedHtml === 'string' && options.preloadedHtml.trim().length > 50) {
@@ -907,10 +916,9 @@ class UniversalApiCrawler {
         console.warn('Early legal documents trigger warning:', legalTriggerErr?.message || String(legalTriggerErr));
       }
 
-      // Early parallel trigger for multi-signal subdomain perimeter discovery
-      let pSubdomainDiscovery = null;
+      // Early parallel trigger for multi-signal subdomain perimeter discovery (enriched with DOM HTML)
       try {
-        pSubdomainDiscovery = SubdomainScanner.discoverSubdomains(hostname, {
+        pSubdomainDiscovery = pSubdomainDiscovery || SubdomainScanner.discoverSubdomains(hostname, {
           ...options,
           html,
           headers: initRes?.headers,
@@ -1528,16 +1536,18 @@ class UniversalApiCrawler {
               } else {
                 resolve([]);
               }
-            }, Math.max(1000, maxSubdomainBudgetMs)))
+            }, Math.max(25000, maxSubdomainBudgetMs)))
           ]);
 
-          for (const sub of harvested) {
-            const cSub = SubdomainScanner.canonicalize(sub);
-            if (cSub && !discoveredSubdomainsList.includes(cSub)) {
-              discoveredSubdomainsList.push(cSub);
-            }
-            if (cSub && cSub !== baseCanonical && cSub !== apexDomain) {
-              backendDomains.add(`https://${cSub}`);
+          if (Array.isArray(harvested)) {
+            for (const sub of harvested) {
+              const cSub = SubdomainScanner.canonicalize(sub);
+              if (cSub && !discoveredSubdomainsList.includes(cSub)) {
+                discoveredSubdomainsList.push(cSub);
+              }
+              if (cSub && cSub !== baseCanonical && cSub !== apexDomain) {
+                backendDomains.add(`https://${cSub}`);
+              }
             }
           }
         } catch (subErr) {
@@ -2256,7 +2266,7 @@ class UniversalApiCrawler {
         // Safety Net: If background subdomain discovery is still resolving, grant remaining budget to complete
         if (pSubdomainDiscovery) {
           try {
-            const remainingBudget = Math.max(0, Math.min(8000, maxCrawlTimeMs - (Date.now() - startTime)));
+            const remainingBudget = Math.max(0, maxCrawlTimeMs - (Date.now() - startTime));
             if (remainingBudget > 500) {
               const lateHarvest = await Promise.race([
                 pSubdomainDiscovery,

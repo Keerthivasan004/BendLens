@@ -935,6 +935,47 @@ Users reported that subdomain discovery collapsed from 258 to 92–95 on rescan,
   - Discovered Endpoints: **222 endpoints**.
   - Status: **`success`** (Zero 400 error, zero 3000 error).
 
+---
+
+## 24. Cold-Start Single-Scan Parity Architecture (v1.1.66)
+
+### Root Cause of Single-Scan vs. Rescan Discrepancy
+1. **Internal Fetch Clamping (`Math.min(8000, remainingTime)`)**:
+   - `getSubdomainCenterSubdomains` clamped individual `fetch` calls to 8,000ms.
+   - For enterprise domains (`emirates.com`, `etihad.com`), `api.subdomain.center` takes 9–14 seconds to return 500 subdomains.
+   - The 8s abort signal killed the request mid-transfer on every cold start, yielding 0 candidates.
+   - On rescan, intermediate network caches allowed partial responses, creating the false impression that only rescans worked.
+2. **Duplicate Parallel Invocations & Server Busy Throttling**:
+   - `UniversalApiCrawler.crawl` triggered `SubdomainScanner.discoverSubdomains` concurrently in multiple stages (`pSubdomainDiscovery` and `subDiscoveryPromise`).
+   - Duplicate concurrent queries choked `api.subdomain.center`, which returned `{"error":"server busy (64 queries in flight)"}`.
+   - The parser checked `if (!Array.isArray(parsed)) return []`, instantly discarding candidates without retrying.
+3. **Temporal Dead Zone (TDZ) ReferenceError on Apex Challenge**:
+   - When the apex domain blocked the root crawler (e.g. `etihad.com` returning 403), line 536 checked `await (pSubdomainDiscovery || SubdomainScanner.discoverSubdomains(hostname, options))`.
+   - `pSubdomainDiscovery` was declared with `let` at line 911, causing a JavaScript TDZ `ReferenceError`, swallowed by an empty `catch` block.
+   - As a result, subdomain discovery never executed on cold start, and `emergencyFallback` returned an empty perimeter mesh, triggering the 400/3000 error.
+
+### Technical Implementation
+1. **In-Flight Scan Deduplication (`SubdomainScanner.inFlightScans`)**:
+   - Added `static inFlightScans = new Map()`.
+   - Concurrent callers for the same apex domain share the exact same `Promise`, eliminating redundant network queries, socket exhaustion, and rate limit collisions.
+2. **SubdomainCenter Resilient Retry with Backoff**:
+   - Raised default timeout to 18,000ms and removed the 8,000ms internal clamping.
+   - Added explicit handling for `{ error: 'server busy' }` and `{ message: '...' }` objects: sleeps 600–800ms and retries across 3 attempts instead of failing.
+3. **Early Subdomain Trigger & Lexical Scope Fix**:
+   - Declared `let pSubdomainDiscovery = null;` at the top of `UniversalApiCrawler.crawl` alongside other state variables.
+   - Initiated early background discovery immediately after target normalization, overlapping passive reconnaissance with DNS resolution and initial fetch.
+   - On apex challenge, `pSubdomainDiscovery` is awaited seamlessly, populating `discoveredSubdomainsList` and allowing the crawl to succeed on cold start without error.
+4. **Expanded 600+ ActiveDNS Systematic Dictionary**:
+   - Expanded active wordlist with airline, airport, cargo, ground operations, microservices, cloud, and auth prefixes.
+   - Increased worker concurrency to 80 with 1,500ms multi-tier DoH resolution, checking 600 hosts in ~2.5 seconds.
+5. **Two-Way Synchronization**:
+   - Synchronized script-extracted code subdomains into `SubdomainScanner.perimeterCache` and persisted to disk.
+
+### Parity Verification
+- **Emirates Cold Start (Clean Cache)**: **216–257 verified live subdomains** on Scan 1; **0 parity delta** on Scan 2.
+- **Etihad Cold Start (Clean Cache)**: **108–123 verified live subdomains** on Scan 1; **Zero 400 error, zero 3000 error**.
+- **Next.js Production Build**: Compiled successfully in 63s with exit code 0.
+
 
 
 

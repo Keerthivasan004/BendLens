@@ -345,15 +345,28 @@ class SubdomainScanner {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/plain, */*'
           },
-          signal: AbortSignal.timeout(Math.min(12000, remainingTime))
+          signal: AbortSignal.timeout(remainingTime)
         });
         if (res.status === 503 || res.status === 429) {
           // Server busy; pause briefly and retry
-          await new Promise((r) => setTimeout(r, 1200));
+          await new Promise((r) => setTimeout(r, 600));
           continue;
         }
         if (!res.ok) return [];
-        const parsed = await res.json();
+        let parsed;
+        try {
+          parsed = await res.json();
+        } catch (_jsonErr) {
+          return [];
+        }
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          if (parsed.error || parsed.message) {
+            // Server busy (e.g. "server busy (64 queries in flight)"); wait and retry
+            await new Promise((r) => setTimeout(r, 800));
+            continue;
+          }
+          return [];
+        }
         if (!Array.isArray(parsed)) return [];
         const results = [];
         for (const item of parsed) {
@@ -367,7 +380,7 @@ class SubdomainScanner {
         if (results.length > 0) return results;
       } catch (_err) {
         if (attempt < maxRetries - 1) {
-          await new Promise((r) => setTimeout(r, 1000));
+          await new Promise((r) => setTimeout(r, 500));
         }
       }
     }
@@ -518,7 +531,7 @@ class SubdomainScanner {
   /**
    * RapidDNS Open Subdomain Reconnaissance (HTML table scraping, barrier-free & zero rate limits)
    */
-  static async getRapidDnsSubdomains(apexDomain, timeoutMs = 7000) {
+  static async getRapidDnsSubdomains(apexDomain, timeoutMs = 8000) {
   if (!apexDomain) return [];
   return new Promise((resolve) => {
     let settled = false;
@@ -731,7 +744,7 @@ class SubdomainScanner {
    * Tier 2: Cloudflare DNS-over-HTTPS (DoH) via port 443 (fallback DoH provider)
    * Tier 3: Native OS dns.lookup (Winsock / getaddrinfo / local VPC resolver)
    */
-  static async resolveHostMultiTier(host, timeoutMs = 1800) {
+  static async resolveHostMultiTier(host, timeoutMs = 1500) {
     if (!host) return false;
 
     // Tier 1: Google DoH (global anycast HTTPS 443)
@@ -743,11 +756,12 @@ class SubdomainScanner {
       if (res.ok) {
         const data = await res.json();
         if (data.Status === 0 && Array.isArray(data.Answer) && data.Answer.length > 0) return true;
-        if (data.Status === 3) return false; // Confirmed NXDOMAIN
+        // If Google answered with any valid DNS status code (NXDOMAIN 3, NODATA 0 without Answer, REFUSED 5), it is authoritatively not live
+        if (typeof data.Status === 'number') return false;
       }
     } catch (_e) { }
 
-    // Tier 2: Cloudflare DoH (global anycast HTTPS 443)
+    // Tier 2: Cloudflare DoH (fallback if Google fetch threw network error)
     try {
       const res = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}`, {
         signal: AbortSignal.timeout(timeoutMs),
@@ -756,13 +770,13 @@ class SubdomainScanner {
       if (res.ok) {
         const data = await res.json();
         if (data.Status === 0 && Array.isArray(data.Answer) && data.Answer.length > 0) return true;
-        if (data.Status === 3) return false; // Confirmed NXDOMAIN
+        if (typeof data.Status === 'number') return false;
       }
     } catch (_e) { }
 
-    // Tier 3: Native OS Winsock/getaddrinfo fallback
+    // Tier 3: Native OS Winsock/getaddrinfo fallback (only if both DoH network-failed)
     return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(false), Math.min(1000, timeoutMs));
+      const timer = setTimeout(() => resolve(false), Math.min(800, timeoutMs));
       dns.lookup(host, (err, addr) => {
         clearTimeout(timer);
         resolve(!err && Boolean(addr));
@@ -790,21 +804,26 @@ class SubdomainScanner {
       return [];
     }
 
-    // 450+ High-Frequency Enterprise, SaaS, Airline & Infrastructure Subdomain Prefixes
+    // 600+ High-Frequency Enterprise, SaaS, Airline & Infrastructure Subdomain Prefixes
     const fullWordlist = [
-      'fly', 'fly1', 'fly2', 'fly3', 'fly4', 'fly5', 'fly6', 'fly7', 'fly8', 'fly9', 'fly10',
-      'booking', 'book', 'mybooking', 'mybookings', 'changebooking', 'checkin', 'checkin2',
-      'baggage', 'cargo', 'skywards', 'holidays', 'holiday', 'hotels', 'cars',
-      'econfirm', 'skychain', 'eskycargo', 'loyaltyservices', 'loyalty', 'rewards', 'miles',
+      'fly', 'fly1', 'fly2', 'fly3', 'fly4', 'fly5', 'fly6', 'fly7', 'fly8', 'fly9', 'fly10', 'fly11', 'fly12',
+      'booking', 'book', 'mybooking', 'mybookings', 'changebooking', 'checkin', 'checkin1', 'checkin2', 'checkin3',
+      'baggage', 'baggagetracking', 'cargo', 'cargo1', 'cargo2', 'aircargo', 'freightops', 'skycargo', 'skywards',
+      'holidays', 'holiday', 'hotels', 'cars', 'dutyfree', 'catering', 'inflight', 'lounge', 'boarding',
+      'econfirm', 'skychain', 'eskycargo', 'loyaltyservices', 'loyalty', 'rewards', 'miles', 'etihadguest',
       'your', 'choose', 'mobileassets', 'flightstatus', 'radar', 'destinations', 'experience', 'flights', 'wifi',
       'assets', 'mobile1', 'mobile2', 'mobileapi', 'ekws', 'tags', 'tagmanager', 'pgservices', 'research',
+      'reservations', 'reservation', 'flight', 'flyek', 'etihad', 'crew', 'operations', 'ops', 'ground', 'groundhandling',
+      'dispatch', 'roster', 'crewportal', 'pilot', 'sim', 'safety', 'maintenance', 'mro', 'eng', 'passengers',
+      'pax', 'tariff', 'fares', 'gds', 'inventory', 'ticketing', 'eticket', 'pnr', 'corporate', 'b2b', 'b2c',
+      'travel', 'travelagent', 'agent', 'agents', 'agency', 'trade', 'supplier', 'procurement', 'vendorportal',
       'www', 'mail', 'remote', 'blog', 'webmail', 'server', 'ns1', 'ns2', 'smtp', 'secure',
       'vpn', 'm', 'shop', 'ftp', 'mail2', 'test', 'portal', 'ns', 'ww1', 'host',
       'support', 'dev', 'bbs', 'ww42', 'mx', 'email', 'cloud', '1', 'mail1', '2',
       'forum', 'owa', 'news', 'vpn1', 'myaccount', 'app', 'beta', 'direct', 'cp', 'admin',
       'api', 'auth', 'dashboard', 'verify', 'rcas', 'tpo', 'kp', 'student', 'mentor', 'gate',
       'learning', 'lab', 'labs', 'exams', 'examform', 'services', 'gateway', 'login', 'sso', 'id',
-      'billing', 'pay', 'payment', 'cdn', 'static', 'assets', 'media', 'files', 'docs', 'status',
+      'billing', 'pay', 'payment', 'cdn', 'static', 'media', 'files', 'docs', 'status',
       'aws', 'sellercentral', 'advertising', 'developer', 'music', 'prime', 'kdp', 'business',
       'smile', 'alexa', 'kindle', 'author', 'affiliate', 'payments', 'seller', 'affiliate-program',
       'associates', 'relay', 'fleet', 'freight', 'fresh', 'wholefoods', 'audible', 'vendor', 'vendorcentral',
@@ -829,19 +848,25 @@ class SubdomainScanner {
       'app-dev', 'app-staging', 'app-prod', 'backoffice', 'intranet', 'extranet', 'staff',
       'employee', 'hr', 'payroll', 'finance', 'sales', 'marketing', 'press', 'media-kit',
       'investors', 'ir', 'about', 'contact', 'legal', 'terms', 'privacy', 'security', 'bugbounty',
-      'audit', 'compliance', 'academy', 'training', 'school', 'university', 'lms', 'classroom'
+      'audit', 'compliance', 'academy', 'training', 'school', 'university', 'lms', 'classroom',
+      'microservices', 'apigw', 'api-gateway', 'ingress', 'istio', 'mesh', 'traefik', 'kong',
+      'auth-dev', 'auth-stg', 'auth-prod', 'sso-dev', 'sso-stg', 'sso-prod', 'identity-dev',
+      'identity-stg', 'iam', 'keycloak', 'okta', 'sts', 'oauth2', 'oidc', 'idp', 'saml', 'jwt',
+      'otel', 'trace', 'tracing', 'jaeger', 'zipkin', 'datadog', 'newrelic', 'dynatrace', 'splunk',
+      'kafka', 'rabbitmq', 'sqs', 'sns', 'eventbridge', 'nats', 'pulsar', 'mqtt', 'grpc', 'rpc',
+      'gql', 'hasura', 'nexus', 'artifactory', 'sonarqube', 'snyk', 'consul', 'nomad'
     ];
 
     const wordlist = fullWordlist.slice(0, maxPrefixes);
     const discovered = [];
     let idx = 0;
-    const concurrency = 60;
+    const concurrency = 80;
 
     async function worker() {
       while (idx < wordlist.length) {
         const prefix = wordlist[idx++];
         const fqdn = `${prefix}.${apexDomain}`;
-        const isLive = await SubdomainScanner.resolveHostMultiTier(fqdn, 1800);
+        const isLive = await SubdomainScanner.resolveHostMultiTier(fqdn, 1500);
         if (isLive) {
           discovered.push(fqdn);
         }
@@ -942,7 +967,7 @@ class SubdomainScanner {
     if (!apexDomain) return [];
     const verified = new Set([apexDomain]);
     const profile = getCrawlerProfile(options);
-    const concurrency = profile.dnsLookupConcurrency || (profile.isServerless ? 60 : 80);
+    const concurrency = profile.dnsLookupConcurrency || 100;
     const candidateLimit = profile.subdomainCandidateLimit || maxCandidates;
     const candidates = Array.from(candidateSet)
       .filter((h) => h && h !== apexDomain && !h.includes('*'))
@@ -950,7 +975,7 @@ class SubdomainScanner {
 
     const startTime = Date.now();
     let index = 0;
-    const candidateTimeout = profile.candidateTimeout || 1800;
+    const candidateTimeout = profile.candidateTimeout || 1500;
 
     async function worker() {
       while (index < candidates.length) {
@@ -982,173 +1007,207 @@ class SubdomainScanner {
    * @returns {Promise<string[]>} Array of verified canonical subdomains with apex domain first
    */
   static async discoverSubdomains(targetHostname, options = {}) {
-  if (!targetHostname) return [];
-  const apex = this.getApexDomain(targetHostname);
-  if (!apex) return [this.canonicalize(targetHostname) || targetHostname];
+    if (!targetHostname) return [];
+    const apex = this.getApexDomain(targetHostname);
+    if (!apex) return [this.canonicalize(targetHostname) || targetHostname];
 
-  const candidateSet = new Set([apex]);
-  const targetClean = this.canonicalize(targetHostname);
-  if (targetClean && (targetClean === apex || targetClean.endsWith('.' + apex))) {
-    candidateSet.add(targetClean);
-  }
-
-  // Preload previously verified subdomains from perimeterCache to re-verify live
-  const cached = this.perimeterCache.get(apex);
-  if (cached && cached.size > 0) {
-    for (const item of cached) candidateSet.add(item);
-  }
-
-  // Adaptive bounded timeouts for serverless and local environments
-  const profile = getCrawlerProfile(options);
-  const certSpotterPages = profile.certSpotterPages;
-  const certSpotterTimeout = profile.certSpotterTimeout;
-  const crtShTimeout = profile.crtShTimeout;
-  const hackerTargetTimeout = profile.hackerTargetTimeout;
-  const rapidDnsTimeout = profile.rapidDnsTimeout;
-  const validationTimeout = profile.subdomainValidationTimeout;
-
-  const tlsVerifiedSet = new Set();
-
-  // Harvest signals in parallel with bounded timeouts
-  const pSubdomainCenter = this.getSubdomainCenterSubdomains(apex, profile.subdomainCenterTimeout || 8000).then((list) => {
-    for (const item of list) {
-      const c = this.canonicalize(item);
-      if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
-    }
-  }).catch(() => { });
-
-  const pAlienVault = this.getAlienVaultSubdomains(apex, profile.alienVaultTimeout || 8000).then((list) => {
-    for (const item of list) {
-      const c = this.canonicalize(item);
-      if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
-    }
-  }).catch(() => { });
-
-  const pCertSpotter = this.getCertSpotterSubdomains(apex, certSpotterPages, certSpotterTimeout).then((list) => {
-    for (const item of list) {
-      const c = this.canonicalize(item);
-      if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
-    }
-  }).catch(() => { });
-
-  const pTls = this.getTlsSanSubdomains(apex, profile.isServerless ? 2500 : 3500).then((list) => {
-    for (const item of list) {
-      const c = this.canonicalize(item);
-      if (c && (c === apex || c.endsWith('.' + apex))) {
-        candidateSet.add(c);
-        tlsVerifiedSet.add(c);
+    // Harvest immediate HTML or explicit subdomains into perimeter cache if provided
+    if (options.html) {
+      const fromHtml = this.extractFromHtml(options.html, apex);
+      if (fromHtml.length > 0) {
+        const cached = this.perimeterCache.get(apex) || new Set();
+        for (const item of fromHtml) cached.add(item);
+        this.perimeterCache.set(apex, cached);
       }
     }
-  }).catch(() => { });
-
-  const pRapidDns = this.getRapidDnsSubdomains(apex, rapidDnsTimeout).then((list) => {
-    for (const item of list) {
-      const c = this.canonicalize(item);
-      if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+    if (options.subdomains) {
+      const cached = this.perimeterCache.get(apex) || new Set();
+      for (const s of options.subdomains) {
+        const c = this.canonicalize(s);
+        if (c && (c === apex || c.endsWith('.' + apex))) cached.add(c);
+      }
+      this.perimeterCache.set(apex, cached);
     }
-  }).catch(() => { });
 
-  const pDnsRecords = this.getDnsRecordsSubdomains(apex, profile.isServerless ? 2000 : 2500).then((list) => {
-    for (const item of list) {
-      const c = this.canonicalize(item);
-      if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+    // Deduplicate in-flight scans so concurrent callers during the same crawl reuse the exact same Promise
+    if (!this.inFlightScans) this.inFlightScans = new Map();
+    if (this.inFlightScans.has(apex)) {
+      return await this.inFlightScans.get(apex);
     }
-  }).catch(() => { });
 
-  const pActiveDns = this.getActiveDnsSubdomains(apex, profile.activeDnsPrefixes).then((list) => {
-    for (const item of list) {
-      const c = this.canonicalize(item);
-      if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+    const scanPromise = (async () => {
+      const candidateSet = new Set([apex]);
+      const targetClean = this.canonicalize(targetHostname);
+      if (targetClean && (targetClean === apex || targetClean.endsWith('.' + apex))) {
+        candidateSet.add(targetClean);
+      }
+
+      // Preload previously verified subdomains from perimeterCache to re-verify live
+      const cached = this.perimeterCache.get(apex);
+      if (cached && cached.size > 0) {
+        for (const item of cached) candidateSet.add(item);
+      }
+
+      // Adaptive bounded timeouts for serverless and local environments
+      const profile = getCrawlerProfile(options);
+      const certSpotterPages = profile.certSpotterPages;
+      const certSpotterTimeout = profile.certSpotterTimeout;
+      const crtShTimeout = profile.crtShTimeout;
+      const hackerTargetTimeout = profile.hackerTargetTimeout;
+      const rapidDnsTimeout = profile.rapidDnsTimeout;
+      const validationTimeout = profile.subdomainValidationTimeout;
+
+      const tlsVerifiedSet = new Set();
+
+      // Harvest signals in parallel with bounded timeouts
+      const pSubdomainCenter = this.getSubdomainCenterSubdomains(apex, profile.subdomainCenterTimeout || 18000).then((list) => {
+        for (const item of list) {
+          const c = this.canonicalize(item);
+          if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+        }
+      }).catch(() => { });
+
+      const pAlienVault = this.getAlienVaultSubdomains(apex, profile.alienVaultTimeout || 8000).then((list) => {
+        for (const item of list) {
+          const c = this.canonicalize(item);
+          if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+        }
+      }).catch(() => { });
+
+      const pCertSpotter = this.getCertSpotterSubdomains(apex, certSpotterPages, certSpotterTimeout).then((list) => {
+        for (const item of list) {
+          const c = this.canonicalize(item);
+          if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+        }
+      }).catch(() => { });
+
+      const pTls = this.getTlsSanSubdomains(apex, profile.isServerless ? 2500 : 3500).then((list) => {
+        for (const item of list) {
+          const c = this.canonicalize(item);
+          if (c && (c === apex || c.endsWith('.' + apex))) {
+            candidateSet.add(c);
+            tlsVerifiedSet.add(c);
+          }
+        }
+      }).catch(() => { });
+
+      const pRapidDns = this.getRapidDnsSubdomains(apex, rapidDnsTimeout || 8000).then((list) => {
+        for (const item of list) {
+          const c = this.canonicalize(item);
+          if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+        }
+      }).catch(() => { });
+
+      const pDnsRecords = this.getDnsRecordsSubdomains(apex, profile.isServerless ? 2000 : 2500).then((list) => {
+        for (const item of list) {
+          const c = this.canonicalize(item);
+          if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+        }
+      }).catch(() => { });
+
+      const pActiveDns = this.getActiveDnsSubdomains(apex, profile.activeDnsPrefixes).then((list) => {
+        for (const item of list) {
+          const c = this.canonicalize(item);
+          if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+        }
+      }).catch(() => { });
+
+      const pCrtSh = this.getCrtShSubdomains(apex, crtShTimeout).then((list) => {
+        for (const item of list) {
+          const c = this.canonicalize(item);
+          if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+        }
+      }).catch(() => { });
+
+      const pHackerTarget = this.getHackerTargetSubdomains(apex, hackerTargetTimeout).then((list) => {
+        for (const item of list) {
+          const c = this.canonicalize(item);
+          if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+        }
+      }).catch(() => { });
+
+      // Preloaded subdomains from options
+      if (options.subdomains) {
+        for (const s of options.subdomains) {
+          const c = this.canonicalize(s);
+          if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+        }
+      }
+      if (options.discoveredSubdomains) {
+        for (const s of options.discoveredSubdomains) {
+          const c = this.canonicalize(s);
+          if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
+        }
+      }
+
+      // DOM, Header & Code harvest
+      if (options.html) {
+        const fromHtml = this.extractFromHtml(options.html, apex);
+        for (const item of fromHtml) candidateSet.add(item);
+      }
+      if (options.headers) {
+        const fromHeaders = this.extractFromHeaders(options.headers, apex);
+        for (const item of fromHeaders) candidateSet.add(item);
+      }
+      if (options.code) {
+        const fromCode = this.extractFromCode(options.code, apex);
+        for (const item of fromCode) candidateSet.add(item);
+      }
+
+      // Wait for all harvest streams to complete (or time out independently)
+      await Promise.allSettled([
+        pSubdomainCenter,
+        pAlienVault,
+        pCertSpotter,
+        pTls,
+        pRapidDns,
+        pDnsRecords,
+        pActiveDns,
+        pCrtSh,
+        pHackerTarget
+      ]);
+
+      // Active Verification: Ensure every candidate currently resolves via DNS
+      const verifiedList = await this.validateCandidates(candidateSet, apex, profile.subdomainCandidateLimit, validationTimeout, options);
+
+      // Guaranteed inclusion of cryptographically certified TLS SAN subdomains
+      for (const item of tlsVerifiedSet) {
+        if (!verifiedList.includes(item)) {
+          verifiedList.push(item);
+        }
+      }
+
+      // Deterministic Accumulation & Monotonic Growth:
+      // A rescan must NEVER drop previously verified live subdomains due to transient network lag or partial timeout.
+      const accumulated = this.perimeterCache.get(apex) || new Set();
+      for (const item of verifiedList) {
+        accumulated.add(item);
+      }
+      for (const item of tlsVerifiedSet) {
+        accumulated.add(item);
+      }
+      this.perimeterCache.set(apex, accumulated);
+      saveDiskPerimeterCache(this.perimeterCache);
+
+      const finalSorted = Array.from(accumulated)
+        .filter(Boolean)
+        .sort((a, b) => a === apex ? -1 : b === apex ? 1 : a.localeCompare(b));
+
+      return finalSorted;
+    })();
+
+    this.inFlightScans.set(apex, scanPromise);
+    try {
+      return await scanPromise;
+    } finally {
+      this.inFlightScans.delete(apex);
     }
-  }).catch(() => { });
-
-  const pCrtSh = this.getCrtShSubdomains(apex, crtShTimeout).then((list) => {
-    for (const item of list) {
-      const c = this.canonicalize(item);
-      if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
-    }
-  }).catch(() => { });
-
-  const pHackerTarget = this.getHackerTargetSubdomains(apex, hackerTargetTimeout).then((list) => {
-    for (const item of list) {
-      const c = this.canonicalize(item);
-      if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
-    }
-  }).catch(() => { });
-
-  // Preloaded subdomains from options
-  if (options.subdomains) {
-    for (const s of options.subdomains) {
-      const c = this.canonicalize(s);
-      if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
-    }
-  }
-  if (options.discoveredSubdomains) {
-    for (const s of options.discoveredSubdomains) {
-      const c = this.canonicalize(s);
-      if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);
-    }
-  }
-
-  // DOM, Header & Code harvest
-  if (options.html) {
-    const fromHtml = this.extractFromHtml(options.html, apex);
-    for (const item of fromHtml) candidateSet.add(item);
-  }
-  if (options.headers) {
-    const fromHeaders = this.extractFromHeaders(options.headers, apex);
-    for (const item of fromHeaders) candidateSet.add(item);
-  }
-  if (options.code) {
-    const fromCode = this.extractFromCode(options.code, apex);
-    for (const item of fromCode) candidateSet.add(item);
-  }
-
-  // Wait for all harvest streams to complete (or time out independently)
-  await Promise.allSettled([
-    pSubdomainCenter,
-    pAlienVault,
-    pCertSpotter,
-    pTls,
-    pRapidDns,
-    pDnsRecords,
-    pActiveDns,
-    pCrtSh,
-    pHackerTarget
-  ]);
-
-  // Active Verification: Ensure every candidate currently resolves via DNS
-  const verifiedList = await this.validateCandidates(candidateSet, apex, profile.subdomainCandidateLimit, validationTimeout, options);
-
-  // Guaranteed inclusion of cryptographically certified TLS SAN subdomains
-  for (const item of tlsVerifiedSet) {
-    if (!verifiedList.includes(item)) {
-      verifiedList.push(item);
-    }
-  }
-
-    // Deterministic Accumulation & Monotonic Growth:
-    // A rescan must NEVER drop previously verified live subdomains due to transient network lag or partial timeout.
-    const accumulated = this.perimeterCache.get(apex) || new Set();
-    for (const item of verifiedList) {
-      accumulated.add(item);
-    }
-    for (const item of tlsVerifiedSet) {
-      accumulated.add(item);
-    }
-    this.perimeterCache.set(apex, accumulated);
-    saveDiskPerimeterCache(this.perimeterCache);
-
-    const finalSorted = Array.from(accumulated)
-      .filter(Boolean)
-      .sort((a, b) => a === apex ? -1 : b === apex ? 1 : a.localeCompare(b));
-
-    return finalSorted;
   }
 }
 
 // In-memory & disk-persistent perimeter cache preserving verified assets across repeated runs
 SubdomainScanner.perimeterCache = loadDiskPerimeterCache();
+SubdomainScanner.inFlightScans = new Map();
 SubdomainScanner.default = SubdomainScanner;
 SubdomainScanner.SubdomainScanner = SubdomainScanner;
 module.exports = SubdomainScanner;
