@@ -2253,8 +2253,8 @@ class UniversalApiCrawler {
           };
         }
 
-        // Safety Net: If subdomain discovery was still running in background, harvest its results
-        if (discoveredSubdomainsList.length <= 1 && pSubdomainDiscovery) {
+        // Safety Net: If background subdomain discovery is still resolving, grant remaining budget to complete
+        if (pSubdomainDiscovery) {
           try {
             const remainingBudget = Math.max(0, Math.min(8000, maxCrawlTimeMs - (Date.now() - startTime)));
             if (remainingBudget > 500) {
@@ -2262,25 +2262,25 @@ class UniversalApiCrawler {
                 pSubdomainDiscovery,
                 new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
               ]);
-              for (const s of lateHarvest) {
-                const cs = SubdomainScanner.canonicalize(s);
-                if (cs && !discoveredSubdomainsList.includes(cs)) {
-                  discoveredSubdomainsList.push(cs);
+              if (Array.isArray(lateHarvest)) {
+                for (const s of lateHarvest) {
+                  const cs = SubdomainScanner.canonicalize(s);
+                  if (cs && !discoveredSubdomainsList.includes(cs)) {
+                    discoveredSubdomainsList.push(cs);
+                  }
                 }
               }
             }
           } catch (_lateErr) { }
         }
 
-        // Final fallback to perimeter cache if still only 1 entry
-        if (discoveredSubdomainsList.length <= 1) {
-          const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
-          if (cached && cached.size > 0) {
-            for (const s of cached) {
-              const cs = SubdomainScanner.canonicalize(s);
-              if (cs && !discoveredSubdomainsList.includes(cs)) {
-                discoveredSubdomainsList.push(cs);
-              }
+        // Guaranteed Preservation: Deterministically merge with perimeter cache so live assets never drop across rescans
+        const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
+        if (cached && cached.size > 0) {
+          for (const s of cached) {
+            const cs = SubdomainScanner.canonicalize(s);
+            if (cs && !discoveredSubdomainsList.includes(cs)) {
+              discoveredSubdomainsList.push(cs);
             }
           }
         }

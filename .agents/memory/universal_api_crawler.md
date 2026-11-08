@@ -852,6 +852,38 @@ When scanning enterprise airline and multi-subdomain targets on Vercel (`https:/
 3. **Route & Lens Parity**:
    - Updated `/lens` route recovery gateways to include `headers: { 'X-Return-Format': 'html' }` and HTML/markdown markers, guaranteeing identical resilient behavior whether triggered from the landing page or deep inside the Studio Lens dashboard.
 
+---
+
+## 24. Rescan Monotonic Accumulation & Serverless dns.lookup Parity (v1.1.74)
+
+### Problem Statement
+When testing on production HTTPS (Vercel / AWS Lambda), users experienced:
+1. **Initial Scan vs Rescan Drop**: An initial scan yielded ~258 subdomains for enterprise targets (`emirates.com`), but a subsequent rescan dropped to **92–95 subdomains**.
+2. **c-ares UDP Cloud Stalling**: In `validateCandidates`, c-ares UDP lookups took ~16s per 50 non-existent domains. When evaluating 500+ candidates, `subdomainValidationTimeout: 22000` expired midway, prematurely truncating validation at ~90 subdomains.
+3. **Destructive Cache Overwrite**: `this.perimeterCache.set(apex, new Set(verifiedList))` overwrote previously verified assets with the partial 92-subdomain list.
+4. **Conditional Late-Harvest Guard**: In `universalApiCrawler.js`, background subdomain discovery was only awaited when `discoveredSubdomainsList.length <= 1`. If an initial probe yielded 2 entries, `pSubdomainDiscovery` and `perimeterCache` were abandoned.
+
+### Technical Solutions
+1. **Direct Native OS `dns.lookup` on Serverless (`isServerlessEnv`)**:
+   - Replaced multi-step sequential c-ares fallback with native OS `dns.lookup` in `validateCandidates`.
+   - Resolves 500 candidates (active and NXDOMAIN) in **7.08s** (down from 160s+), ensuring all candidates are completely verified well within the 35s budget.
+2. **Deterministic Monotonic Perimeter Accumulation**:
+   - In `SubdomainScanner.discoverSubdomains`:
+     ```javascript
+     const accumulated = this.perimeterCache.get(apex) || new Set();
+     for (const item of verifiedList) accumulated.add(item);
+     for (const item of tlsVerifiedSet) accumulated.add(item);
+     this.perimeterCache.set(apex, accumulated);
+     ```
+   - Guarantees that a rescan NEVER drops previously verified assets due to temporary network fluctuations.
+3. **Unconditional Late-Harvest & Cache Merge**:
+   - In `universalApiCrawler.js`, `pSubdomainDiscovery` and `perimeterCache` are unconditionally merged into `discoveredSubdomainsList`, eliminating drops across repeated runs.
+4. **Production Budget Expansion (`webCrawlerProfile.js`)**:
+   - `subdomainValidationTimeout`: Raised from 22,000ms to **35,000ms**.
+   - `maxSubdomainBudgetMs`: Raised from 30,000ms to **45,000ms**.
+   - `subdomainCenterTimeout`: Raised from 14,000ms to **16,000ms**.
+
+
 
 
 

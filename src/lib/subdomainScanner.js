@@ -977,7 +977,7 @@ class SubdomainScanner {
     const resolveCandidate = (host) => {
       return new Promise((resolve) => {
         let settled = false;
-        const candidateTimeout = profile.candidateTimeout || 1200;
+        const candidateTimeout = profile.candidateTimeout || (isServerlessEnv ? 900 : 1200);
         const timer = setTimeout(() => {
           if (!settled) {
             settled = true;
@@ -993,6 +993,22 @@ class SubdomainScanner {
             resolve();
           }
         };
+
+        if (isServerlessEnv) {
+          // In AWS Lambda / Vercel cloud serverless, use native OS dns.lookup which leverages
+          // local VPC resolver, automatically resolves CNAME chains + IPv4/IPv6, and returns NXDOMAIN in <20ms
+          // without triggering c-ares UDP retransmit delays or VPC security group port 53 packet drops.
+          dns.lookup(host, (err, addr) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            if (!err && addr) {
+              verified.add(host);
+            }
+            resolve();
+          });
+          return;
+        }
 
         // High-speed non-blocking c-ares UDP resolution (IPv4 A & CNAME concurrently) with OS getaddrinfo fallback
         let aDone = false;
@@ -1221,11 +1237,23 @@ return [apexDomain, ...sortedSubdomains];
     }
   }
 
-    // Save into perimeterCache: guarantees deterministic preservation of currently verified live assets
-    this.perimeterCache.set(apex, new Set(verifiedList));
+    // Deterministic Accumulation & Monotonic Growth:
+    // A rescan must NEVER drop previously verified live subdomains due to transient network lag or partial timeout.
+    const accumulated = this.perimeterCache.get(apex) || new Set();
+    for (const item of verifiedList) {
+      accumulated.add(item);
+    }
+    for (const item of tlsVerifiedSet) {
+      accumulated.add(item);
+    }
+    this.perimeterCache.set(apex, accumulated);
     saveDiskPerimeterCache(this.perimeterCache);
 
-    return verifiedList;
+    const finalSorted = Array.from(accumulated)
+      .filter(Boolean)
+      .sort((a, b) => a === apex ? -1 : b === apex ? 1 : a.localeCompare(b));
+
+    return finalSorted;
   }
 }
 
