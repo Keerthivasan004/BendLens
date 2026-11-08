@@ -259,7 +259,16 @@ BendLens features an enterprise-grade, deterministic, zero-timeout subdomain dis
 - Solves enterprise DNS amplification hangs (such as `microsoft.com` massive SPF/TXT records triggering c-ares truncation and 16+ second stalls).
 - Discovery sources run in parallel with bounded budgets: CertSpotter (15 pages, 25s timeout), crt.sh (10s timeout), HackerTarget (6s timeout), TLS SAN (2.5s), and zone records (2.5s).
 
-### 6. Legal & Markdown Parser Integrity
+### 6. Dual-Status Subdomains & Digital Perimeter Modal (`SubdomainsModal.jsx` & `subdomainsHelper.js`)
+- Full perimeter visibility displaying the entire inventory of discovered subdomains (both **Live Active** and **Historical OSINT Archives**).
+- Strict UI and Gateway separation:
+  - **UI Perimeter Display**: Shows all 600+ subdomains with visual distinction (`LIVE` emerald badges for DNS-resolving hosts and `HISTORICAL` amber badges for decommissioned OSINT entries).
+  - **Gateway Probing Isolation**: Only active live subdomains are included in `backendDomains` for HTTP route harvesting, eliminating socket timeouts against dead hosts.
+- **Dedicated Subdomains Modal (`SubdomainsModal.jsx`)**:
+  - Clicking the Subdomain pill in `Header.jsx` immediately opens `SubdomainsModal` (never `ApiBreakdownModal`).
+  - Provides instant keyword search across subdomains, status filtering (`All`, `Live Active`, `Historical Archive`, `With Endpoints`), sorting, 1-click clipboard copy (`Copy List`), and `.txt` export.
+
+### 7. Legal & Markdown Parser Integrity
 - HTML-to-Markdown conversion for privacy and legal documents (`extractLegalMetadata`) utilizes strictly escaped `\n` linebreaks and regex patterns (`[^\S\r\n]+`, `\n{3,}`).
 - Automatically decodes HTML entities (e.g. `&amp;` -> `&`) on extracted candidate URLs to prevent corrupted query parameters.
 - Normalizes titles and eliminates multi-line duplicates in headings (e.g. Apple's repeated H1 subtitles).

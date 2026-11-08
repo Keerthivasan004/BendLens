@@ -13,6 +13,7 @@ import {
 import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 import { getApiServicesCount } from '@/lib/apiCountHelper';
 import ApiBreakdownModal from '@/components/ApiBreakdownModal';
+import SubdomainsModal from '@/components/SubdomainsModal';
 import LegalDocumentsModal from '@/components/LegalDocumentsModal';
 import CrawlerAccuracyProofModal from '@/components/CrawlerAccuracyProofModal';
 
@@ -32,6 +33,7 @@ export default function Header({
 }) {
   const hasAnalysis = !!analysisData;
   const [showApiBreakdown, setShowApiBreakdown] = useState(false);
+  const [showSubdomainsModal, setShowSubdomainsModal] = useState(false);
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState('privacy');
   const [showCrawlerProof, setShowCrawlerProof] = useState(false);
@@ -251,9 +253,9 @@ export default function Header({
                       return (
                         <>
                           <button
-                            onClick={() => setShowApiBreakdown(true)}
+                            onClick={() => setShowSubdomainsModal(true)}
                             className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 dark:bg-indigo-500/[0.08] dark:hover:bg-indigo-500/15 dark:border-indigo-500/20 hover:dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-400 whitespace-nowrap shrink-0 transition-all cursor-pointer group"
-                            title={`Discovered Subdomains (${subdomainsList.length}${histCount > 0 ? `: ${liveCount} Live · ${histCount} Historical` : ''}):\n${subdomainsList.join('\n')}\n\nClick to view full architecture breakdown.`}
+                            title={`Discovered Subdomains (${subdomainsList.length}${histCount > 0 ? `: ${liveCount} Live · ${histCount} Historical` : ''}):\n${subdomainsList.slice(0, 15).join('\n')}${subdomainsList.length > 15 ? `\n...and ${subdomainsList.length - 15} more` : ''}\n\nClick to view and search the full subdomains list with Live & Historical tags.`}
                           >
                             <Globe className="h-3 w-3 text-indigo-600 dark:text-indigo-400 shrink-0 group-hover:scale-110 transition-transform" />
                             <span className="text-[11px] font-mono font-bold">
@@ -443,12 +445,20 @@ export default function Header({
     </header>
 
     {hasAnalysis && (
-      <ApiBreakdownModal
-        isOpen={showApiBreakdown}
-        onClose={() => setShowApiBreakdown(false)}
-        analysisData={analysisData}
-        onOpenApiFlow={onOpenApiFlow}
-      />
+      <>
+        <ApiBreakdownModal
+          isOpen={showApiBreakdown}
+          onClose={() => setShowApiBreakdown(false)}
+          analysisData={analysisData}
+          onOpenApiFlow={onOpenApiFlow}
+        />
+
+        <SubdomainsModal
+          isOpen={showSubdomainsModal}
+          onClose={() => setShowSubdomainsModal(false)}
+          analysisData={analysisData}
+        />
+      </>
     )}
 
     {/* Local-First Authentic Legal Documents (Privacy Policy & Terms of Service) Modal */}

@@ -15,6 +15,7 @@ import { openAndPrintApiReport } from '@/lib/generators/apiPdfReportGenerator';
 import { getApiServicesCount } from '@/lib/apiCountHelper';
 import { getApiEndpointsBreakdown, formatResourceName } from '@/lib/apiBreakdownHelper';
 import ApiBreakdownModal from '@/components/ApiBreakdownModal';
+import SubdomainsModal from '@/components/SubdomainsModal';
 import ApiFlowModal from '@/components/ApiFlowModal';
 import LegalDocumentsModal from '@/components/LegalDocumentsModal';
 import CrawlerAccuracyProofModal from '@/components/CrawlerAccuracyProofModal';
@@ -275,6 +276,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
   const [stackEndpointsLimit, setStackEndpointsLimit] = useState(12);
   const [copiedPath, setCopiedPath] = useState(null);
   const [showApiBreakdownModal, setShowApiBreakdownModal] = useState(false);
+  const [showSubdomainsModal, setShowSubdomainsModal] = useState(false);
+  const [showAllPerimeterSubdomains, setShowAllPerimeterSubdomains] = useState(false);
   const [showApiFlowModal, setShowApiFlowModal] = useState(false);
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState('privacy');
@@ -1525,13 +1528,24 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                     </span>
                   </div>
                 </div>
-                <div className="text-[10px] font-mono text-muted">
-                  Main Apex Domain: <strong className="text-indigo-700 dark:text-indigo-400 font-bold">{distinctSubdomains[0]}</strong>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="text-[10px] font-mono text-muted">
+                    Main Apex Domain: <strong className="text-indigo-700 dark:text-indigo-400 font-bold">{distinctSubdomains[0]}</strong>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSubdomainsModal(true)}
+                    className="px-2 py-0.5 rounded-md text-[10px] font-mono font-medium text-indigo-700 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/15 border border-indigo-200 dark:border-indigo-500/25 flex items-center gap-1 transition-colors cursor-pointer"
+                    title="Open full searchable subdomains modal with Live & Historical tags"
+                  >
+                    <Globe className="h-3 w-3" />
+                    <span>View All ({distinctSubdomains.length}) in Modal</span>
+                  </button>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                {distinctSubdomains.map((sub, sIdx) => {
+                {(showAllPerimeterSubdomains ? distinctSubdomains : distinctSubdomains.slice(0, 24)).map((sub, sIdx) => {
                   const isMain = sIdx === 0;
                   const count = allEnrichedEndpoints.filter(e => {
                     const epSub = e.subdomain ? e.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : '';
@@ -1566,6 +1580,27 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                     </button>
                   );
                 })}
+                {distinctSubdomains.length > 24 && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowAllPerimeterSubdomains(!showAllPerimeterSubdomains)}
+                      className="text-xs font-mono font-semibold px-2.5 py-1 rounded-lg border border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all cursor-pointer"
+                    >
+                      {showAllPerimeterSubdomains
+                        ? 'Show Less'
+                        : `+${distinctSubdomains.length - 24} more`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowSubdomainsModal(true)}
+                      className="text-xs font-mono font-semibold px-2.5 py-1 rounded-lg border border-indigo-500/40 bg-indigo-600 text-white hover:bg-indigo-700 transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+                    >
+                      <Globe className="h-3 w-3" />
+                      <span>View All in Modal</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -3947,6 +3982,13 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
           setApiFlowFocusedEndpoint(ep || null);
           setShowApiFlowModal(true);
         }}
+      />
+
+      {/* Subdomains & Digital Perimeter Modal */}
+      <SubdomainsModal
+        isOpen={showSubdomainsModal}
+        onClose={() => setShowSubdomainsModal(false)}
+        analysisData={effectiveAnalysisData}
       />
 
       {/* Professional Graphical API Flow & Communication Modal */}

@@ -15,6 +15,7 @@ import {
   Scale, FileText, Activity
 } from 'lucide-react';
 import ApiBreakdownModal from '@/components/ApiBreakdownModal';
+import SubdomainsModal from '@/components/SubdomainsModal';
 import ApiFlowModal from '@/components/ApiFlowModal';
 import LegalDocumentsModal from '@/components/LegalDocumentsModal';
 import CrawlerAccuracyProofModal from '@/components/CrawlerAccuracyProofModal';
@@ -65,6 +66,7 @@ CREATE TABLE orders (
   const [landingEndpointsLimit, setLandingEndpointsLimit] = useState(8);
   const [landingCopiedPath, setLandingCopiedPath] = useState(null);
   const [showApiBreakdownModal, setShowApiBreakdownModal] = useState(false);
+  const [showSubdomainsModal, setShowSubdomainsModal] = useState(false);
   const [showApiFlowModal, setShowApiFlowModal] = useState(false);
   const [apiFlowFocusedEndpoint, setApiFlowFocusedEndpoint] = useState(null);
   const [showLegalModal, setShowLegalModal] = useState(false);
@@ -1723,8 +1725,19 @@ CREATE TABLE audit_logs (
                                         )}
                                       </div>
                                     </div>
-                                    <div className="text-[10px] font-mono text-muted">
-                                      Main Apex Domain: <strong className="text-indigo-700 dark:text-indigo-400 font-bold">{landingMainDomain}</strong>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <div className="text-[10px] font-mono text-muted">
+                                        Main Apex Domain: <strong className="text-indigo-700 dark:text-indigo-400 font-bold">{landingMainDomain}</strong>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowSubdomainsModal(true)}
+                                        className="px-2 py-0.5 rounded-md text-[10px] font-mono font-medium text-indigo-700 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/15 border border-indigo-200 dark:border-indigo-500/25 flex items-center gap-1 transition-colors cursor-pointer"
+                                        title="Open full searchable subdomains modal with Live & Historical tags"
+                                      >
+                                        <Globe className="h-3 w-3" />
+                                        <span>View All in Modal</span>
+                                      </button>
                                     </div>
                                   </div>
 
@@ -2973,16 +2986,24 @@ CREATE TABLE audit_logs (
 
       {/* Discovered APIs & Endpoints Breakdown Modal */}
       {analysisResult && (
-        <ApiBreakdownModal
-          isOpen={showApiBreakdownModal}
-          onClose={() => setShowApiBreakdownModal(false)}
-          analysisData={analysisResult}
-          onOpenApiFlow={(ep) => {
-            setShowApiBreakdownModal(false);
-            setApiFlowFocusedEndpoint(ep || null);
-            setShowApiFlowModal(true);
-          }}
-        />
+        <>
+          <ApiBreakdownModal
+            isOpen={showApiBreakdownModal}
+            onClose={() => setShowApiBreakdownModal(false)}
+            analysisData={analysisResult}
+            onOpenApiFlow={(ep) => {
+              setShowApiBreakdownModal(false);
+              setApiFlowFocusedEndpoint(ep || null);
+              setShowApiFlowModal(true);
+            }}
+          />
+
+          <SubdomainsModal
+            isOpen={showSubdomainsModal}
+            onClose={() => setShowSubdomainsModal(false)}
+            analysisData={analysisResult}
+          />
+        </>
       )}
 
       {/* Visual Interactive API Flow Graph Modal */}

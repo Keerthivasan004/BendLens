@@ -56,6 +56,7 @@ Use this skill when you need to:
           - `HISTORICAL` (amber tag): Discovered OSINT/CT records from historical certificates and DNS logs that are currently decommissioned (`NXDOMAIN`).
           - `MAIN DOMAIN` (indigo tag): The apex root gateway.
         - Provides interactive filter tabs (`All`, `Live Active`, `Historical / Archive`) in both Landing View and Developer Console.
+        - **Dedicated Subdomains Modal (`SubdomainsModal.jsx`)**: Clicking on the Subdomain pill in `Header.jsx` or the "View All in Modal" buttons on the Landing page and Developer Console opens `SubdomainsModal.jsx`, presenting a full searchable list of all subdomains with Live/Historical badges, endpoint counts, and 1-click clipboard copy (`Copy List`). It never opens `ApiBreakdownModal.jsx`, which is strictly reserved for API Services & Endpoints.
         - Isolates live domains for HTTP gateway probing and OpenAPI route extraction, preventing dead host timeout stalls.
       - **Cold-Start Single-Scan Parity Guarantee (Scan 1 == Scan 2)**:
         - **In-Flight Deduplication (`SubdomainScanner.inFlightScans`)**: Concurrent discovery jobs for the same apex domain share the identical Promise, eliminating redundant queries and third-party rate limits.
