@@ -133,6 +133,14 @@ export async function POST(request) {
         result.openApiSpec = crawlResult.openApiSpec;
         result.crawlerTelemetry = crawlResult.telemetry;
         result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
+        result.liveSubdomains = crawlResult.telemetry?.liveSubdomains || crawlResult.liveSubdomains || [];
+        result.historicalSubdomains = crawlResult.telemetry?.historicalSubdomains || crawlResult.historicalSubdomains || [];
+        result.subdomainStatusMap = crawlResult.telemetry?.subdomainStatusMap || crawlResult.subdomainStatusMap || {};
+        result.subdomainCounts = crawlResult.telemetry?.subdomainCounts || {
+          total: result.subdomains.length,
+          live: result.liveSubdomains.length,
+          historical: result.historicalSubdomains.length
+        };
         result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
         result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
         result.isUrlCrawl = true;
@@ -271,6 +279,14 @@ export async function POST(request) {
                     result.openApiSpec = crawlResult.openApiSpec;
                     result.crawlerTelemetry = crawlResult.telemetry;
                     result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
+        result.liveSubdomains = crawlResult.telemetry?.liveSubdomains || crawlResult.liveSubdomains || [];
+        result.historicalSubdomains = crawlResult.telemetry?.historicalSubdomains || crawlResult.historicalSubdomains || [];
+        result.subdomainStatusMap = crawlResult.telemetry?.subdomainStatusMap || crawlResult.subdomainStatusMap || {};
+        result.subdomainCounts = crawlResult.telemetry?.subdomainCounts || {
+          total: result.subdomains.length,
+          live: result.liveSubdomains.length,
+          historical: result.historicalSubdomains.length
+        };
                     result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
                     result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
                     result.isUrlCrawl = true;
@@ -627,6 +643,14 @@ export async function POST(request) {
         result.legalDocuments = crawlResult.legalDocuments || crawlResult.telemetry?.legalDocuments || null;
         result.crawlerTelemetry = crawlResult.telemetry;
         result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
+        result.liveSubdomains = crawlResult.telemetry?.liveSubdomains || crawlResult.liveSubdomains || [];
+        result.historicalSubdomains = crawlResult.telemetry?.historicalSubdomains || crawlResult.historicalSubdomains || [];
+        result.subdomainStatusMap = crawlResult.telemetry?.subdomainStatusMap || crawlResult.subdomainStatusMap || {};
+        result.subdomainCounts = crawlResult.telemetry?.subdomainCounts || {
+          total: result.subdomains.length,
+          live: result.liveSubdomains.length,
+          historical: result.historicalSubdomains.length
+        };
         result.techStack = crawlResult.techStack || crawlResult.telemetry?.techStack;
         result.cloudProvider = crawlResult.cloudProvider || crawlResult.techStack?.cloudProvider || crawlResult.telemetry?.cloudProvider;
         result.timestamp = result.timestamp || new Date().toISOString();

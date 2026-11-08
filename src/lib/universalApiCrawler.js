@@ -264,6 +264,8 @@ class UniversalApiCrawler {
     const backendDomains = new Set();
     const endpointSubdomainMap = new Map(); // path -> subdomain
     let discoveredSubdomainsList = [];
+    const liveSubdomainsSet = new Set();
+    const historicalSubdomainsSet = new Set();
     let pSubdomainDiscovery = null;
     const distinctEntities = new Set();
     const frameworksDetected = new Set();
@@ -546,10 +548,17 @@ class UniversalApiCrawler {
         } catch { }
 
         if (subList && subList.length > 0) {
+          const sStatusMap = subList.statusMap || {};
           for (const s of subList) {
             const c = SubdomainScanner.canonicalize(s);
             if (c && !discoveredSubdomainsList.includes(c)) discoveredSubdomainsList.push(c);
-            if (c && c !== baseCanonical && c !== apexDomain) backendDomains.add(`https://${c}`);
+            const isLive = sStatusMap[c] ? sStatusMap[c] === 'live' : (subList.liveSubdomains ? subList.liveSubdomains.includes(c) : true);
+            if (isLive && c) {
+              liveSubdomainsSet.add(c);
+              if (c !== baseCanonical && c !== apexDomain) backendDomains.add(`https://${c}`);
+            } else if (c) {
+              historicalSubdomainsSet.add(c);
+            }
           }
           initRes = {
             ok: true,
@@ -1540,13 +1549,20 @@ class UniversalApiCrawler {
           ]);
 
           if (Array.isArray(harvested)) {
+            const hStatusMap = harvested.statusMap || {};
             for (const sub of harvested) {
               const cSub = SubdomainScanner.canonicalize(sub);
               if (cSub && !discoveredSubdomainsList.includes(cSub)) {
                 discoveredSubdomainsList.push(cSub);
               }
-              if (cSub && cSub !== baseCanonical && cSub !== apexDomain) {
-                backendDomains.add(`https://${cSub}`);
+              const isLive = hStatusMap[cSub] ? hStatusMap[cSub] === 'live' : (harvested.liveSubdomains ? harvested.liveSubdomains.includes(cSub) : true);
+              if (isLive && cSub) {
+                liveSubdomainsSet.add(cSub);
+                if (cSub !== baseCanonical && cSub !== apexDomain) {
+                  backendDomains.add(`https://${cSub}`);
+                }
+              } else if (cSub) {
+                historicalSubdomainsSet.add(cSub);
               }
             }
           }
@@ -2289,19 +2305,36 @@ class UniversalApiCrawler {
         if (cached && cached.size > 0) {
           for (const s of cached) {
             const cs = SubdomainScanner.canonicalize(s);
-            if (cs && !discoveredSubdomainsList.includes(cs)) {
-              discoveredSubdomainsList.push(cs);
+            if (cs) {
+              liveSubdomainsSet.add(cs);
+              if (!discoveredSubdomainsList.includes(cs)) {
+                discoveredSubdomainsList.push(cs);
+              }
             }
           }
         }
 
-        const deterministicSubdomains = Array.from(new Set(discoveredSubdomainsList)).sort((a, b) => {
-          const cleanA = a.toLowerCase().trim();
-          const cleanB = b.toLowerCase().trim();
-          if (cleanA === hostname.toLowerCase()) return -1;
-          if (cleanB === hostname.toLowerCase()) return 1;
-          return cleanA.localeCompare(cleanB);
-        });
+        liveSubdomainsSet.add(hostname);
+        if (apexDomain) liveSubdomainsSet.add(apexDomain);
+
+        const statusMap = {};
+        const liveList = [];
+        const historicalList = [];
+
+        for (const s of discoveredSubdomainsList) {
+          const isLive = liveSubdomainsSet.has(s) || (cached && cached.has(s));
+          if (isLive) {
+            statusMap[s] = 'live';
+            if (!liveList.includes(s)) liveList.push(s);
+          } else {
+            statusMap[s] = 'historical';
+            if (!historicalList.includes(s)) historicalList.push(s);
+          }
+        }
+
+        const sortedLive = liveList.sort((a, b) => a === hostname ? -1 : b === hostname ? 1 : a.localeCompare(b));
+        const sortedHistorical = historicalList.sort((a, b) => a.localeCompare(b));
+        const deterministicSubdomains = [...sortedLive, ...sortedHistorical];
 
         return {
           projectName,
@@ -2311,6 +2344,14 @@ class UniversalApiCrawler {
           cloudProvider: techStack.cloudProvider,
           legalDocuments,
           subdomains: deterministicSubdomains,
+          liveSubdomains: sortedLive,
+          historicalSubdomains: sortedHistorical,
+          subdomainStatusMap: statusMap,
+          subdomainCounts: {
+            total: deterministicSubdomains.length,
+            live: sortedLive.length,
+            historical: sortedHistorical.length
+          },
           telemetry: {
             targetUrl,
             crawlDurationMs,
@@ -2340,6 +2381,14 @@ class UniversalApiCrawler {
             },
             backendDomains: Array.from(backendDomains).sort(),
             subdomains: deterministicSubdomains,
+            liveSubdomains: sortedLive,
+            historicalSubdomains: sortedHistorical,
+            subdomainStatusMap: statusMap,
+            subdomainCounts: {
+              total: deterministicSubdomains.length,
+              live: sortedLive.length,
+              historical: sortedHistorical.length
+            },
             entitiesCount: 0,
             frameworksDetected: Array.from(frameworksDetected),
             techStack,
@@ -2548,6 +2597,10 @@ class UniversalApiCrawler {
         termsOfService: null
       },
       subdomains: cachedSubdomains,
+      liveSubdomains: cachedSubdomains,
+      historicalSubdomains: [],
+      subdomainStatusMap: Object.fromEntries(cachedSubdomains.map(s => [s, 'live'])),
+      subdomainCounts: { total: cachedSubdomains.length, live: cachedSubdomains.length, historical: 0 },
       telemetry: {
         targetUrl,
         crawlDurationMs: Date.now() - startTime,
@@ -2560,6 +2613,10 @@ class UniversalApiCrawler {
         cloudProvider,
         legalDocuments: { hasLegalDocuments: false, privacyPolicy: null, termsOfService: null },
         subdomains: cachedSubdomains,
+        liveSubdomains: cachedSubdomains,
+        historicalSubdomains: [],
+        subdomainStatusMap: Object.fromEntries(cachedSubdomains.map(s => [s, 'live'])),
+        subdomainCounts: { total: cachedSubdomains.length, live: cachedSubdomains.length, historical: 0 },
         discoveryStrategy: hasPerimeter ? 'perimeter_mesh_crawler' : 'unreachable_target',
         crawlStatus: hasPerimeter ? 'success' : 'failed',
         error: hasPerimeter ? null : errorMsg,

@@ -73,6 +73,7 @@ CREATE TABLE orders (
   const [crawlerProofTab, setCrawlerProofTab] = useState('matrix');
   const [showLandingSignals, setShowLandingSignals] = useState(false);
   const [showAllSubdomains, setShowAllSubdomains] = useState(false);
+  const [subdomainStatusTab, setSubdomainStatusTab] = useState('ALL'); // 'ALL' | 'LIVE' | 'HISTORICAL'
 
   const landingBreakdown = useMemo(() => {
     return getApiEndpointsBreakdown(analysisResult, 'auto');
@@ -1690,8 +1691,21 @@ CREATE TABLE audit_logs (
 
                               if (landingSubdomainsList.length === 0) return null;
 
+                              const statusMap = analysisResult.subdomainStatusMap || analysisResult.crawlerTelemetry?.subdomainStatusMap || {};
+                              const liveSet = new Set(analysisResult.liveSubdomains || analysisResult.crawlerTelemetry?.liveSubdomains || []);
+
+                              const liveCount = landingSubdomainsList.filter(s => liveSet.has(s) || statusMap[s] === 'live' || s === landingMainDomain).length;
+                              const historicalCount = Math.max(0, landingSubdomainsList.length - liveCount);
+
+                              const filteredList = landingSubdomainsList.filter(s => {
+                                const isLive = liveSet.has(s) || statusMap[s] === 'live' || s === landingMainDomain;
+                                if (subdomainStatusTab === 'LIVE') return isLive;
+                                if (subdomainStatusTab === 'HISTORICAL') return !isLive;
+                                return true;
+                              });
+
                               return (
-                                <div className="p-3 rounded-xl bg-surface-raised border border-indigo-500/30 space-y-2 text-left">
+                                <div className="p-3 rounded-xl bg-surface-raised border border-indigo-500/30 space-y-2.5 text-left">
                                   <div className="flex items-center justify-between gap-2 flex-wrap">
                                     <div className="flex items-center gap-2">
                                       <div className="h-6 w-6 rounded-md bg-indigo-50 dark:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-500/30 flex items-center justify-center text-indigo-700 dark:text-indigo-400">
@@ -1700,8 +1714,13 @@ CREATE TABLE audit_logs (
                                       <div>
                                         <span className="text-xs font-bold text-foreground">Digital Perimeter & Discovered Subdomains</span>
                                         <span className="text-[10px] font-mono ml-2 px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20 font-bold">
-                                          {landingSubdomainsList.length} {landingSubdomainsList.length === 1 ? 'Domain' : 'Domains / Subdomains'}
+                                          {landingSubdomainsList.length} {landingSubdomainsList.length === 1 ? 'Domain' : 'Total'}
                                         </span>
+                                        {liveCount > 0 && historicalCount > 0 && (
+                                          <span className="text-[10px] font-mono ml-2 text-muted hidden sm:inline">
+                                            (<strong className="text-emerald-700 dark:text-emerald-400 font-bold">{liveCount} Live</strong> · <strong className="text-amber-700 dark:text-amber-400 font-semibold">{historicalCount} Historical</strong>)
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                     <div className="text-[10px] font-mono text-muted">
@@ -1709,29 +1728,81 @@ CREATE TABLE audit_logs (
                                     </div>
                                   </div>
 
+                                  {/* Filter Pills: All / Live / Historical */}
+                                  {historicalCount > 0 && (
+                                    <div className="flex items-center gap-1.5 pt-0.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setSubdomainStatusTab('ALL')}
+                                        className={`px-2 py-0.5 text-[10px] font-mono rounded-md border transition-all cursor-pointer font-semibold ${
+                                          subdomainStatusTab === 'ALL'
+                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                            : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
+                                        }`}
+                                      >
+                                        All ({landingSubdomainsList.length})
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setSubdomainStatusTab('LIVE')}
+                                        className={`px-2 py-0.5 text-[10px] font-mono rounded-md border transition-all cursor-pointer flex items-center gap-1 font-semibold ${
+                                          subdomainStatusTab === 'LIVE'
+                                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                            : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/20 hover:border-emerald-500/40'
+                                        }`}
+                                      >
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                        Live Active ({liveCount})
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setSubdomainStatusTab('HISTORICAL')}
+                                        className={`px-2 py-0.5 text-[10px] font-mono rounded-md border transition-all cursor-pointer flex items-center gap-1 font-semibold ${
+                                          subdomainStatusTab === 'HISTORICAL'
+                                            ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                                            : 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-500/20 hover:border-amber-500/40'
+                                        }`}
+                                      >
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                        Historical / Archive ({historicalCount})
+                                      </button>
+                                    </div>
+                                  )}
+
                                   <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                                    {(showAllSubdomains ? landingSubdomainsList : landingSubdomainsList.slice(0, 24)).map((sub, sIdx) => {
+                                    {(showAllSubdomains ? filteredList : filteredList.slice(0, 24)).map((sub, sIdx) => {
                                       const isMain = sub === landingMainDomain;
+                                      const isLive = liveSet.has(sub) || statusMap[sub] === 'live' || isMain;
                                       return (
                                         <span
                                           key={sIdx}
                                           className={`text-xs font-mono px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-colors ${
                                             isMain
                                               ? 'bg-indigo-50 text-indigo-950 border-indigo-300 dark:bg-indigo-500/20 dark:text-indigo-200 dark:border-indigo-400 font-bold shadow-xs'
-                                              : 'bg-surface text-foreground font-medium border-border hover:border-indigo-500/30'
+                                              : isLive
+                                              ? 'bg-emerald-50/70 text-emerald-950 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/30'
+                                              : 'bg-surface text-muted-foreground border-border hover:border-amber-500/40 opacity-80'
                                           }`}
                                         >
-                                          <Globe className={`h-3 w-3 ${isMain ? 'text-indigo-700 dark:text-indigo-400' : 'text-muted'}`} />
+                                          <Globe className={`h-3 w-3 ${isMain ? 'text-indigo-700 dark:text-indigo-400' : isLive ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500/80'}`} />
                                           <span>{sub}</span>
-                                          {isMain && (
+                                          {isMain ? (
                                             <span className="text-[9px] font-sans px-1.5 py-0.2 rounded bg-indigo-200 text-indigo-900 dark:bg-indigo-500/40 dark:text-indigo-200 uppercase tracking-wider font-extrabold ml-0.5">
                                               Main Domain
+                                            </span>
+                                          ) : isLive ? (
+                                            <span className="text-[8px] font-sans px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-500/30 dark:text-emerald-200 uppercase tracking-wider font-extrabold ml-0.5 border border-emerald-300 dark:border-emerald-500/30">
+                                              LIVE
+                                            </span>
+                                          ) : (
+                                            <span className="text-[8px] font-sans px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 dark:bg-amber-500/25 dark:text-amber-200 uppercase tracking-wider font-bold ml-0.5 border border-amber-200 dark:border-amber-500/30">
+                                              HISTORICAL
                                             </span>
                                           )}
                                         </span>
                                       );
                                     })}
-                                    {landingSubdomainsList.length > 24 && (
+                                    {filteredList.length > 24 && (
                                       <button
                                         type="button"
                                         onClick={() => setShowAllSubdomains(!showAllSubdomains)}
@@ -1739,7 +1810,7 @@ CREATE TABLE audit_logs (
                                       >
                                         {showAllSubdomains
                                           ? 'Show Less'
-                                          : `+${landingSubdomainsList.length - 24} more subdomains`}
+                                          : `+${filteredList.length - 24} more subdomains`}
                                       </button>
                                     )}
                                   </div>

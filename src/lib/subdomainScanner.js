@@ -1189,9 +1189,26 @@ class SubdomainScanner {
       this.perimeterCache.set(apex, accumulated);
       saveDiskPerimeterCache(this.perimeterCache);
 
-      const finalSorted = Array.from(accumulated)
+      const liveList = Array.from(accumulated)
         .filter(Boolean)
         .sort((a, b) => a === apex ? -1 : b === apex ? 1 : a.localeCompare(b));
+
+      const historicalList = Array.from(candidateSet)
+        .filter((h) => h && !accumulated.has(h))
+        .sort((a, b) => a.localeCompare(b));
+
+      // Combined array: Verified Live subdomains first, followed by Historical/Archival subdomains
+      const finalSorted = [...liveList, ...historicalList];
+
+      const statusMap = {};
+      for (const h of liveList) statusMap[h] = 'live';
+      for (const h of historicalList) statusMap[h] = 'historical';
+
+      finalSorted.liveSubdomains = liveList;
+      finalSorted.historicalSubdomains = historicalList;
+      finalSorted.statusMap = statusMap;
+      finalSorted.live = liveList;
+      finalSorted.historical = historicalList;
 
       return finalSorted;
     })();

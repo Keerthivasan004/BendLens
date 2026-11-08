@@ -231,17 +231,27 @@ export default function Header({
 
                       if (subdomainsList.length === 0) return null;
 
+                      const statusMap = analysisData.subdomainStatusMap || analysisData.crawlerTelemetry?.subdomainStatusMap || {};
+                      const liveSet = new Set(analysisData.liveSubdomains || analysisData.crawlerTelemetry?.liveSubdomains || []);
+                      const primaryCandidateHost = primaryCandidate ? primaryCandidate.toLowerCase().replace(/^www\./, '') : null;
+                      const liveCount = subdomainsList.filter(s => liveSet.has(s) || statusMap[s] === 'live' || s === primaryCandidateHost).length;
+                      const histCount = Math.max(0, subdomainsList.length - liveCount);
+
                       return (
                         <>
                           <button
                             onClick={() => setShowApiBreakdown(true)}
                             className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 dark:bg-indigo-500/[0.08] dark:hover:bg-indigo-500/15 dark:border-indigo-500/20 hover:dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-400 whitespace-nowrap shrink-0 transition-all cursor-pointer group"
-                            title={`Discovered Subdomains (${subdomainsList.length}):\n${subdomainsList.join('\n')}\n\nClick to view full architecture breakdown.`}
+                            title={`Discovered Subdomains (${subdomainsList.length}${histCount > 0 ? `: ${liveCount} Live · ${histCount} Historical` : ''}):\n${subdomainsList.join('\n')}\n\nClick to view full architecture breakdown.`}
                           >
                             <Globe className="h-3 w-3 text-indigo-600 dark:text-indigo-400 shrink-0 group-hover:scale-110 transition-transform" />
                             <span className="text-[11px] font-mono font-bold">
                               {subdomainsList.length} {subdomainsList.length === 1 ? 'Subdomain' : 'Subdomains'}
-                              {subdomainsList.length <= 4 ? (
+                              {histCount > 0 ? (
+                                <span className="text-indigo-900/80 dark:text-indigo-300 font-normal ml-1">
+                                  ({liveCount} Live · {histCount} Hist)
+                                </span>
+                              ) : subdomainsList.length <= 4 ? (
                                 <span className="text-indigo-900/80 dark:text-indigo-300 font-normal ml-1">({subdomainsList.join(', ')})</span>
                               ) : (
                                 <span className="text-indigo-900/80 dark:text-indigo-300 font-normal ml-1">({subdomainsList.slice(0, 3).join(', ')} +{subdomainsList.length - 3})</span>

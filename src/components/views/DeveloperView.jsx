@@ -3099,12 +3099,18 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                 return a.localeCompare(b);
               });
 
+              const srcData = rawAnalysisData || data || {};
+              const statusMap = srcData.subdomainStatusMap || srcData.crawlerTelemetry?.subdomainStatusMap || {};
+              const liveSet = new Set(srcData.liveSubdomains || srcData.crawlerTelemetry?.liveSubdomains || []);
+
               return sortedByCount.map((sub) => {
                 const subCount = allEnrichedEndpoints.filter((e) => {
                   const epSub = e.subdomain ? e.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : '';
                   return epSub === sub || (!epSub && (distinctSubdomains.length === 1 || sub === distinctSubdomains[0]));
                 }).length;
                 const isActive = apiSubdomainFilter === sub;
+                const isLive = liveSet.has(sub) || statusMap[sub] === 'live';
+                const isHist = statusMap[sub] === 'historical';
                 return (
                   <button
                     key={sub}
@@ -3115,8 +3121,13 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                         : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
                     }`}
                   >
-                    <Globe className={`h-3 w-3 ${isActive ? 'text-white dark:text-indigo-400' : 'text-indigo-600 dark:text-indigo-400'}`} />
+                    <Globe className={`h-3 w-3 ${isActive ? 'text-white dark:text-indigo-400' : isLive ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
                     <span>{sub}</span>
+                    {isLive ? (
+                      <span className={`text-[8px] font-sans px-1 py-0.2 rounded uppercase font-extrabold ${isActive ? 'bg-indigo-800 text-white' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/30 dark:text-emerald-200'}`}>LIVE</span>
+                    ) : isHist ? (
+                      <span className={`text-[8px] font-sans px-1 py-0.2 rounded uppercase font-bold ${isActive ? 'bg-indigo-800 text-white' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/25 dark:text-amber-200'}`}>HIST</span>
+                    ) : null}
                     <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${isActive ? 'bg-indigo-700 text-white' : 'bg-surface-raised text-indigo-800 dark:text-indigo-300'}`}>
                       {subCount}
                     </span>

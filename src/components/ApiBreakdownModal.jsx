@@ -351,8 +351,20 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
                           <h3 className="text-sm font-bold text-foreground hover:text-brand transition-colors truncate">
                             {api.name}
                           </h3>
-                          <span className="px-2 py-0.5 rounded-md font-mono text-[10px] bg-surface border border-border text-muted truncate">
-                            {api.badge}
+                          <span className="px-2 py-0.5 rounded-md font-mono text-[10px] bg-surface border border-border text-muted truncate flex items-center gap-1">
+                            <span>{api.badge}</span>
+                            {(() => {
+                              const sMap = analysisData?.subdomainStatusMap || analysisData?.crawlerTelemetry?.subdomainStatusMap || {};
+                              const lSet = new Set(analysisData?.liveSubdomains || analysisData?.crawlerTelemetry?.liveSubdomains || []);
+                              const cleanBadge = (api.badge || '').toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '');
+                              if (lSet.has(cleanBadge) || sMap[cleanBadge] === 'live') {
+                                return <span className="px-1 py-0.2 text-[8px] font-sans rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-500/25 dark:text-emerald-300 uppercase font-extrabold ml-1">LIVE</span>;
+                              }
+                              if (sMap[cleanBadge] === 'historical') {
+                                return <span className="px-1 py-0.2 text-[8px] font-sans rounded bg-amber-100 text-amber-800 dark:bg-amber-500/25 dark:text-amber-300 uppercase font-bold ml-1">HIST</span>;
+                              }
+                              return null;
+                            })()}
                           </span>
                           {api.riskLevel && (
                             <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase font-semibold ${

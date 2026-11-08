@@ -49,6 +49,14 @@ Use this skill when you need to:
         8. **High-Probability Active DNS Dictionary Resolution**: Non-blocking asynchronous c-ares UDP probes across 150+ enterprise prefixes with automatic wildcard DNS detection.
         9. **In-DOM & Response Header Parsing**: HTML script tags, anchor links, and CSP/CORS header domain extraction.
       - **Non-Blocking c-ares Parallel DNS Validation & Zero Threadpool Bottlenecks**: Subdomain candidates are verified strictly via non-blocking c-ares UDP resolvers querying recursive nameservers (`8.8.8.8`, `1.1.1.1`) with high concurrency (80-100). Node's 4-thread libuv pool (`dns.lookup`) is excluded from candidate loops to prevent threadpool starvation on NXDOMAIN timeouts. Localhost addresses (`127.0.0.1`, `::1`) are stripped from `dns.getServers()`.
+      - **Dual-Tag Subdomain Architecture (Live & Historical Infrastructure)**:
+        - Displays the complete perimeter footprint (e.g. **638+ subdomains for `emirates.com`**), retaining both active and historical/archived domains.
+        - Every subdomain is explicitly tagged in the UI with a visual badge:
+          - `LIVE` (green tag): Confirmed active in authoritative DNS (`A`, `AAAA`, `CNAME`).
+          - `HISTORICAL` (amber tag): Discovered OSINT/CT records from historical certificates and DNS logs that are currently decommissioned (`NXDOMAIN`).
+          - `MAIN DOMAIN` (indigo tag): The apex root gateway.
+        - Provides interactive filter tabs (`All`, `Live Active`, `Historical / Archive`) in both Landing View and Developer Console.
+        - Isolates live domains for HTTP gateway probing and OpenAPI route extraction, preventing dead host timeout stalls.
       - **Cold-Start Single-Scan Parity Guarantee (Scan 1 == Scan 2)**:
         - **In-Flight Deduplication (`SubdomainScanner.inFlightScans`)**: Concurrent discovery jobs for the same apex domain share the identical Promise, eliminating redundant queries and third-party rate limits.
         - **Unclamped Reconnaissance & Server Busy Retry**: Removed the internal 8s abort clamping in `getSubdomainCenterSubdomains`, setting full 18,000ms budget and retrying with backoff on `{"error":"server busy (64 queries in flight)"}` to ensure 500+ candidates are fully harvested on the first try.

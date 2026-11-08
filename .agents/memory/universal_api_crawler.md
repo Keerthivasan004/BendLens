@@ -976,6 +976,30 @@ Users reported that subdomain discovery collapsed from 258 to 92–95 on rescan,
 - **Etihad Cold Start (Clean Cache)**: **108–123 verified live subdomains** on Scan 1; **Zero 400 error, zero 3000 error**.
 - **Next.js Production Build**: Compiled successfully in 63s with exit code 0.
 
+---
+
+## 25. Dual-Tag Subdomain Architecture: Live & Historical Infrastructure (v1.1.67)
+
+### Motivation
+Enterprise domains like `emirates.com` possess extensive historical digital footprints accumulated across 15+ years of SSL certificates, DNS logs, and marketing campaigns (638+ candidates). While 277 subdomains actively resolve on authoritative DNS, 361 subdomains represent historical or decommissioned infrastructure. Users need full visibility into both active and historical assets, clearly differentiated by visual status tags.
+
+### Architecture & Implementation
+1. **Dual-Inventory Classification (`SubdomainScanner.discoverSubdomains`)**:
+   - `liveSubdomains`: Actively verified hosts with live `A`, `AAAA`, or `CNAME` records in DNS.
+   - `historicalSubdomains`: Discovered OSINT/CT candidates that are currently decommissioned or non-resolving (`NXDOMAIN`).
+   - `subdomainStatusMap`: `{ [fqdn]: 'live' | 'historical' }` dictionary mapping each asset.
+   - `subdomains`: Complete unified inventory (`[...liveSubdomains, ...historicalSubdomains]`) preserving 600+ total discovered domains.
+2. **Gateway & Spec Isolation**:
+   - Only `liveSubdomains` are added to `backendDomains` and probed for HTTP endpoints, preventing network hangs on dead hosts while preserving full inventory reporting.
+3. **Frontend UI Tagging & Filtering**:
+   - **Page / Results View (`src/app/page.jsx`)**:
+     - Status Header: Displays total count along with live and historical counts (e.g. `638 Total (277 Live · 361 Historical)`).
+     - Interactive Tabs: Quick filters for `All ({total})`, `Live Active ({live})`, and `Historical / Archive ({hist})`.
+     - Visual Badges: Every subdomain displays a tag: `MAIN DOMAIN` (indigo), `LIVE` (green badge), or `HISTORICAL` (amber badge).
+   - **Header Bar (`src/components/Header.jsx`)**: Displays total count with live/historical tooltip breakdown.
+   - **Developer View (`src/components/views/DeveloperView.jsx`)**: Subdomain filter buttons show `LIVE` or `HIST` tags.
+   - **API Breakdown Modal (`src/components/ApiBreakdownModal.jsx`)**: Subdomain groups display status badges.
+
 
 
 
