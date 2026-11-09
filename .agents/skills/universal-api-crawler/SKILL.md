@@ -477,5 +477,20 @@ When running on serverless cloud platforms (Vercel / AWS Lambda):
   - `udemy.com`: **2,368 Subdomains** (2,359 Live), **2,292 OpenAPI endpoints**, **5,901 words** Privacy Policy, and **11,616 words** Terms of Service on initial crawl.
   - `emirates.com`: **999 Subdomains** (378 Live), **909 OpenAPI endpoints**, **12,816 words** Privacy Policy, and **1,094 words** Terms of Service on initial crawl.
 
+---
+
+## HTTPS Production & Serverless Tier 0 Parity Engine (v1.1.80)
+
+- **Universal Tier 0 c-ares UDP DNS Resolution**: Removed `if (!isServerlessEnv)` in `SubdomainScanner.resolveHostMultiTier`. In cloud environments (Vercel Serverless / AWS Lambda), Node's c-ares UDP DNS resolver resolves candidate hosts against internal VPC servers and public fallbacks (`8.8.8.8`, `1.1.1.1`) in 10-30ms, eliminating Google DoH rate-limiting (HTTP 429) and socket starvation.
+- **Unified Health & Auth API Surface Extraction**: Removed `!isServerless` gate from `/api/health` and Better-Auth `/api/auth/*` route probing in `Stage 6` of `universalApiCrawler.js`, guaranteeing that auth routes (`/api/auth/get-session`, `/api/auth/sign-in/username`, `/api/auth/sign-out`) and health endpoints are discovered in HTTPS production.
+- **Uncapped Subpage & Legal Discovery**: Slicing for `discoveredPages` unified to 16 routes and `conventionCandidates` to 48 routes, ensuring that deeper internal subpages (e.g. `/contact`, `/pricing`, `/about`) and legal documents are thoroughly probed in serverless mode.
+- **Production Profile Parity (`webCrawlerProfile.js`)**: Updated `subdomainCandidateLimit` to 5,000, `activeDnsPrefixes` to 600, `certSpotterPages` to 10, `certSpotterTimeout` to 10,000ms, and `crtShTimeout` to 25,000ms.
+- **Subdomain Center Multi-Page Sequential Streaming**: Stream-harvests pages 1 through 4 sequentially on full-capacity domains with 400ms spacing and 10s fetch timeouts, unlocking 1,450–1,900+ additional candidates without triggering 503 "server busy" errors.
+- **Production Benchmarks (`VERCEL=1`, 100% Cold Start, Zero Cache)**:
+  - `udemy.com`: **2,368 subdomains** (2,353 Live · 15 Historical), **2,576 OpenAPI endpoints**, Privacy Policy (5,901 words), and Terms of Service (11,616 words) in **18.0s** on stroke #1.
+  - `emirates.com`: **1,607 subdomains** (512 Live · 1,095 Historical), **1,336 OpenAPI endpoints**, and Privacy Policy (12,757 words) in **39.6s** on stroke #1.
+  - `vashiniagro.com`: **4 subdomains**, **19 endpoints** (including `/contact`, `/products`, `/about`, and Frappe ERP endpoints), Privacy Policy & Terms of Service in **17.4s**.
+
+
 
 

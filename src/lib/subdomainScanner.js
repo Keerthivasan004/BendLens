@@ -14,15 +14,10 @@ const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUN
 const sharedResolver = new dns.Resolver();
 try {
   const sysServers = (dns.getServers() || []).filter(s => s !== '127.0.0.1' && s !== '::1' && !s.startsWith('fe80:'));
-  if (isServerlessEnv) {
-    // In AWS Lambda / Vercel, do NOT override with public DNS (8.8.8.8 UDP:53 is blocked by AWS VPC security groups)
-    if (sysServers.length > 0) sharedResolver.setServers(sysServers);
+  if (sysServers.length > 0) {
+    sharedResolver.setServers([...sysServers, '8.8.8.8', '1.1.1.1']);
   } else {
-    if (sysServers.length > 0) {
-      sharedResolver.setServers([...sysServers, '8.8.8.8', '1.1.1.1']);
-    } else {
-      sharedResolver.setServers(['8.8.8.8', '1.1.1.1', '1.0.0.1']);
-    }
+    sharedResolver.setServers(['8.8.8.8', '1.1.1.1', '1.0.0.1']);
   }
 } catch (_err) { }
 
@@ -331,62 +326,76 @@ class SubdomainScanner {
 
   /**
    * Subdomain Center Open Intelligence API
-   * High-capacity reconnaissance returning 500+ active candidates in seconds with zero authentication
-   * Includes resilient retry with backoff for transient 503/429 "server busy (64 queries in flight)" responses.
+   * High-capacity reconnaissance returning 500-2,000+ active candidates in seconds with zero authentication.
+   * Features multi-page streaming across paginated pools and resilient backoff for busy queues.
    */
   static async getSubdomainCenterSubdomains(apexDomain, timeoutMs = 18000) {
     if (!apexDomain) return [];
-    const maxRetries = 3;
     const startTime = Date.now();
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const remainingTime = timeoutMs - (Date.now() - startTime);
-      if (remainingTime < 2500) break;
-      try {
-        const res = await fetch(`https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}`, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*'
-          },
-          signal: AbortSignal.timeout(remainingTime)
-        });
-        if (res.status === 503 || res.status === 429) {
-          // Server busy; pause briefly and retry
-          await new Promise((r) => setTimeout(r, 600));
-          continue;
-        }
-        if (!res.ok) return [];
-        let parsed;
+    const discovered = new Set();
+
+    const fetchPage = async (page) => {
+      const url = page === 1
+        ? `https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}`
+        : `https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}&page=${page}`;
+
+      const maxRetries = 2;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const remaining = timeoutMs - (Date.now() - startTime);
+        if (remaining < 2000) return [];
         try {
-          parsed = await res.json();
-        } catch (_jsonErr) {
-          return [];
-        }
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          if (parsed.error || parsed.message) {
-            // Server busy (e.g. "server busy (64 queries in flight)"); wait and retry
+          const res = await fetch(url, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+              'Accept': 'application/json, text/plain, */*'
+            },
+            signal: AbortSignal.timeout(Math.min(10000, remaining))
+          });
+          if (res.status === 503 || res.status === 429) {
+            await new Promise((r) => setTimeout(r, 800));
+            continue;
+          }
+          if (!res.ok) return [];
+          const data = await res.json();
+          if (Array.isArray(data)) return data;
+          if (data && (data.error || data.message)) {
             await new Promise((r) => setTimeout(r, 800));
             continue;
           }
           return [];
-        }
-        if (!Array.isArray(parsed)) return [];
-        const results = [];
-        for (const item of parsed) {
-          if (item) {
-            const clean = this.canonicalize(String(item));
-            if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
-              results.push(clean);
-            }
+        } catch (_err) {
+          if (attempt < maxRetries - 1) {
+            await new Promise((r) => setTimeout(r, 500));
           }
         }
-        if (results.length > 0) return results;
-      } catch (_err) {
-        if (attempt < maxRetries - 1) {
-          await new Promise((r) => setTimeout(r, 500));
+      }
+      return [];
+    };
+
+    // 1. Initial Page 1 / Base query
+    const page1Items = await fetchPage(1);
+    for (const item of page1Items) {
+      const clean = this.canonicalize(String(item));
+      if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) discovered.add(clean);
+    }
+
+    // 2. If page 1 returned full capacity (>= 450 items), stream subsequent pages
+    if (page1Items.length >= 450) {
+      for (let page = 2; page <= 4; page++) {
+        const remaining = timeoutMs - (Date.now() - startTime);
+        if (remaining < 3000) break;
+        await new Promise((r) => setTimeout(r, 400));
+        const items = await fetchPage(page);
+        if (!items || items.length === 0) break;
+        for (const item of items) {
+          const clean = this.canonicalize(String(item));
+          if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) discovered.add(clean);
         }
+        if (items.length < 450) break;
       }
     }
-    return [];
+
+    return Array.from(discovered);
   }
 
   /**
@@ -803,39 +812,37 @@ class SubdomainScanner {
   static async resolveHostMultiTier(host, timeoutMs = 1500) {
     if (!host) return false;
 
-    // Tier 0: High-speed non-blocking c-ares UDP resolver (parallel 20-30ms resolution in local Node.js)
-    if (!isServerlessEnv) {
-      try {
-        const live = await new Promise((resolve) => {
-          let done = false;
-          const timer = setTimeout(() => {
-            if (!done) { done = true; resolve(null); }
-          }, Math.min(1000, timeoutMs));
+    // Tier 0: High-speed non-blocking c-ares UDP resolver (parallel 20-30ms resolution in local & serverless)
+    try {
+      const live = await new Promise((resolve) => {
+        let done = false;
+        const timer = setTimeout(() => {
+          if (!done) { done = true; resolve(null); }
+        }, Math.min(1000, timeoutMs));
 
-          sharedResolver.resolve4(host, (err, addrs) => {
+        sharedResolver.resolve4(host, (err, addrs) => {
+          if (done) return;
+          if (!err && Array.isArray(addrs) && addrs.length > 0) {
+            done = true;
+            clearTimeout(timer);
+            return resolve(true);
+          }
+          sharedResolver.resolveCname(host, (cErr, cnames) => {
             if (done) return;
-            if (!err && Array.isArray(addrs) && addrs.length > 0) {
-              done = true;
-              clearTimeout(timer);
+            done = true;
+            clearTimeout(timer);
+            if (!cErr && Array.isArray(cnames) && cnames.length > 0) {
               return resolve(true);
             }
-            sharedResolver.resolveCname(host, (cErr, cnames) => {
-              if (done) return;
-              done = true;
-              clearTimeout(timer);
-              if (!cErr && Array.isArray(cnames) && cnames.length > 0) {
-                return resolve(true);
-              }
-              if (err && (err.code === 'ENOTFOUND' || err.code === 'NODATA')) {
-                return resolve(false);
-              }
-              resolve(null);
-            });
+            if (err && (err.code === 'ENOTFOUND' || err.code === 'NODATA')) {
+              return resolve(false);
+            }
+            resolve(null);
           });
         });
-        if (typeof live === 'boolean') return live;
-      } catch (_e) { }
-    }
+      });
+      if (typeof live === 'boolean') return live;
+    } catch (_e) { }
 
     // Tier 1: Google DoH (global anycast HTTPS 443)
     try {
@@ -1171,7 +1178,7 @@ class SubdomainScanner {
         }
       }).catch(() => { });
 
-      const pTls = this.getTlsSanSubdomains(apex, profile.isServerless ? 2500 : 3500).then((list) => {
+      const pTls = this.getTlsSanSubdomains(apex, 3500).then((list) => {
         for (const item of list) {
           const c = this.canonicalize(item);
           if (c && (c === apex || c.endsWith('.' + apex))) {
@@ -1188,7 +1195,7 @@ class SubdomainScanner {
         }
       }).catch(() => { });
 
-      const pDnsRecords = this.getDnsRecordsSubdomains(apex, profile.isServerless ? 2000 : 2500).then((list) => {
+      const pDnsRecords = this.getDnsRecordsSubdomains(apex, 2500).then((list) => {
         for (const item of list) {
           const c = this.canonicalize(item);
           if (c && (c === apex || c.endsWith('.' + apex))) candidateSet.add(c);

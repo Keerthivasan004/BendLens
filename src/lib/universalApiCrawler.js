@@ -1688,18 +1688,18 @@ class UniversalApiCrawler {
           // Probe discovered internal sub-routes to uncover role-gated page chunks (e.g. /login, /admin, /dashboard, /ai, /quiz)
           const commonSubpages = ['/ai', '/ai/index.html', '/quiz', '/quiz/index.html', '/privacy-policy', '/terms'];
           const targetInternalRoutes = Array.from(new Set([
-            ...Array.from(discoveredPages).filter(p => p !== '/' && !p.startsWith('/api/')).slice(0, isServerless ? 6 : 15),
+            ...Array.from(discoveredPages).filter(p => p !== '/' && !p.startsWith('/api/')).slice(0, 16),
             ...commonSubpages
           ]));
 
-          const subpageBatchSize = isServerless ? 6 : 8;
+          const subpageBatchSize = 8;
           for (let i = 0; i < targetInternalRoutes.length; i += subpageBatchSize) {
             if (Date.now() - startTime >= maxCrawlTimeMs) break;
             const batchRoutes = targetInternalRoutes.slice(i, i + subpageBatchSize);
             await Promise.allSettled(batchRoutes.map(async (sr) => {
               try {
                 const srUrl = new URL(sr, origin).href;
-                const srRes = await this.safeFetch(srUrl, { timeout: isServerless ? 1500 : 2500, customHeaders });
+                const srRes = await this.safeFetch(srUrl, { timeout: 2500, customHeaders });
                 if (srRes.ok && srRes.status === 200 && srRes.text) {
                   // SPA Catch-All Guard: If the probed subpage returns the exact same HTML as the root homepage,
                   // it is an SPA wildcard fallback (not an authentic distinct page)
@@ -1797,7 +1797,7 @@ class UniversalApiCrawler {
         let originBackendProbeHeaders = {};
 
         // Probe verified health endpoint if framework indicates an active Node/Next/API backend
-        if (!isServerless && (frameworksDetected.has('Next.js') || frameworksDetected.has('React') || frameworksDetected.has('Vite') || allEndpoints.has('/api/health'))) {
+        if (frameworksDetected.has('Next.js') || frameworksDetected.has('React') || frameworksDetected.has('Vite') || allEndpoints.has('/api/health')) {
           try {
             const hUrl = new URL('/api/health', origin).href;
             const hRes = await this.safeFetch(hUrl, { timeout: 2000, customHeaders });
@@ -1813,7 +1813,7 @@ class UniversalApiCrawler {
         }
 
         // If Better-Auth (/api/auth) is detected, verify authentic sub-routes
-        if (!isServerless && allEndpoints.has('/api/auth')) {
+        if (allEndpoints.has('/api/auth')) {
           const authProbes = [
             { path: '/api/auth/get-session', method: 'GET' },
             { path: '/api/auth/ok', method: 'GET' },
@@ -6262,10 +6262,9 @@ Support: **support@${domainName}**`;
       }
 
       // 2. Parallel batched probes for conventional paths (sorted by priority score)
-      const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
       const conventionCandidates = candidates.filter(u => !isExplicitUrl(u)).sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
-      const targetConventions = isServerlessEnv ? conventionCandidates.slice(0, 28) : conventionCandidates;
-      const batchSize = isServerlessEnv ? 6 : 8;
+      const targetConventions = conventionCandidates.slice(0, 48);
+      const batchSize = 8;
       let candidateBest = null;
 
       for (let i = 0; i < targetConventions.length; i += batchSize) {

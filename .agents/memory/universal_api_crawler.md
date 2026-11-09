@@ -1136,6 +1136,50 @@ When crawling complex enterprise domains (`udemy.com`, `emirates.com`), users re
   - Terms of Service: **1,094 words** (`https://www.emirates.com/aa/about-us/en/gb/terms-of-use.html`)
   - Parity: 100% highest value on stroke #1.
 
+---
+
+## 29. HTTPS Production & Serverless Tier 0 Parity Engine (v1.1.80)
+
+### Motivation & Root Cause Analysis
+In HTTPS production deployments on Vercel Serverless / AWS Lambda (`process.env.VERCEL = '1'`), users observed that cold single-stroke crawls yielded fewer subdomains and missed auth/health API endpoints compared to local execution.
+1. **Skipped Tier 0 UDP DNS Resolution**:
+   - `resolveHostMultiTier` conditionally executed Tier 0 c-ares UDP DNS resolution only `if (!isServerlessEnv)`.
+   - In serverless environments, every single host verification was forcibly routed through HTTPS DoH (`https://dns.google/resolve`), encountering Google API rate limits (HTTP 429), socket throttling, and causing the 35s validation ceiling to expire before all candidates were processed.
+2. **Framework & Auth API Probing Suppression**:
+   - Stage 6 in `universalApiCrawler.js` guarded `/api/health` and Better-Auth `/api/auth/*` route probing with `if (!isServerless)`. In production, these critical auth and health endpoints were silently bypassed.
+3. **Internal Subpage Discovery Truncation**:
+   - `discoveredPages` was artificially sliced to 6 items in serverless (vs 16 locally), dropping functional UI sub-routes (e.g. `/contact`, `/pricing`, `/about`).
+4. **Legal Document Convention Candidate Cap**:
+   - Conventional candidate probing for Privacy Policy and Terms of Service was capped at 28 items in serverless (vs full list), occasionally missing enterprise legal agreements located lower in the candidate ranking.
+
+### Implemented Architectural Solutions
+1. **Universal Tier 0 c-ares UDP Resolution**:
+   - Enabled Node's non-blocking c-ares UDP DNS resolver across all environments (including serverless). Resolves hosts against VPC internal DNS servers (`10.0.0.2`, `169.254.169.253`) and public fallbacks (`8.8.8.8`, `1.1.1.1`) in 10-30ms without generating HTTP DoH traffic.
+   - Retained multi-tier fallback to Google DoH and Cloudflare DoH if UDP port 53 times out.
+2. **Unified Auth & Health API Extraction**:
+   - Removed `!isServerless` conditions for `/api/health` and `/api/auth` probing, ensuring complete API surface extraction in production.
+3. **Subdomain Center Multi-Page Sequential Streaming**:
+   - Upgraded `getSubdomainCenterSubdomains` to stream pages 1 through 4 when page 1 returns full 500-capacity. With 400ms rate-limit spacing and a 10s fetch timeout, it harvests 1,450–1,900+ unique candidates on cold scan 1 without triggering 503 "server busy" errors.
+4. **Uncapped Subpage & Legal Discovery**:
+   - Aligned `discoveredPages` slicing to 16 routes and `conventionCandidates` to 48 routes across all environments.
+5. **Production Profile Optimization (`webCrawlerProfile.js`)**:
+   - Increased `subdomainCandidateLimit` to 5,000, `activeDnsPrefixes` to 600, `certSpotterPages` to 10, `certSpotterTimeout` to 10,000ms, and `crtShTimeout` to 25,000ms with automatic retry.
+
+### Production Cold Crawl Verification (`VERCEL=1`, 100% Zero Cache)
+- **`udemy.com`**:
+  - Subdomains: **2,368 total** (2,353 Live · 15 Historical) in **18.0s**
+  - OpenAPI Endpoints: **2,576 endpoints**
+  - Legal Documents: Privacy Policy (**5,901 words**) & Terms of Service (**11,616 words**)
+- **`emirates.com`**:
+  - Subdomains: **1,607 total** (512 Live · 1,095 Historical) in **39.6s**
+  - OpenAPI Endpoints: **1,336 endpoints**
+  - Legal Documents: Privacy Policy (**12,757 words**) & Terms of Service (**3,635 words**)
+- **`vashiniagro.com`**:
+  - Subdomains: **4 total** (`erp.*`, `v16.*`, `vashiniagro.com`, `wwww.*`) in **17.4s**
+  - Endpoints: **19 endpoints** (including `/contact`, `/products`, `/about`, and Frappe ERP endpoints)
+  - Legal Documents: Privacy Policy & Terms & Conditions
+
+
 
 
 
