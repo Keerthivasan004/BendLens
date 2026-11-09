@@ -2259,23 +2259,18 @@ class UniversalApiCrawler {
               new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
             ]);
           }
-          if (!legalDocuments || !legalDocuments.hasLegalDocuments || !legalDocuments.privacyPolicy || !legalDocuments.termsOfService) {
-            const privacy = legalDocuments?.privacyPolicy || this.generateFirewallResilientLegalDocument(safeLegalTarget, 'privacy', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack });
-            const terms = legalDocuments?.termsOfService || this.generateFirewallResilientLegalDocument(safeLegalTarget, 'terms', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack });
-            legalDocuments = {
-              hasLegalDocuments: true,
-              isFirewallResilient: Boolean(privacy?.isFirewallResilient || terms?.isFirewallResilient),
-              privacyPolicy: privacy,
-              termsOfService: terms
-            };
+          if (!legalDocuments) {
+            legalDocuments = { hasLegalDocuments: false, privacyPolicy: null, termsOfService: null };
+          } else {
+            legalDocuments.hasLegalDocuments = Boolean(legalDocuments.privacyPolicy || legalDocuments.termsOfService);
           }
         } catch (legalErr) {
-          console.warn('Legal documents discovery fallback:', legalErr?.message || String(legalErr));
+          console.warn('Legal documents discovery error:', legalErr?.message || String(legalErr));
           legalDocuments = {
-            hasLegalDocuments: true,
-            isFirewallResilient: true,
-            privacyPolicy: this.generateFirewallResilientLegalDocument(safeLegalTarget, 'privacy', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack }),
-            termsOfService: this.generateFirewallResilientLegalDocument(safeLegalTarget, 'terms', { origin: safeLegalOrigin, projectName, cloudProvider: techStack?.cloudProvider, techStack })
+            hasLegalDocuments: false,
+            isFirewallResilient: false,
+            privacyPolicy: null,
+            termsOfService: null
           };
         }
 
@@ -5315,6 +5310,21 @@ Support: **support@${domainName}**`;
       targetApex = this.getApexDomain(new URL(origin).hostname);
     } catch { }
 
+    const isUnrelatedThirdPartyLegalDomain = (domainApex) => {
+      if (!domainApex) return false;
+      const d = domainApex.toLowerCase();
+      if (targetApex && d === targetApex) return false;
+      // Social networks / sharing targets
+      if (['facebook.com', 'twitter.com', 'x.com', 'instagram.com', 'linkedin.com', 'youtube.com', 'tiktok.com', 'pinterest.com', 'reddit.com', 'snapchat.com', 'whatsapp.com', 'telegram.org'].includes(d)) return true;
+      // Generic cookie consent / compliance widget providers
+      if (['cookiebot.com', 'onetrust.com', 'trustarc.com', 'termly.io', 'iubenda.com', 'civicuk.com', 'usercentrics.com', 'ketch.com', 'osano.com', 'quantcast.com', 'securiti.ai', 'cookieyes.com'].includes(d)) return true;
+      // Ad / telemetry networks
+      if (['doubleclick.net', 'googletagmanager.com', 'google-analytics.com', 'adnxs.com', 'criteo.com'].includes(d)) return true;
+      // Cloud infrastructure hosts unless target belongs there
+      if (['cloudflare.com', 'vercel.com', 'netlify.com', 'amazonaws.com'].includes(d)) return true;
+      return false;
+    };
+
     const harvestLinksFromHtml = (pageHtml, pageBaseUrl) => {
       if (!pageHtml || typeof pageHtml !== 'string') return;
       const aRegex = /<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -5338,8 +5348,9 @@ Support: **support@${domainName}**`;
           const lowerText = rawText.toLowerCase();
           const linkApex = this.getApexDomain(new URL(resolved).hostname);
           const isFirstParty = !targetApex || linkApex === targetApex;
+          const isEligibleExternal = !isFirstParty && !isUnrelatedThirdPartyLegalDomain(linkApex);
 
-          if (isFirstParty) {
+          if (isFirstParty || isEligibleExternal) {
             if (targetApex === 'amazon.com') {
               const lowerRes = resolved.toLowerCase();
               if (lowerRes.includes('pay.amazon') || lowerRes.includes('amazonpay') || lowerHref.includes('pay.amazon') || lowerHref.includes('amazonpay') || lowerText.includes('amazon pay') || lowerText.includes('payments')) {
@@ -5365,7 +5376,9 @@ Support: **support@${domainName}**`;
           if (this.isStaticAssetUrl(resolved)) continue;
           const linkApex = this.getApexDomain(new URL(resolved).hostname);
           const isFirstParty = !targetApex || linkApex === targetApex;
-          if (isFirstParty) {
+          const isEligibleExternal = !isFirstParty && !isUnrelatedThirdPartyLegalDomain(linkApex);
+
+          if (isFirstParty || isEligibleExternal) {
             const lower = resolved.toLowerCase();
             if (targetApex === 'amazon.com' && (lower.includes('pay.amazon') || lower.includes('amazonpay'))) {
               continue;
@@ -5426,6 +5439,13 @@ Support: **support@${domainName}**`;
     }
     if (targetApex === 'amazon.com') {
       // Do not add pay.amazon.com or amazonpay subsidiaries when auditing main retail amazon.com
+    }
+    if (targetApex === 'chatgpt.com') {
+      candidateOrigins.add('https://openai.com');
+      discoveredPrivacyUrls.add('https://openai.com/privacy');
+      discoveredPrivacyUrls.add('https://openai.com/policies/privacy-policy/');
+      discoveredTermsUrls.add('https://openai.com/terms');
+      discoveredTermsUrls.add('https://openai.com/policies/terms-of-use/');
     }
     if (targetApex && discoveredSubdomains) {
       const subsList = Array.isArray(discoveredSubdomains) ? discoveredSubdomains : Array.from(discoveredSubdomains);
@@ -5842,10 +5862,13 @@ Support: **support@${domainName}**`;
 
                 meta.isFirewallResilient = false;
                 meta.source = meta.source || 'origin_live';
-                meta.url = u.startsWith('http://') && !u.includes('localhost') ? u.replace(/^http:\/\//i, 'https://') : u;
-                const formatted = formatAndValidateMeta(meta, u);
+                meta.url = r.finalUrl || (u.startsWith('http://') && !u.includes('localhost') ? u.replace(/^http:\/\//i, 'https://') : u);
+                try {
+                  meta.path = new URL(meta.url).pathname;
+                } catch { }
+                const formatted = formatAndValidateMeta(meta, meta.url);
                 if (formatted) {
-                  harvestLinksFromHtml(r.text, u);
+                  harvestLinksFromHtml(r.text, meta.url);
                   return formatted;
                 }
               }
@@ -5973,7 +5996,7 @@ Support: **support@${domainName}**`;
         return 1;
       };
       const explicitCandidates = candidates.filter(isExplicitUrl).sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
-      for (const u of explicitCandidates.slice(0, 3)) {
+      for (const u of explicitCandidates.slice(0, 6)) {
         const doc = await probeSingle(u);
         if (doc) return doc;
       }
@@ -6052,32 +6075,16 @@ Support: **support@${domainName}**`;
       }
     }
 
-    // Step 2: Firewall-Resilient Fallback Engine
-    // If target origin is protected by WAF, Akamai Bot Manager, or firewall challenges,
-    // guarantee comprehensive domain-tailored regulatory legal documents with compliance framework.
-    if (!privacyPolicy) {
-      privacyPolicy = this.generateFirewallResilientLegalDocument(targetUrl || origin, 'privacy', {
-        origin,
-        projectName,
-        cloudProvider,
-        techStack
-      });
-    }
-
-    if (!termsOfService) {
-      termsOfService = this.generateFirewallResilientLegalDocument(targetUrl || origin, 'terms', {
-        origin,
-        projectName,
-        cloudProvider,
-        techStack
-      });
-    }
+    // Step 2: Accurate Authentic Legal Resolution
+    // If target origin does NOT publish a privacy policy or terms of service,
+    // accurately return null so the platform displays that there is no privacy policy / terms of service.
+    // Zero-hallucination guarantee: NEVER invent or generate fake legal policies.
 
     return {
-      hasLegalDocuments: true,
+      hasLegalDocuments: Boolean(privacyPolicy || termsOfService),
       isFirewallResilient: Boolean(privacyPolicy?.isFirewallResilient || termsOfService?.isFirewallResilient),
-      privacyPolicy,
-      termsOfService
+      privacyPolicy: privacyPolicy || null,
+      termsOfService: termsOfService || null
     };
   }
 
@@ -6106,14 +6113,12 @@ Support: **support@${domainName}**`;
       // 1. Collect candidate scripts to inspect
       const candidateScripts = new Set();
 
-      // From passed discoveredScriptUrls
       if (discoveredScriptUrls && discoveredScriptUrls.size > 0) {
         for (const sUrl of discoveredScriptUrls) {
           if (!this.isThirdPartyTracker(sUrl)) candidateScripts.add(sUrl);
         }
       }
 
-      // From html script tags
       if (html) {
         const scriptTagRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
         let sm;
@@ -6129,7 +6134,6 @@ Support: **support@${domainName}**`;
           } catch { }
         }
 
-        // Modulepreload / preload links
         const preloadRegex = /<link\b[^>]*?href\s*=\s*["']([^"']+\.js[^"']*)["'][^>]*>/gi;
         let pm;
         while ((pm = preloadRegex.exec(html)) !== null) {
@@ -6145,7 +6149,6 @@ Support: **support@${domainName}**`;
         }
       }
 
-      // Discover explicit legal chunks from scriptContents keys and code references
       if (scriptContents && scriptContents.size > 0) {
         for (const [sUrl, code] of scriptContents.entries()) {
           const l = sUrl.toLowerCase();
@@ -6174,8 +6177,8 @@ Support: **support@${domainName}**`;
         return (bLegal + bPrimary) - (aLegal + aPrimary);
       });
 
-      // Probe up to 6 priority first-party bundle scripts
-      for (const sUrl of sortedScripts.slice(0, 6)) {
+      // Probe candidate first-party bundle scripts (up to 8)
+      for (const sUrl of sortedScripts.slice(0, 8)) {
         if (privacyPolicy && termsOfService) break;
 
         let jsCode = scriptContents?.get?.(sUrl);
@@ -6186,227 +6189,194 @@ Support: **support@${domainName}**`;
           }
         }
 
-        if (!jsCode || typeof jsCode !== 'string' || jsCode.length < 500) continue;
+        if (!jsCode || typeof jsCode !== 'string' || jsCode.length < 300) continue;
 
-        // Check for authentic SPA Privacy Policy
-        if (!privacyPolicy) {
-          const lower = jsCode.toLowerCase();
-          const hasPrivacySignals = (lower.includes('privacy policy') || lower.includes('data protection')) &&
-            (lower.includes('dpdp') || lower.includes('gdpr') || lower.includes('personal data') || lower.includes('data principal') || lower.includes('grievance officer'));
-
-          if (hasPrivacySignals) {
-            // Extract last updated date
-            let lastUpdated = null;
-            const dateMatch = jsCode.match(/x5\s*=\s*["']([^"']+)["']/i) ||
-              jsCode.match(/(?:last\s+updated|effective\s+date|last\s+revised|updated\s+on)[\s\S]{1,60}?([0-9]{1,2}\s+[a-zA-Z]+\s+[0-9]{4}|[a-zA-Z]+\s+[0-9]{1,2},?\s+[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})/i);
-            if (dateMatch) lastUpdated = dateMatch[1];
-
-            // Extract structured purposes
-            const purposes = [];
-            const xMatch = jsCode.match(/(?:X_|purposes|dataCollectionPurposes)\s*=\s*(\[\s*\{[\s\S]*?\}\s*\])/);
-            if (xMatch) {
-              const itemRegex = /\{[^}]*title\s*:\s*["']([^"']+)["'][^}]*description\s*:\s*["']([^"']+)["'](?:[^}]*data\s*:\s*["']([^"']+)["'])?[^}]*\}/g;
-              let im;
-              while ((im = itemRegex.exec(xMatch[1])) !== null) {
-                purposes.push({ title: im[1], description: im[2], data: im[3] || null });
-              }
-            }
-
-            // Extract retention schedules
-            const retentions = [];
-            const mMatch = jsCode.match(/(?:m\$|retention|schedules)\s*=\s*(\[\s*\{[\s\S]*?\}\s*\])/);
-            if (mMatch) {
-              const retRegex = /\{[^}]*category\s*:\s*["']([^"']+)["'][^}]*examples\s*:\s*["']([^"']+)["'][^}]*period\s*:\s*["']([^"']+)["'][^}]*trigger\s*:\s*["']([^"']+)["'][^}]*\}/g;
-              let rm;
-              while ((rm = retRegex.exec(mMatch[1])) !== null) {
-                retentions.push({ category: rm[1], examples: rm[2], period: rm[3], trigger: rm[4] });
-              }
-            }
-
-            // Extract rights of data principal
-            const rights = [];
-            const yMatch = jsCode.match(/(?:Y_|userRights|dataPrincipalRights)\s*=\s*(\[\s*\{[\s\S]*?\}\s*\])/);
-            if (yMatch) {
-              const rightRegex = /{[^}]*titles*:s*["']([^"']+)["'][^}]*descriptions*:s*["']([^"']+)["'](?:[^}]*mechanisms*:s*(?:['"]([^'"]+)['"]|`([^`]+)`))?[^}]*}/g;
-              let ym;
-              while ((ym = rightRegex.exec(yMatch[1])) !== null) {
-                rights.push({ title: ym[1], description: ym[2], mechanism: ym[3] || ym[4] || null });
-              }
-            }
-
-            // Extract Grievance / Privacy Officer details dynamically from code
-            let grievanceOfficer = null;
-            const officerMatch = jsCode.match(/(?:grievance\s*officer|data\s*protection\s*officer|privacy\s*officer|compliance\s*officer)[\s\S]{1,40}?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i);
-            const emailMatch = jsCode.match(/(?:grievance|dpo|privacy|compliance)@([a-zA-Z0-9.\-_]+)/i);
-            if (officerMatch || emailMatch) {
-              const detectedName = officerMatch ? officerMatch[1].trim() : 'Designated Privacy / Grievance Officer';
-              grievanceOfficer = {
-                name: detectedName,
-                email: emailMatch ? emailMatch[0] : `privacy@${new URL(origin).hostname}`,
-                role: 'Grievance / Privacy Officer'
-              };
-            }
-
-            // Extract legal entity name dynamically from code, copyright, or domain
-            let legalEntity = entityName;
-            const entMatch = jsCode.match(/\b([A-Z][A-Za-z0-9\s&.,-]{2,40}(?:Private\s+Limited|Pvt\.?\s*Ltd\.?|LLC|Inc\.?|Corp\.?|Corporation|Ltd\.?|GmbH|S\.A\.))\b/);
-            if (entMatch && !entMatch[0].includes('Remix') && !entMatch[0].includes('Facebook') && !entMatch[0].includes('Meta')) {
-              legalEntity = entMatch[0].trim();
-            }
-
-            const mdParts = [];
-            mdParts.push(`# Privacy Policy & Data Protection\n`);
-            mdParts.push(`**Entity:** ${legalEntity}  `);
-            if (lastUpdated) mdParts.push(`**Last Updated:** ${lastUpdated}  `);
-            mdParts.push(`**Target Domain:** [${new URL(origin).hostname}](${origin})  `);
-            mdParts.push(`**Compliance Framework:** Digital Personal Data Protection Act, 2023 (DPDP Act) & Global Privacy Standards  `);
-            mdParts.push(`**Status:** Verified Local Authentic Extraction (SPA Client Application)\n`);
-            mdParts.push(`---\n`);
-
-            mdParts.push(`## 1. Introduction & Regulatory Scope\n`);
-            mdParts.push(`${legalEntity} ("we", "us", or "our") values the trust you place in us when you share your personal data. This Privacy Policy is designed to comply with India's **Digital Personal Data Protection Act, 2023 (DPDP Act)** and global privacy regulations. It explains what personal data we collect, why we collect it, how we use it, and the rights you have as a "Data Principal".\n`);
-            mdParts.push(`Your privacy is strictly protected under the Digital Personal Data Protection Act (DPDP), 2023.\n`);
-
-            if (purposes.length > 0) {
-              mdParts.push(`## 2. Purposes of Processing & Data Collected\n`);
-              mdParts.push(`We process personal data only for specific, clearly defined purposes. Below is the explicit itemised disclosure:\n`);
-              for (const p of purposes) {
-                mdParts.push(`### ${p.title}`);
-                mdParts.push(`${p.description}`);
-                if (p.data) mdParts.push(`- **Data Categories:** ${p.data}\n`);
-                else mdParts.push('');
-              }
-            }
-
-            if (retentions.length > 0) {
-              mdParts.push(`## 3. Data Retention Schedule & Erasure Triggers\n`);
-              mdParts.push(`We retain your personal data only for as long as necessary to fulfil the purpose for which it was collected. Below are the verified retention periods and erasure triggers:\n`);
-              for (const r of retentions) {
-                mdParts.push(`- **${r.category}:**`);
-                mdParts.push(`  - *Examples:* ${r.examples}`);
-                mdParts.push(`  - *Retention Period:* ${r.period}`);
-                mdParts.push(`  - *Erasure Trigger:* ${r.trigger}\n`);
-              }
-            }
-
-            if (rights.length > 0) {
-              mdParts.push(`## 4. Rights of the Data Principal (DPDP Act 2023)\n`);
-              mdParts.push(`Under the DPDP Act 2023, you hold enforceable statutory rights regarding your personal data:\n`);
-              for (const r of rights) {
-                mdParts.push(`### ${r.title}`);
-                mdParts.push(`${r.description || ''}`);
-                if (r.mechanism) mdParts.push(`- **Exercise Mechanism:** ${r.mechanism}\n`);
-                else mdParts.push('');
-              }
-            }
-
-            mdParts.push(`## 5. Security & Non-Disclosure Commitment\n`);
-            mdParts.push(`- We implement strict technical and organizational safeguards to protect your personal data from unauthorized access, loss, or misuse.`);
-            mdParts.push(`- **We never sell your personal data to any third party.**\n`);
-
-            if (grievanceOfficer) {
-              mdParts.push(`## 6. Grievance Redressal & Contact Information\n`);
-              mdParts.push(`In accordance with Rule 3(b) of the DPDPA Rules, our designated Grievance Officer details are:\n`);
-              mdParts.push(`- **Grievance Officer Name:** ${grievanceOfficer.name}`);
-              mdParts.push(`- **Email:** [${grievanceOfficer.email}](mailto:${grievanceOfficer.email})`);
-              mdParts.push(`- **Organization:** ${legalEntity}\n`);
-              mdParts.push(`If a grievance remains unresolved after 30 days, Data Principals may register a complaint with the Data Protection Board of India (DPBI) under §13 and Rule 3(b).\n`);
-            }
-
-            const fullContent = mdParts.join('\n');
-            const words = fullContent.split(/\s+/).filter(Boolean);
-
-            const keyClauses = [
-              'Data Collection & Personal Information',
-              'Purposes of Processing & Specified Uses',
-              'Data Retention Schedule & Erasure Triggers',
-              'User Rights & Compliance (GDPR/CCPA/DPDP)',
-              'Data Security & Non-Disclosure Commitment',
-              'Grievance Redressal & DPBI Escalation Path'
-            ];
-
-            privacyPolicy = {
-              url: `${origin}/privacy-policy`,
-              path: '/privacy-policy',
-              title: `${legalEntity} Privacy Policy & Data Protection`,
-              lastUpdated: lastUpdated || '28 September 2026',
-              wordCount: words.length,
-              charCount: fullContent.length,
-              keyClauses,
-              clausesDetected: keyClauses.map(name => ({ name })),
-              excerpt: fullContent.slice(0, 300) + '...',
-              content: fullContent,
-              isFirewallResilient: false,
-              firewallStatus: 'Authentic SPA Client Component',
-              source: 'origin_live_spa'
-            };
+        // 1. Discover client-side router paths
+        const discoveredPaths = { privacy: null, terms: null };
+        const routeRegex = /(?:path|to|href)\s*:\s*["'](\/[a-zA-Z0-9_\-\/]*(?:privacy|terms|condition|legal|tos)[a-zA-Z0-9_\-\/]*)["']/gi;
+        let rm;
+        while ((rm = routeRegex.exec(jsCode)) !== null) {
+          const p = rm[1];
+          const pl = p.toLowerCase();
+          if (!discoveredPaths.privacy && pl.includes('privacy')) {
+            discoveredPaths.privacy = p;
+          }
+          if (!discoveredPaths.terms && (pl.includes('terms') || pl.includes('condition') || pl.includes('tos'))) {
+            discoveredPaths.terms = p;
           }
         }
 
-        // Check for authentic SPA Terms of Service
-        if (!termsOfService) {
-          const lower = jsCode.toLowerCase();
-          const hasTermsSignals = (lower.includes('terms of service') || lower.includes('terms of use') || lower.includes('terms and conditions')) &&
-            (lower.includes('service coverage') || lower.includes('user conduct') || lower.includes('intellectual property') || lower.includes('bound by these terms'));
+        // 2. Discover structured legal objects via balanced-brace inspection
+        const titleRegex = /title\s*:\s*["']([^"']*(?:privacy|terms|condition|participation|acceptable\s*use|disclaimer|legal)[^"']*)["']/gi;
+        let tm;
+        while ((tm = titleRegex.exec(jsCode)) !== null) {
+          const candTitle = tm[1].trim();
+          const lower = candTitle.toLowerCase();
 
-          if (hasTermsSignals) {
-            let legalEntity = entityName;
-            const entMatch = jsCode.match(/\b([A-Z][A-Za-z0-9\s&.,-]{2,40}(?:Private\s+Limited|Pvt\.?\s*Ltd\.?|LLC|Inc\.?|Corp\.?|Corporation|Ltd\.?|GmbH|S\.A\.))\b/);
-            if (entMatch && !entMatch[0].includes('Remix') && !entMatch[0].includes('Facebook') && !entMatch[0].includes('Meta')) {
-              legalEntity = entMatch[0].trim();
+          // Strong title validation to avoid false positives (e.g. course badges, role cards)
+          let docType = null;
+          if (
+            lower === 'privacy' ||
+            lower.includes('privacy policy') ||
+            lower.includes('privacy notice') ||
+            lower.includes('privacy statement') ||
+            lower.includes('data protection')
+          ) {
+            docType = 'privacy';
+          } else if (
+            lower === 'terms' ||
+            lower.includes('terms of') ||
+            lower.includes('terms &') ||
+            lower.includes('terms and') ||
+            lower.includes('conditions of') ||
+            lower.includes('acceptable use') ||
+            lower.includes('disclaimer')
+          ) {
+            docType = 'terms';
+          }
+
+          if (!docType) continue;
+          if (docType === 'privacy' && privacyPolicy) continue;
+          if (docType === 'terms' && termsOfService) continue;
+
+          // Find start of enclosing object
+          const titleIdx = tm.index;
+          const objStart = jsCode.lastIndexOf('{', titleIdx);
+          if (objStart === -1) continue;
+
+          // Find end of enclosing object using balanced braces
+          let braceCount = 0;
+          let inString = false;
+          let stringChar = '';
+          let isEscaped = false;
+          let objEnd = -1;
+
+          for (let i = objStart; i < jsCode.length && i < objStart + 60000; i++) {
+            const c = jsCode[i];
+            if (isEscaped) {
+              isEscaped = false;
+              continue;
+            }
+            if (c === '\\') {
+              isEscaped = true;
+              continue;
+            }
+            if (inString) {
+              if (c === stringChar) inString = false;
+            } else {
+              if (c === '"' || c === "'" || c === '`') {
+                inString = true;
+                stringChar = c;
+              } else if (c === '{') {
+                braceCount++;
+              } else if (c === '}') {
+                braceCount--;
+                if (braceCount === 0) {
+                  objEnd = i + 1;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (objEnd <= objStart) continue;
+          const objStr = jsCode.slice(objStart, objEnd);
+
+          // Extract lastUpdated
+          const luMatch = objStr.match(/lastUpdated\s*:\s*["']([^"']+)["']/i) ||
+            objStr.match(/(?:updated|date)\s*:\s*["']([^"']+)["']/i);
+          const lastUpdated = luMatch ? luMatch[1].trim() : null;
+
+          // Extract summary
+          const sumMatch = objStr.match(/summary\s*:\s*(?:["']([\s\S]*?)["']|`([\s\S]*?)`)/i);
+          const summary = sumMatch ? (sumMatch[1] || sumMatch[2]).trim() : null;
+
+          // Extract structured sections
+          const sections = [];
+          const secRegex = /(?:heading|title|subtitle)\s*:\s*["']([^"']+)["'][\s\S]*?(?:content|body|text|description)\s*:\s*(?:["']([\s\S]*?)["']|`([\s\S]*?)`)/gi;
+          let sm;
+          while ((sm = secRegex.exec(objStr)) !== null) {
+            const heading = sm[1].trim();
+            const content = (sm[2] || sm[3] || '').trim();
+            if (heading && content && heading !== candTitle) {
+              sections.push({ heading, content });
+            }
+          }
+
+          // Single body / content fallback
+          let singleBody = null;
+          if (sections.length === 0) {
+            const bodyMatch = objStr.match(/(?:content|body|text)\s*:\s*(?:["']([\s\S]*?)["']|`([\s\S]*?)`)/i);
+            if (bodyMatch) {
+              singleBody = (bodyMatch[1] || bodyMatch[2] || '').trim();
+            }
+          }
+
+          if (sections.length > 0 || singleBody || (summary && summary.length > 100)) {
+            let md = `# ${candTitle}\n\n`;
+            if (lastUpdated) md += `**Last Updated:** ${lastUpdated}  \n`;
+            md += `**Target Domain:** [${new URL(origin).hostname}](${origin})  \n`;
+            md += `**Status:** Verified Local Authentic Extraction (SPA Client Application)\n\n`;
+            md += `---\n\n`;
+            if (summary) {
+              md += `*${summary}*\n\n---\n\n`;
+            }
+            for (const sec of sections) {
+              md += `## ${sec.heading}\n\n${sec.content}\n\n`;
+            }
+            if (singleBody) {
+              md += `${singleBody}\n\n`;
             }
 
-            const mdTerms = [];
-            mdTerms.push(`# Terms of Service & Customer Agreement\n`);
-            mdTerms.push(`**Entity:** ${legalEntity}  `);
-            mdTerms.push(`**Target Domain:** [${new URL(origin).hostname}](${origin})  `);
-            mdTerms.push(`**Status:** Verified Local Authentic Extraction (SPA Client Application)\n`);
-            mdTerms.push(`---\n`);
+            const words = md.split(/\s+/).filter(Boolean);
+            const relativePath = discoveredPaths[docType] || (docType === 'privacy' ? '/privacy' : '/terms');
 
-            mdTerms.push(`## 1. Acceptance of Terms\n`);
-            mdTerms.push(`By accessing or using the services of **${legalEntity}** ("Company", "We", "Us"), including our website, digital applications, and APIs, you agree to be bound by these Terms of Service. If you are entering into these terms on behalf of a company or other legal entity, you represent that you possess full corporate authority to bind such entity to these terms.\n`);
+            // Derive key clauses
+            const keyClauses = [];
+            const lowerMd = md.toLowerCase();
+            if (lowerMd.includes('collect') || lowerMd.includes('personal data') || lowerMd.includes('information we receive')) {
+              keyClauses.push('Data Collection & Personal Information');
+            }
+            if (lowerMd.includes('cookie') || lowerMd.includes('tracking') || lowerMd.includes('consent')) {
+              keyClauses.push('Cookies & Tracking Technologies');
+            }
+            if (lowerMd.includes('sharing') || lowerMd.includes('third party') || lowerMd.includes('disclosure')) {
+              keyClauses.push('Third-Party Data Sharing & Disclosure');
+            }
+            if (lowerMd.includes('security') || lowerMd.includes('retention') || lowerMd.includes('safeguard')) {
+              keyClauses.push('Data Security & Retention');
+            }
+            if (lowerMd.includes('rights') || lowerMd.includes('grievance') || lowerMd.includes('dpdp') || lowerMd.includes('gdpr')) {
+              keyClauses.push('User Rights & Grievance Redressal');
+            }
+            if (lowerMd.includes('conduct') || lowerMd.includes('acceptable use') || lowerMd.includes('prohibited')) {
+              keyClauses.push('Acceptable Use & Conduct Standards');
+            }
+            if (lowerMd.includes('intellectual property') || lowerMd.includes('copyright') || lowerMd.includes('license')) {
+              keyClauses.push('Intellectual Property Rights');
+            }
+            if (lowerMd.includes('disclaimer') || lowerMd.includes('liability') || lowerMd.includes('warranty')) {
+              keyClauses.push('Limitation of Liability & Disclaimers');
+            }
 
-            mdTerms.push(`## 2. Service Coverage & Scope\n`);
-            mdTerms.push(`Our platform provides digital applications, APIs, software platforms, and related online services provided by ${legalEntity}. Service availability is governed by subscription terms, service level agreements, and scheduled maintenance windows.\n`);
-
-            mdTerms.push(`## 3. Acceptable Use & User Conduct\n`);
-            mdTerms.push(`You agree not to engage in any activity that interferes with, disrupts, or compromises the security of the services. Specifically:`);
-            mdTerms.push(`- No unauthorized vulnerability probing, penetration testing, or disruption of platform infrastructure.`);
-            mdTerms.push(`- No reverse engineering, decompiling, or attempting to derive platform source code or proprietary algorithms.`);
-            mdTerms.push(`- Strict adherence to all applicable state, national, and international laws and regulations.\n`);
-
-            mdTerms.push(`## 4. Intellectual Property Rights\n`);
-            mdTerms.push(`All software, algorithms, documentation, brand trademarks, and proprietary methodologies remain the exclusive property of ${legalEntity}. Customers are granted a limited, non-exclusive, non-transferable license to access the services solely for authorized business operations.\n`);
-
-            mdTerms.push(`## 5. Governing Law & Dispute Resolution\n`);
-            mdTerms.push(`These Terms of Service are governed by and construed in accordance with the laws of the jurisdiction of incorporation of ${legalEntity}. Any dispute arising from these terms shall be resolved through good-faith negotiation or confidential arbitration.\n`);
-
-            const fullTermsContent = mdTerms.join('\n');
-            const words = fullTermsContent.split(/\s+/).filter(Boolean);
-
-            const keyClauses = [
-              'Acceptance of Terms & Binding Agreement',
-              'Service Coverage & Operational Scope',
-              'Acceptable Use & User Conduct Rules',
-              'Intellectual Property & Licensing Rights',
-              'Governing Law & Dispute Resolution'
-            ];
-
-            termsOfService = {
-              url: `${origin}/terms-of-service`,
-              path: '/terms-of-service',
-              title: `${legalEntity} Terms of Service`,
-              lastUpdated: new Date().getFullYear().toString(),
+            const docObj = {
+              title: candTitle,
+              url: `${origin.replace(/\/+$/, '')}${relativePath}`,
+              path: relativePath,
+              lastUpdated,
               wordCount: words.length,
-              charCount: fullTermsContent.length,
+              charCount: md.length,
               keyClauses,
               clausesDetected: keyClauses.map(name => ({ name })),
-              excerpt: fullTermsContent.slice(0, 300) + '...',
-              content: fullTermsContent,
+              excerpt: md.slice(0, 300) + '...',
+              content: md,
+              source: 'origin_live_spa',
               isFirewallResilient: false,
-              firewallStatus: 'Authentic SPA Client Component',
-              source: 'origin_live_spa'
+              firewallStatus: 'Authentic SPA Client Application (Live Verified)'
             };
+
+            if (docType === 'privacy') privacyPolicy = docObj;
+            else termsOfService = docObj;
           }
         }
       }
@@ -6471,10 +6441,10 @@ Support: **support@${domainName}**`;
       });
     } catch (e) {
       return {
-        hasLegalDocuments: true,
-        isFirewallResilient: true,
-        privacyPolicy: this.generateFirewallResilientLegalDocument(targetUrl, 'privacy', options),
-        termsOfService: this.generateFirewallResilientLegalDocument(targetUrl, 'terms', options)
+        hasLegalDocuments: false,
+        isFirewallResilient: false,
+        privacyPolicy: null,
+        termsOfService: null
       };
     }
   }

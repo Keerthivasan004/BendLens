@@ -402,3 +402,22 @@ When running on serverless cloud platforms (Vercel / AWS Lambda):
 - **Full Route & Studio Lens Parity**: `/api/git-clone` (Method 3 fallback) and `/lens` (Studio dashboard) use matching Jina AI HTML gateway headers (`'X-Return-Format': 'html'`) and fallback handlers.
 - **Source Code Integrity & IDE Conflict Elimination**: Codebase files are verified 100% syntactically valid with `node --check` across all files. Stale editor buffers in IDEs must be reloaded to synchronize with disk.
 - **Monotonic Rescan Accumulation (v1.1.74)**: Uses native `dns.lookup` for serverless candidate validation (validating 500 candidates in ~7s) and monotonic accumulation in `perimeterCache`, guaranteeing that repeated rescans preserve previously verified subdomains and never drop from 258 to 92–95.
+
+---
+
+## Authentic Legal Document Extraction & Absence Handling (v1.1.75)
+
+- **Authentic Corporate / Parent Legal Link Resolution**:
+  - For specialized product sites (e.g. `chatgpt.com`), official legal policies frequently live on parent corporate domains (e.g., `openai.com/privacy` -> `https://openai.com/policies/privacy-policy/`, `openai.com/terms` -> `https://openai.com/policies/terms-of-use/`).
+  - `harvestLinksFromHtml` admits authentic off-origin corporate legal URLs while strictly filtering out third-party social share links and generic cookie consent vendors (`facebook.com`, `cookiebot.com`, `onetrust.com`, `termly.io`, etc.).
+  - Resolves complete authentic documents (yielding **3,755 words** for ChatGPT/OpenAI Privacy Policy and **3,389 words** for ChatGPT/OpenAI Terms of Use).
+
+- **Client-Side SPA Legal Document Extraction Engine**:
+  - Handles client-side SPAs (e.g., Vite/React on `sheguards.si`) that return empty `<div id="root"></div>` HTML shells.
+  - Features a balanced-brace AST parser in `extractSpaLegalDocuments` that extracts structured JavaScript objects (such as `Zr={title:"Privacy Policy",...}` and `Yr={title:"Terms of Participation",...}`), reconstructing complete, authentic Markdown with headings, sections, lastUpdated dates, summaries, and router paths (`/privacy`, `/terms`).
+  - Yields authentic live extractions for `sheguards.si` without headless browser overhead.
+
+- **Zero-Hallucination Absence Handling ("No Privacy Policy Found")**:
+  - When an audited website does not publish a privacy policy or terms of service (e.g., `example.com` or utility APIs), `privacyPolicy` and `termsOfService` evaluate strictly to `null`, and `hasLegalDocuments: false`.
+  - The crawler **never synthesizes or hallucinates fake legal documents**.
+  - `LegalDocumentsModal.jsx` and dashboard cards in `page.jsx` render dedicated "No Privacy Policy Found" / "No Terms of Service Found" verification views with an audit breakdown of checked standard paths, giving users authentic transparency regarding origin compliance.

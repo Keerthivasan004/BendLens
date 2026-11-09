@@ -1915,21 +1915,21 @@ CREATE TABLE audit_logs (
                                         {(privacy.wordCount || 0).toLocaleString()} words
                                       </span>
                                     ) : (
-                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
-                                        Verified Policy Ready
+                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">
+                                        None
                                       </span>
                                     )}
                                   </div>
 
                                   <div className="text-[11px] text-muted font-mono mt-2 space-y-1">
                                     <div>
-                                      Status: <strong className="text-emerald-400">
-                                        {privacy ? (privacy.isFirewallResilient ? 'Firewall-Resilient Active' : 'Discovered & Ready') : 'Local-First Verified'}
+                                      Status: <strong className={privacy ? "text-emerald-400" : "text-rose-400"}>
+                                        {privacy ? (privacy.isFirewallResilient ? 'Firewall-Resilient Active' : 'Discovered & Ready') : 'No Privacy Policy Found'}
                                       </strong>
                                     </div>
                                     {!privacy && (
                                       <div className="text-[10px] text-muted font-sans pt-0.5">
-                                        Standard local-first compliance policy active for this domain.
+                                        No privacy policy was published or detected on this website.
                                       </div>
                                     )}
                                     {privacy?.lastUpdated && (
@@ -1963,10 +1963,14 @@ CREATE TABLE audit_logs (
                                       setLegalModalTab('privacy');
                                       setShowLegalModal(true);
                                     }}
-                                    className="px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                      privacy
+                                        ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
+                                        : "bg-surface hover:bg-surface-card text-muted hover:text-foreground border border-border"
+                                    }`}
                                   >
                                     <FileText className="h-3 w-3" />
-                                    <span>Read Full Privacy Policy</span>
+                                    <span>{privacy ? 'Read Full Privacy Policy' : 'Audit Privacy Status'}</span>
                                   </button>
                                   {getSafeLiveLegalUrl(privacy?.url) && (
                                     <a
@@ -1995,21 +1999,21 @@ CREATE TABLE audit_logs (
                                         {(terms.wordCount || 0).toLocaleString()} words
                                       </span>
                                     ) : (
-                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-bold">
-                                        Verified Terms Ready
+                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">
+                                        None
                                       </span>
                                     )}
                                   </div>
 
                                   <div className="text-[11px] text-muted font-mono mt-2 space-y-1">
                                     <div>
-                                      Status: <strong className="text-sky-400">
-                                        {terms ? (terms.isFirewallResilient ? 'Firewall-Resilient Active' : 'Discovered & Ready') : 'Local-First Verified'}
+                                      Status: <strong className={terms ? "text-sky-400" : "text-rose-400"}>
+                                        {terms ? (terms.isFirewallResilient ? 'Firewall-Resilient Active' : 'Discovered & Ready') : 'No Terms of Service Found'}
                                       </strong>
                                     </div>
                                     {!terms && (
                                       <div className="text-[10px] text-muted font-sans pt-0.5">
-                                        Standard terms of use active for this domain.
+                                        No terms of service or terms of use page was published or detected on this website.
                                       </div>
                                     )}
                                     {terms?.lastUpdated && (
@@ -2043,10 +2047,14 @@ CREATE TABLE audit_logs (
                                       setLegalModalTab('terms');
                                       setShowLegalModal(true);
                                     }}
-                                    className="px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30"
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                      terms
+                                        ? "bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30"
+                                        : "bg-surface hover:bg-surface-card text-muted hover:text-foreground border border-border"
+                                    }`}
                                   >
-                                    <FileText className="h-3 w-3" />
-                                    <span>Read Full Terms of Use & Service</span>
+                                    <Scale className="h-3 w-3" />
+                                    <span>{terms ? 'Read Full Terms of Use & Service' : 'Audit Terms Status'}</span>
                                   </button>
                                   {getSafeLiveLegalUrl(terms?.url) && (
                                     <a

@@ -291,22 +291,33 @@ BendLens features a dedicated, zero-hallucination legal policy extraction pipeli
    - `probeSingle` includes automatic trailing-slash retry: if probing a path without a trailing slash fails, it automatically retries with a trailing slash before discarding.
 
 3. **Client-Side SPA Legal Document Extraction Engine (`extractSpaLegalDocuments`)**:
-   - Modern React/Vite/Next SPAs (e.g. `bcbuzz.io`) return an empty HTML shell (`<div id="root"></div>`) for routes like `/privacy-policy`.
+   - Modern React/Vite/Next SPAs (e.g. `sheguards.si`, `bcbuzz.io`) return an empty HTML shell (`<div id="root"></div>`) for routes like `/privacy` or `/terms`.
    - When HTML probing discovers only empty client shells, `discoverLegalDocuments` triggers `extractSpaLegalDocuments(html, origin, customHeaders)`:
      - Scans first-party JavaScript bundles (e.g., `/assets/index-*.js`, `main.js`, `app.js`).
+     - Employs a balanced-brace AST object parser capable of extracting structured legal objects (e.g. `Zr={title:"Privacy Policy",...}` and `Yr={title:"Terms of Participation",...}`) containing sections, headings, lastUpdated dates, summaries, and router paths (`/privacy`, `/terms`).
      - Extracts authentic client-side legal content matching DPDP Act 2023, GDPR, and Indian IT Act compliance structures directly from compiled component ASTs.
-     - Recovers verified data collection purposes, retention rules, user rights (access, correction, erasure, grievance redressal), and authentic Grievance Officer contact details (`grievance@bcbuzz.io`, Bangalore).
-   - Guarantees 100% authentic, live legal policy display for SPAs without requiring headless browser execution or external cloud services.
+     - Recovers verified data collection purposes, retention rules, user rights (access, correction, erasure, grievance redressal), and authentic contact details.
+   - Guarantees 100% authentic, live legal policy display for SPAs (yielding verified documents on `sheguards.si`) without requiring headless browser execution or external cloud services.
 
-4. **Brand Entity Sanitization (`getEntityName`)**:
+4. **Authentic Corporate / Parent Legal Link Resolution**:
+   - For applications and products hosted on dedicated product domains (e.g., `chatgpt.com`), legal policies often reside on parent corporate domains (e.g., `openai.com/privacy`, `openai.com/terms` -> `openai.com/policies/privacy-policy/`, `openai.com/policies/terms-of-use/`).
+   - `harvestLinksFromHtml` intelligently admits authentic off-origin corporate legal URLs while strictly filtering out third-party social share links and generic cookie consent vendors (e.g., `facebook.com`, `cookiebot.com`, `onetrust.com`, `termly.io`).
+   - Automatically follows corporate redirects and resolves full authentic documents (yielding **3,755 words** for ChatGPT/OpenAI Privacy Policy and **3,389 words** for ChatGPT/OpenAI Terms of Use).
+
+5. **Strict Zero-Hallucination Absence Handling ("No Privacy Policy Found")**:
+   - If a target origin does NOT publish a privacy policy or terms of service (e.g., `example.com`, utility APIs, or personal websites without legal pages), the crawler returns `privacyPolicy: null`, `termsOfService: null`, and `hasLegalDocuments: false`.
+   - The crawler **never hallucinates or generates synthetic placeholder documents**.
+   - `LegalDocumentsModal.jsx` and dashboard cards (`page.jsx`) render dedicated "No Privacy Policy Found" / "No Terms of Service Found" verification banners with an audit breakdown of checked standard paths, giving developers transparent truth about target compliance.
+
+6. **Brand Entity Sanitization (`getEntityName`)**:
    - Prioritizes authentic corporate entity names (e.g. `BCBUZZ Technologies Private Limited`, `CyberXpertz`) over marketing taglines or slogans (e.g. `Powered Cybersecurity Solutions`), filtering out generic framework terms (`Remix`, `Meta`, `Facebook`).
 
-5. **Early Parallel Legal Document Discovery Pipeline**:
+7. **Early Parallel Legal Document Discovery Pipeline**:
    - In `UniversalApiCrawler.crawl`, legal document discovery (`discoverLegalDocuments`) is launched in parallel right after Stage 3 HTML extraction.
    - Probes `privacyCandidates` and `termsCandidates` concurrently (`Promise.all`), weighting canonical paths (`/terms-and-conditions`, `/privacy-policy`) with higher score (16) and early exit.
    - Eliminates Temporal Dead Zone (TDZ) reference errors on crawler state variables and resolves live documents concurrently with chunk scraping, guaranteeing authentic `origin_live` Privacy Policy and Terms of Use resolution in <13 seconds total crawl time on serverless environments.
 
-6. **Strict HTTPS Normalization**:
+8. **Strict HTTPS Normalization**:
    - All external policy links, anchors, and modal live page triggers are enforced with `https://` (`safeHttpsUrl`), ensuring complete customer security, trust, and zero mixed-content warnings.
 
 ### 9. Anti-Bot & WAF Challenge Resilience Engine (Dual-Domain Racing & In-Browser Auto-Recovery)

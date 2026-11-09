@@ -563,17 +563,17 @@ export default function LegalDocumentsModal({
         setLiveDocs(data.legalDocuments);
       } else {
         setLiveDocs({
-          hasLegalDocuments: true,
-          privacyPolicy: generateClientLegalDocument(targetUrl, 'privacy'),
-          termsOfService: generateClientLegalDocument(targetUrl, 'terms')
+          hasLegalDocuments: false,
+          privacyPolicy: null,
+          termsOfService: null
         });
       }
     } catch (err) {
       console.warn('Legal fetch on-demand fallback:', err?.message || String(err));
       setLiveDocs({
-        hasLegalDocuments: true,
-        privacyPolicy: generateClientLegalDocument(targetUrl, 'privacy'),
-        termsOfService: generateClientLegalDocument(targetUrl, 'terms')
+        hasLegalDocuments: false,
+        privacyPolicy: null,
+        termsOfService: null
       });
     } finally {
       setIsLoading(false);
@@ -596,7 +596,7 @@ export default function LegalDocumentsModal({
     if (isBendLensTarget || !targetUrl) {
       return BENDLENS_PRIVACY_POLICY;
     }
-    return generateClientLegalDocument(targetUrl, 'privacy');
+    return null;
   }, [cleanHost, isBendLensTarget, liveDocs, legalDocuments, targetUrl]);
 
   const termsDoc = useMemo(() => {
@@ -615,10 +615,10 @@ export default function LegalDocumentsModal({
     if (isBendLensTarget || !targetUrl) {
       return BENDLENS_TERMS_OF_SERVICE;
     }
-    return generateClientLegalDocument(targetUrl, 'terms');
+    return null;
   }, [cleanHost, isBendLensTarget, liveDocs, legalDocuments, targetUrl]);
 
-  // Selected document based on active tab (Always guaranteed to resolve a complete regulatory document)
+  // Selected document based on active tab (null if origin does not publish document)
   const currentDoc = useMemo(() => {
     if (activeTab === 'terms') return termsDoc;
     return privacyDoc;
@@ -639,9 +639,10 @@ export default function LegalDocumentsModal({
 
   // If modal opened without documents prop at all or with corrupted CSS, auto-trigger on-demand fetch
   useEffect(() => {
+    const wasExplicitlyProvided = legalDocuments !== undefined && legalDocuments !== null;
     const hasExisting = Boolean(liveDocs?.privacyPolicy || liveDocs?.termsOfService || legalDocuments?.privacyPolicy || legalDocuments?.termsOfService);
     const isValidUrl = targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://') || /^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(targetUrl)) && !targetUrl.includes(' ');
-    if (isOpen && (!hasExisting || isDocCss) && isValidUrl && !isLoading && !loadError) {
+    if (isOpen && (!wasExplicitlyProvided && !hasExisting || isDocCss) && isValidUrl && !isLoading && !loadError) {
       fetchOnDemand();
     }
   }, [isOpen, liveDocs, legalDocuments, targetUrl, isLoading, loadError, isDocCss]);
