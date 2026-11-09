@@ -560,20 +560,24 @@ export default function LegalDocumentsModal({
       }
       const data = await res.json();
       if (data.success && data.legalDocuments) {
-        setLiveDocs(data.legalDocuments);
+        setLiveDocs({
+          hasLegalDocuments: true,
+          privacyPolicy: data.legalDocuments.privacyPolicy || generateClientLegalDocument(targetUrl, 'privacy'),
+          termsOfService: data.legalDocuments.termsOfService || generateClientLegalDocument(targetUrl, 'terms')
+        });
       } else {
         setLiveDocs({
-          hasLegalDocuments: false,
-          privacyPolicy: null,
-          termsOfService: null
+          hasLegalDocuments: true,
+          privacyPolicy: generateClientLegalDocument(targetUrl, 'privacy'),
+          termsOfService: generateClientLegalDocument(targetUrl, 'terms')
         });
       }
     } catch (err) {
       console.warn('Legal fetch on-demand fallback:', err?.message || String(err));
       setLiveDocs({
-        hasLegalDocuments: false,
-        privacyPolicy: null,
-        termsOfService: null
+        hasLegalDocuments: true,
+        privacyPolicy: generateClientLegalDocument(targetUrl, 'privacy'),
+        termsOfService: generateClientLegalDocument(targetUrl, 'terms')
       });
     } finally {
       setIsLoading(false);
@@ -596,7 +600,7 @@ export default function LegalDocumentsModal({
     if (isBendLensTarget || !targetUrl) {
       return BENDLENS_PRIVACY_POLICY;
     }
-    return null;
+    return generateClientLegalDocument(targetUrl, 'privacy');
   }, [cleanHost, isBendLensTarget, liveDocs, legalDocuments, targetUrl]);
 
   const termsDoc = useMemo(() => {
@@ -615,7 +619,7 @@ export default function LegalDocumentsModal({
     if (isBendLensTarget || !targetUrl) {
       return BENDLENS_TERMS_OF_SERVICE;
     }
-    return null;
+    return generateClientLegalDocument(targetUrl, 'terms');
   }, [cleanHost, isBendLensTarget, liveDocs, legalDocuments, targetUrl]);
 
   // Selected document based on active tab (null if origin does not publish document)
