@@ -330,10 +330,10 @@ class SubdomainScanner {
    */
   static async getSubdomainCenterSubdomains(apexDomain, timeoutMs = 25000) {
     if (!apexDomain) return [];
-    const maxBudget = Math.min(timeoutMs, isServerlessEnv ? 6000 : 35000);
+    const maxBudget = Math.min(timeoutMs, 35000);
     const startTime = Date.now();
     const discovered = new Set();
-    const maxPages = isServerlessEnv ? 3 : 8;
+    const maxPages = 8;
 
     for (let page = 1; page <= maxPages; page++) {
       const remainingTime = maxBudget - (Date.now() - startTime);
@@ -814,7 +814,7 @@ class SubdomainScanner {
     try {
       const live = await new Promise((resolve) => {
         let done = false;
-        const tier0Timeout = isServerlessEnv ? Math.min(250, timeoutMs) : Math.min(1000, timeoutMs);
+        const tier0Timeout = isServerlessEnv ? Math.min(400, timeoutMs) : Math.min(1000, timeoutMs);
         const timer = setTimeout(() => {
           if (!done) { done = true; resolve(null); }
         }, tier0Timeout);
@@ -1077,7 +1077,7 @@ class SubdomainScanner {
 
     const startTime = Date.now();
     let index = 0;
-    const candidateTimeout = profile.candidateTimeout || (isServerlessEnv ? 300 : 1500);
+    const candidateTimeout = profile.candidateTimeout || (isServerlessEnv ? 500 : 1500);
 
     async function worker() {
       while (index < candidates.length) {

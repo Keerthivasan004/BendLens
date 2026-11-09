@@ -405,9 +405,9 @@ class UniversalApiCrawler {
 
         // Concurrently race candidate URLs with serverless-adaptive budget
         const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-        const raceTimeout = isServerless ? 5000 : 12000;
-        const fallbackTimeout = isServerless ? 3000 : 8000;
-        const gatewayTimeout = isServerless ? 5000 : 15000;
+        const raceTimeout = isServerless ? 7000 : 12000;
+        const fallbackTimeout = isServerless ? 5000 : 8000;
+        const gatewayTimeout = isServerless ? 7000 : 15000;
 
         try {
           const racePromises = candidateUrls.map(cUrl =>
@@ -1618,7 +1618,7 @@ class UniversalApiCrawler {
               } else {
                 resolve([]);
               }
-            }, Math.max(35000, maxSubdomainBudgetMs)))
+            }, isServerless ? maxSubdomainBudgetMs : Math.max(35000, maxSubdomainBudgetMs)))
           ]);
 
           if (Array.isArray(harvested)) {
@@ -1846,11 +1846,12 @@ class UniversalApiCrawler {
         if (pSubdomainDiscovery || subDiscoveryPromise) {
           try {
             const elapsed = Date.now() - startTime;
-            const remainingBudget = Math.max(1000, isServerless ? Math.min(3000, maxCrawlTimeMs - elapsed - 1000) : Math.max(15000, maxCrawlTimeMs - elapsed - 3000));
-            const fullHarvest = await Promise.race([
-              (pSubdomainDiscovery || subDiscoveryPromise),
-              new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
-            ]);
+            const remainingBudget = Math.max(0, maxCrawlTimeMs - elapsed);
+            if (remainingBudget > 500) {
+              const fullHarvest = await Promise.race([
+                (pSubdomainDiscovery || subDiscoveryPromise),
+                new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
+              ]);
               if (Array.isArray(fullHarvest) && fullHarvest.length > 0) {
                 const hStatusMap = fullHarvest.statusMap || {};
                 for (const sub of fullHarvest) {
@@ -1869,6 +1870,7 @@ class UniversalApiCrawler {
                   }
                 }
               }
+            }
           } catch (_syncErr) { }
         }
 
@@ -1907,7 +1909,7 @@ class UniversalApiCrawler {
             return 1;
           };
           return score(b) - score(a);
-        }).slice(0, isServerless ? 4 : 16);
+        }).slice(0, isServerless ? 8 : 16);
 
         // Identify Primary Dedicated API Gateway (e.g. api.*, backend.*, or PaaS endpoints)
         const primaryApiGateway = prioritizedGateways.find(u => {
@@ -2388,7 +2390,8 @@ class UniversalApiCrawler {
         try {
           if (pLegalDocuments) {
             const elapsed = Date.now() - startTime;
-            const maxLegalWaitMs = isServerless ? Math.max(1000, profile.maxLegalWaitMs(elapsed)) : Math.max(25000, profile.maxLegalWaitMs(elapsed));
+            const remainingForLegal = Math.max(0, maxCrawlTimeMs - elapsed);
+            const maxLegalWaitMs = isServerless ? Math.max(500, Math.min(remainingForLegal, profile.maxLegalWaitMs(elapsed))) : Math.max(25000, profile.maxLegalWaitMs(elapsed));
             legalDocuments = await Promise.race([
               pLegalDocuments,
               new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
@@ -2404,25 +2407,27 @@ class UniversalApiCrawler {
           // run a targeted supplemental pass utilizing all discovered pages, subdomains, and script state
           if ((!legalDocuments.privacyPolicy || !legalDocuments.termsOfService) && (discoveredPages.size > 0 || discoveredSubdomainsList.length > 0)) {
             try {
-              const remainingBudget = isServerless ? Math.max(1000, maxCrawlTimeMs - (Date.now() - startTime) - 1000) : Math.max(10000, maxCrawlTimeMs - (Date.now() - startTime) - 2000);
-              const supplemental = await Promise.race([
-                this.discoverLegalDocuments({
-                  html,
-                  origin,
-                  targetUrl: initRes?.finalUrl || href,
-                  projectName,
-                  customHeaders,
-                  discoveredPages,
-                  discoveredSubdomains: discoveredSubdomainsList
-                }),
-                new Promise(r => setTimeout(() => r(null), isServerless ? Math.min(2000, remainingBudget) : Math.min(10000, remainingBudget)))
-              ]);
-              if (supplemental) {
-                if (!legalDocuments.privacyPolicy && supplemental.privacyPolicy) {
-                  legalDocuments.privacyPolicy = supplemental.privacyPolicy;
-                }
-                if (!legalDocuments.termsOfService && supplemental.termsOfService) {
-                  legalDocuments.termsOfService = supplemental.termsOfService;
+              const remainingBudget = Math.max(0, maxCrawlTimeMs - (Date.now() - startTime));
+              if (remainingBudget > 800) {
+                const supplemental = await Promise.race([
+                  this.discoverLegalDocuments({
+                    html,
+                    origin,
+                    targetUrl: initRes?.finalUrl || href,
+                    projectName,
+                    customHeaders,
+                    discoveredPages,
+                    discoveredSubdomains: discoveredSubdomainsList
+                  }),
+                  new Promise(r => setTimeout(() => r(null), isServerless ? Math.min(4000, remainingBudget) : Math.min(10000, remainingBudget)))
+                ]);
+                if (supplemental) {
+                  if (!legalDocuments.privacyPolicy && supplemental.privacyPolicy) {
+                    legalDocuments.privacyPolicy = supplemental.privacyPolicy;
+                  }
+                  if (!legalDocuments.termsOfService && supplemental.termsOfService) {
+                    legalDocuments.termsOfService = supplemental.termsOfService;
+                  }
                 }
               }
             } catch { }
@@ -2449,17 +2454,20 @@ class UniversalApiCrawler {
         // Safety Net: If background subdomain discovery is still resolving, grant remaining budget to complete
         if (pSubdomainDiscovery) {
           try {
-            const remainingBudget = Math.max(1000, isServerless ? Math.min(2500, maxCrawlTimeMs - (Date.now() - startTime)) : Math.max(10000, maxCrawlTimeMs - (Date.now() - startTime)));
-            const lateHarvest = await Promise.race([
-              pSubdomainDiscovery,
-              new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
-            ]);
+            const remainingBudget = Math.max(0, maxCrawlTimeMs - (Date.now() - startTime));
+            if (remainingBudget > 800) {
+              const lateHarvest = await Promise.race([
+                pSubdomainDiscovery,
+                new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
+              ]);
               if (Array.isArray(lateHarvest)) {
                 const lateStatusMap = lateHarvest.statusMap || {};
+                const subSeen = new Set(discoveredSubdomainsList);
                 for (const s of lateHarvest) {
                   const cs = SubdomainScanner.canonicalize(s);
                   if (cs) {
-                    if (!discoveredSubdomainsList.includes(cs)) {
+                    if (!subSeen.has(cs)) {
+                      subSeen.add(cs);
                       discoveredSubdomainsList.push(cs);
                     }
                     const isLive = lateStatusMap[cs] ? lateStatusMap[cs] === 'live' : (lateHarvest.liveSubdomains ? lateHarvest.liveSubdomains.includes(cs) : true);
@@ -2471,17 +2479,20 @@ class UniversalApiCrawler {
                   }
                 }
               }
+            }
           } catch (_lateErr) { }
         }
 
         // Guaranteed Preservation: Deterministically merge with perimeter cache so live assets never drop across rescans
         const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
         if (cached && cached.size > 0) {
+          const subSeen = new Set(discoveredSubdomainsList);
           for (const s of cached) {
             const cs = SubdomainScanner.canonicalize(s);
             if (cs) {
               liveSubdomainsSet.add(cs);
-              if (!discoveredSubdomainsList.includes(cs)) {
+              if (!subSeen.has(cs)) {
+                subSeen.add(cs);
                 discoveredSubdomainsList.push(cs);
               }
             }
@@ -2492,20 +2503,22 @@ class UniversalApiCrawler {
         if (apexDomain) liveSubdomainsSet.add(apexDomain);
 
         const statusMap = {};
-        const liveList = [];
-        const historicalList = [];
+        const liveSet = new Set();
+        const historicalSet = new Set();
 
         for (const s of discoveredSubdomainsList) {
           const isLive = liveSubdomainsSet.has(s) || (cached && cached.has(s));
           if (isLive) {
             statusMap[s] = 'live';
-            if (!liveList.includes(s)) liveList.push(s);
+            liveSet.add(s);
           } else {
             statusMap[s] = 'historical';
-            if (!historicalList.includes(s)) historicalList.push(s);
+            historicalSet.add(s);
           }
         }
 
+        const liveList = Array.from(liveSet);
+        const historicalList = Array.from(historicalSet);
         const sortedLive = liveList.sort((a, b) => a === hostname ? -1 : b === hostname ? 1 : a.localeCompare(b));
         const sortedHistorical = historicalList.sort((a, b) => a.localeCompare(b));
         const deterministicSubdomains = [...sortedLive, ...sortedHistorical];
@@ -6272,7 +6285,7 @@ Support: **support@${domainName}**`;
       // 2. Parallel batched probes for conventional paths (sorted by priority score)
       const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
       const conventionCandidates = candidates.filter(u => !isExplicitUrl(u)).sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
-      const targetConventions = conventionCandidates.slice(0, isServerlessEnv ? 16 : 48);
+      const targetConventions = conventionCandidates.slice(0, isServerlessEnv ? 32 : 48);
       const batchSize = 8;
       let candidateBest = null;
 
