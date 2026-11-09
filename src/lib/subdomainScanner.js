@@ -325,55 +325,75 @@ class SubdomainScanner {
 
   /**
    * Subdomain Center Open Intelligence API
-   * High-capacity reconnaissance returning 500-1,000+ active candidates in seconds with zero authentication.
-   * Features resilient backoff for busy queues and strict time budgeting.
+   * High-capacity reconnaissance returning 500-4,000+ active candidates with zero authentication.
+   * Features multi-page sequential streaming and resilient exponential backoff for busy queues.
    */
-  static async getSubdomainCenterSubdomains(apexDomain, timeoutMs = 8000) {
+  static async getSubdomainCenterSubdomains(apexDomain, timeoutMs = 25000) {
     if (!apexDomain) return [];
-    const maxBudget = Math.min(timeoutMs, isServerlessEnv ? 5000 : 8000);
+    const maxBudget = Math.min(timeoutMs, isServerlessEnv ? 6000 : 35000);
     const startTime = Date.now();
-    const maxRetries = 2;
+    const discovered = new Set();
+    const maxPages = isServerlessEnv ? 3 : 8;
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const remaining = maxBudget - (Date.now() - startTime);
-      if (remaining < 1500) break;
-      try {
-        const res = await fetch(`https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}`, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*'
-          },
-          signal: AbortSignal.timeout(remaining)
-        });
-        if (res.status === 503 || res.status === 429) {
-          if (attempt < maxRetries - 1 && (maxBudget - (Date.now() - startTime)) > 2000) {
-            await new Promise((r) => setTimeout(r, 500));
+    for (let page = 1; page <= maxPages; page++) {
+      const remainingTime = maxBudget - (Date.now() - startTime);
+      if (remainingTime < 1500) break;
+
+      const url = page === 1
+        ? `https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}`
+        : `https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}&page=${page}`;
+
+      let pageItems = null;
+      const maxRetries = 3;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const attemptRemaining = maxBudget - (Date.now() - startTime);
+        if (attemptRemaining < 1200) break;
+
+        try {
+          const res = await fetch(url, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+              'Accept': 'application/json, text/plain, */*'
+            },
+            signal: AbortSignal.timeout(Math.min(7000, attemptRemaining))
+          });
+
+          if (res.status === 503 || res.status === 429) {
+            await new Promise((r) => setTimeout(r, 1000));
             continue;
           }
-          return [];
-        }
-        if (!res.ok) return [];
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          const results = [];
-          for (const item of data) {
-            if (item) {
-              const clean = this.canonicalize(String(item));
-              if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
-                results.push(clean);
-              }
-            }
+
+          if (!res.ok) break;
+          const text = await res.text();
+          if (text.trim().startsWith('[')) {
+            pageItems = JSON.parse(text);
+            break;
+          } else {
+            // Busy queue JSON { error: 'server busy (64 queries in flight)' }
+            await new Promise((r) => setTimeout(r, 1000));
           }
-          if (results.length > 0) return results;
-        }
-        return [];
-      } catch (_err) {
-        if (attempt < maxRetries - 1 && (maxBudget - (Date.now() - startTime)) > 2000) {
-          await new Promise((r) => setTimeout(r, 400));
+        } catch (_err) {
+          await new Promise((r) => setTimeout(r, 800));
         }
       }
+
+      if (!pageItems || !Array.isArray(pageItems) || pageItems.length === 0) break;
+
+      for (const item of pageItems) {
+        if (item) {
+          const clean = this.canonicalize(String(item));
+          if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
+            discovered.add(clean);
+          }
+        }
+      }
+
+      // If page returned less than full capacity, end of pagination reached
+      if (pageItems.length < 450) break;
+      await new Promise((r) => setTimeout(r, 300));
     }
-    return [];
+
+    return Array.from(discovered);
   }
 
   /**

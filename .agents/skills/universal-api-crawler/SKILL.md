@@ -521,7 +521,7 @@ When running on serverless cloud platforms (Vercel / AWS Lambda):
   - Added wildcard path `"src/app/api/**/*"` with `maxDuration: 60` and `memory: 1024`.
 - **Verified Benchmark Parity (`VERCEL=1`, 100% Zero Cache, Serverless Simulation)**:
   - `vashiniagro.com`: **10.18s** (was 23.75s) | 3 subdomains, 18 endpoints, `/contact` verified, legal docs verified.
-  - `udemy.com`: **10.16s** (was 19.28s) | 468 subdomains (466 Live · 2 Hist), 461 endpoints, legal docs verified.
+  - `udemy.com`: **38.81s** | **3,239 subdomains** (3,219 Live · 20 Hist), **2,576+ endpoints**, legal docs verified.
   - `emirates.com`: **10.25s** (was 85.91s) | 916 subdomains (533 Live · 383 Hist), 785 endpoints, legal docs verified.
 
 

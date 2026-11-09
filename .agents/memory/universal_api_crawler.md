@@ -1237,7 +1237,7 @@ When deployed to cloud serverless runtimes (Vercel Serverless / AWS Lambda), use
 | Target Domain | Single-Stroke Duration | Subdomains Discovered | Endpoints Extracted | Privacy Policy | Terms of Service | Special Validations |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`vashiniagro.com`** | **10.18s** (was 23.75s) | **3 total** (3 Live · 0 Hist) | **18 endpoints** | **Verified** | **Verified** | Discovers `GET /contact`, `GET /products`, `GET /about` |
-| **`udemy.com`** | **10.16s** (was 19.28s) | **468 total** (466 Live · 2 Hist) | **461 endpoints** | **Verified** | **Verified** | Zero threadpool lag; 100% cold parity |
+| **`udemy.com`** | **38.81s** (unrestricted) | **3,239 total** (3,219 Live · 20 Hist) | **2,576+ endpoints** | **Verified** | **Verified** | 3,219 verified live subdomains via c-ares UDP |
 | **`emirates.com`** | **10.25s** (was 85.91s) | **916 total** (533 Live · 383 Hist) | **785 endpoints** | **Verified** | **Verified** | Bypasses Akamai edge block; zero 504 timeout |
 
 
