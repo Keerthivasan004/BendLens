@@ -31,7 +31,7 @@ const webCrawlerProfile = {
   activeDnsPrefixes: 500,
 
   // Passive reconnaissance timeouts (concurrent parallel execution)
-  subdomainCenterTimeout: 16000,
+  subdomainCenterTimeout: 7000,
   alienVaultTimeout: 6000,
   certSpotterPages: 6,
   certSpotterTimeout: 4000,

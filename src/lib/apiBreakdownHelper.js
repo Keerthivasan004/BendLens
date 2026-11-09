@@ -30,7 +30,7 @@ export function formatResourceName(resourceKey) {
   if (lower === 'health' || lower === 'ping' || lower === 'status' || lower === 'metrics') return 'Health & Diagnostics API';
   if (lower === 'notifications' || lower === 'notification' || lower === 'alerts') return 'Notifications & Messaging API';
   if (lower === 'analytics' || lower === 'telemetry') return 'Analytics & Reporting API';
-  if (lower === 'ai' || lower === 'copilot' || lower === 'llm') return 'AI & Copilot Orchestration API';
+  if (lower === 'ai' || lower === 'copilot' || lower === 'llm' || lower === 'chat' || lower === 'genai' || lower === 'agent' || lower === 'assistant') return 'AI & Copilot Orchestration API';
   if (lower === 'quiz' || lower === 'assessment' || lower === 'assessments') return 'Quiz & Assessments API';
   if (lower === 'placement' || lower === 'placements' || lower === 'jobs' || lower === 'tpo') return 'Career & Placements API';
   if (lower === 'events' || lower === 'calendar') return 'Events & Scheduling API';

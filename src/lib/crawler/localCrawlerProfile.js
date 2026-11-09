@@ -29,7 +29,7 @@ const localCrawlerProfile = {
   activeDnsPrefixes: 600,
 
   // Passive reconnaissance timeouts (concurrent parallel execution)
-  subdomainCenterTimeout: 18000,
+  subdomainCenterTimeout: 8000,
   alienVaultTimeout: 8000,
   certSpotterPages: 10,
   certSpotterTimeout: 6000,
