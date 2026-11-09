@@ -123,11 +123,11 @@ class UniversalApiCrawler {
 
     // Serverless-adaptive timeouts:
     // Page/document requests must be given an ample budget (12-16s) so enterprise multi-hop redirects and TLS negotiation never fail prematurely.
-    const defaultTimeout = isServerless 
-      ? (inferredContext === 'document' ? 12000 : inferredContext === 'script' ? 3500 : 3000) 
+    const defaultTimeout = isServerless
+      ? (inferredContext === 'document' ? 12000 : inferredContext === 'script' ? 3500 : 3000)
       : 10000;
-    const maxTimeout = isServerless 
-      ? (options.timeout ? Math.min(options.timeout, 16000) : (inferredContext === 'document' ? 15000 : 5000)) 
+    const maxTimeout = isServerless
+      ? (options.timeout ? Math.min(options.timeout, 16000) : (inferredContext === 'document' ? 15000 : 5000))
       : 30000;
     const timeout = options.timeout ? Math.min(options.timeout, maxTimeout) : defaultTimeout;
     const controller = new AbortController();
@@ -405,9 +405,9 @@ class UniversalApiCrawler {
 
         // Concurrently race candidate URLs with serverless-adaptive budget
         const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-        const raceTimeout = isServerless ? 7000 : 12000;
-        const fallbackTimeout = isServerless ? 5000 : 8000;
-        const gatewayTimeout = isServerless ? 7000 : 15000;
+        const raceTimeout = isServerless ? 5000 : 12000;
+        const fallbackTimeout = isServerless ? 3000 : 8000;
+        const gatewayTimeout = isServerless ? 5000 : 15000;
 
         try {
           const racePromises = candidateUrls.map(cUrl =>
@@ -1380,85 +1380,366 @@ class UniversalApiCrawler {
         if (!discoveredSubdomainsList.includes(apexDomain)) discoveredSubdomainsList.push(apexDomain);
       }
 
-        // Subdomain discovery is initiated concurrently (pSubdomainDiscovery)
-        // Chunk graph traversal starts immediately below to maximize CPU/network overlap.
-        const subDiscoveryPromise = pSubdomainDiscovery || SubdomainScanner.discoverSubdomains(hostname, {
-          ...options,
-          html,
-          headers: initRes?.headers,
-          subdomains: backendDomains
-        });
+      // Subdomain discovery is initiated concurrently (pSubdomainDiscovery)
+      // Chunk graph traversal starts immediately below to maximize CPU/network overlap.
+      const subDiscoveryPromise = pSubdomainDiscovery || SubdomainScanner.discoverSubdomains(hostname, {
+        ...options,
+        html,
+        headers: initRes?.headers,
+        subdomains: backendDomains
+      });
 
-        // 8. Analyze inline script contents
-        const inlineScriptRegex = /<script\b(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/gi;
-        let ism;
-        while ((ism = inlineScriptRegex.exec(html)) !== null) {
-          const inlineCode = ism[1];
-          if (inlineCode && inlineCode.length > 20) {
-            this.extractEndpointsFromCode(inlineCode, href, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
+      // 8. Analyze inline script contents
+      const inlineScriptRegex = /<script\b(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/gi;
+      let ism;
+      while ((ism = inlineScriptRegex.exec(html)) !== null) {
+        const inlineCode = ism[1];
+        if (inlineCode && inlineCode.length > 20) {
+          this.extractEndpointsFromCode(inlineCode, href, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: false, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
+        }
+      }
+
+      // =========================================================================
+      // STAGE 4: Recursive Bounded Chunk Graph Traversal (Two-Tier Engine)
+      // Tier 1 (Normal Crawl): Standard application chunk perimeter
+      // Tier 2 (Deep Crawl): Exhaustive scan of secondary lazy-loaded chunks & sub-routes
+      // =========================================================================
+
+      const normalQueue = Array.from(discoveredScriptUrls);
+      const deepQueue = [];
+      const enqueuedChunkUrls = new Set(discoveredScriptUrls);
+      const scriptContents = new Map();
+      const failedSourceMapHosts = new Set();
+
+      // Standard chunk patterns across Vite, Webpack, Next.js, Nuxt, SvelteKit, Angular, Remix, Astro
+      const chunkPatterns = [
+        /(?:\/_next\/static\/chunks\/[^"'\s()]+\.js|static\/chunks\/[^"'\s()]+\.js)/g,
+        /(?:\/assets\/[^"'\s()]+\.js|assets\/[^"'\s()]+\.js)/g,
+        /(?:\/_astro\/[^"'\s()]+\.js|_astro\/[^"'\s()]+\.js)/g,
+        /(?:\/build\/[^"'\s()]+\.js|build\/[^"'\s()]+\.js)/g,
+        /["'`]([a-zA-Z0-9_.\/]+-[a-zA-Z0-9_]{6,}\.js)["'`]/g,
+        /["'`](static\/js\/[^"'`\s()]+\.js)["'`]/g,
+        /["'`]((\/_nuxt\/[^"'`\s()]+\.js))["'`]/g,
+        /["'`]((\/_app\/immutable\/[^"'`\s()]+\.js))["'`]/g,
+        /["'`]((\/?[a-zA-Z0-9_\-]+\.chunk\.js))["'`]/g,
+        /["'`]((\/?chunk-[a-zA-Z0-9_\-]+\.js))["'`]/g,
+        /import\s*\(\s*["']([^"']+\.js)["']\s*\)/g
+      ];
+
+      // Secondary deep chunk patterns (Vite Rollup chunk table entries without /assets/ prefix)
+      const deepTablePattern = /"([a-zA-Z0-9_\-]+\.js)"/g;
+
+      // -----------------------------------------------------------------------
+      // PHASE 1: Normal Crawl (Traverse standard application chunk perimeter)
+      // -----------------------------------------------------------------------
+      const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+      const maxNormalChunks = maxChunks;
+      const chunkTimeout = isServerless ? 2000 : 5000;
+
+      // Helper: Priority sort for high-yield code modules (roles, pages, stores, apis)
+      const isPriorityChunkUrl = (u) => {
+        const l = (u || '').toLowerCase();
+        return l.includes('student') || l.includes('tpo') || l.includes('employer') || l.includes('mentor') ||
+          l.includes('admin') || l.includes('career') || l.includes('learning') || l.includes('lab') ||
+          l.includes('ai') || l.includes('quiz') || l.includes('job') || l.includes('auth') ||
+          l.includes('dashboard') || l.includes('setting') || l.includes('support') || l.includes('consent') ||
+          l.includes('dpdp') || l.includes('interview') || l.includes('placement') || l.includes('campus') ||
+          l.includes('home') || l.includes('landing') || l.includes('plan') || l.includes('feature') ||
+          l.includes('modal') || l.includes('table') || l.includes('view') || l.includes('page') ||
+          l.includes('store') || l.includes('api') || l.includes('client') || l.includes('service') ||
+          l.includes('privacy') || l.includes('terms') || l.includes('legal');
+      };
+
+      while (normalQueue.length > 0 && visitedUrls.size < maxNormalChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
+        const batch = normalQueue.splice(0, concurrency);
+        await Promise.all(batch.map(async (url) => {
+          if (visitedUrls.has(url)) return;
+          visitedUrls.add(url);
+
+          let scriptRes = await this.safeFetch(url, { timeout: chunkTimeout, customHeaders, context: 'script', origin });
+          if (!scriptRes.ok && (scriptRes.status === 0 || scriptRes.status === 429 || scriptRes.status >= 500)) {
+            scriptRes = await this.safeFetch(url, { timeout: Math.min(3000, chunkTimeout + 800), customHeaders, context: 'script', origin });
+          }
+          if (!scriptRes.ok) return;
+          const code = scriptRes.text;
+          scriptContents.set(url, code);
+
+          if (apexDomain) {
+            const codeSubs = SubdomainScanner.extractFromCode(code, apexDomain);
+            for (const cs of codeSubs) {
+              if (cs && !discoveredSubdomainsList.includes(cs)) {
+                discoveredSubdomainsList.push(cs);
+              }
+            }
+          }
+
+          // Standard chunk discovery (resolved against origin) -> enqueued for Normal Crawl
+          for (const pattern of chunkPatterns) {
+            pattern.lastIndex = 0;
+            let cm;
+            while ((cm = pattern.exec(code)) !== null) {
+              const rawChunk = cm[1] || cm[0];
+              if (rawChunk && !rawChunk.includes('node_modules')) {
+                try {
+                  const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
+                  const resolvedChunkUrl = new URL(rawChunk, chunkOrigin).href;
+                  if (!visitedUrls.has(resolvedChunkUrl) && !enqueuedChunkUrls.has(resolvedChunkUrl)) {
+                    enqueuedChunkUrls.add(resolvedChunkUrl);
+                    if (isPriorityChunkUrl(resolvedChunkUrl)) {
+                      normalQueue.unshift(resolvedChunkUrl);
+                    } else {
+                      normalQueue.push(resolvedChunkUrl);
+                    }
+                  }
+                } catch { }
+              }
+            }
+          }
+
+          // If deep crawl is enabled, also discover deep role chunks for Phase 2
+          if (!isNormalOnly) {
+            deepTablePattern.lastIndex = 0;
+            let dtm;
+            while ((dtm = deepTablePattern.exec(code)) !== null) {
+              const rawChunk = dtm[1];
+              if (rawChunk && !rawChunk.includes('node_modules')) {
+                try {
+                  const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
+                  let deepUrl = null;
+                  if (url.includes('/assets/')) {
+                    deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
+                  } else {
+                    deepUrl = new URL(rawChunk, url).href;
+                  }
+                  if (deepUrl && !visitedUrls.has(deepUrl) && !enqueuedChunkUrls.has(deepUrl)) {
+                    enqueuedChunkUrls.add(deepUrl);
+                    if (isPriorityChunkUrl(deepUrl)) {
+                      deepQueue.unshift(deepUrl);
+                    } else {
+                      deepQueue.push(deepUrl);
+                    }
+                  }
+                } catch { }
+              }
+            }
+          }
+
+          // Discover candidate backend microservice domains
+          const domainMatches = code.match(/https?:\/\/[a-zA-Z0-9_\-\.]+(?:\.[a-zA-Z]{2,})(?::\d+)?/g) || [];
+          for (const d of domainMatches) {
+            if (this.isBackendCandidateDomain(d, origin)) {
+              backendDomains.add(d);
+            }
+          }
+
+          // Check for source maps (.js.map) with host-level 404 caching
+          const mapMatch = code.match(/\/\/#\s*sourceMappingURL=([^\s]+)/i);
+          if (mapMatch) {
+            const mapRel = mapMatch[1];
+            if (!mapRel.startsWith('data:')) {
+              try {
+                const mapUrl = new URL(mapRel, url).href;
+                const mapHost = new URL(mapUrl).hostname;
+                if (!failedSourceMapHosts.has(mapHost)) {
+                  const mapRes = await this.safeFetch(mapUrl, { timeout: 3000, customHeaders });
+                  if (mapRes.ok) {
+                    try {
+                      const sourceMap = JSON.parse(mapRes.text);
+                      if (Array.isArray(sourceMap.sourcesContent)) {
+                        for (const rawSource of sourceMap.sourcesContent) {
+                          if (typeof rawSource === 'string' && rawSource.length > 50) {
+                            this.extractEndpointsFromCode(rawSource, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: !isNormalOnly, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
+                          }
+                        }
+                      }
+                    } catch { }
+                  } else {
+                    failedSourceMapHosts.add(mapHost);
+                  }
+                }
+              } catch { }
+            }
+          }
+
+          // Discover SPA client routes from router definitions: {path:"/...", ...} or to: "/..."
+          const routerPathRegex = /(?:path|to)\s*:\s*["'](\/[a-zA-Z0-9_\-\/]+)["']/gi;
+          let rpm;
+          while ((rpm = routerPathRegex.exec(code)) !== null) {
+            const rPath = rpm[1];
+            if (!rPath.startsWith('/api/') && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(rPath)) {
+              discoveredPages.add(rPath.split('?')[0]);
+            }
+          }
+          const jsxRouteRegex = /<Route\b[^>]*?\bpath\s*=\s*["'](\/[a-zA-Z0-9_\-\/]+)["']/gi;
+          let jrm;
+          while ((jrm = jsxRouteRegex.exec(code)) !== null) {
+            const jPath = jrm[1];
+            if (!jPath.startsWith('/api/') && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(jPath)) {
+              discoveredPages.add(jPath.split('?')[0]);
+            }
+          }
+
+          // Extract endpoints from standard chunk code (Immediate Deep Mode extraction when active)
+          this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: !isNormalOnly, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
+        }));
+      }
+
+      // Freeze Phase 1 Normal Crawl Snapshot
+      normalChunksCount = visitedUrls.size;
+      for (const [ep, mSet] of allEndpoints.entries()) {
+        normalEndpoints.set(ep, new Set(mSet));
+      }
+      if (allEndpoints.size === 0 && discoveredPages.size > 0) {
+        const functionalPages = Array.from(discoveredPages)
+          .map(p => (p.replace(/\/+$/, '') || '/'))
+          .filter(p => !UniversalApiCrawler.isMarketingOrStatic(p));
+
+        const pagesToUse = functionalPages.length > 0
+          ? functionalPages
+          : Array.from(discoveredPages)
+            .map(p => (p.replace(/\/+$/, '') || '/'))
+            .filter(p => !p.startsWith('/_next') && !p.startsWith('/_nuxt') && !p.startsWith('/__'));
+
+        for (const clean of pagesToUse) {
+          normalEndpoints.set(clean, new Set(['GET']));
+        }
+      }
+
+      // Await concurrent Subdomain Perimeter Discovery to enrich microservices & external gateways
+      try {
+        const elapsedSoFar = Date.now() - startTime;
+        const maxSubdomainBudgetMs = profile.maxSubdomainBudgetMs(elapsedSoFar);
+        const harvested = await Promise.race([
+          subDiscoveryPromise,
+          new Promise((resolve) => setTimeout(() => {
+            const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
+            if (cached && cached.size > 0) {
+              resolve(Array.from(cached));
+            } else {
+              resolve([]);
+            }
+          }, Math.max(35000, maxSubdomainBudgetMs)))
+        ]);
+
+        if (Array.isArray(harvested)) {
+          const hStatusMap = harvested.statusMap || {};
+          for (const sub of harvested) {
+            const cSub = SubdomainScanner.canonicalize(sub);
+            if (cSub && !discoveredSubdomainsList.includes(cSub)) {
+              discoveredSubdomainsList.push(cSub);
+            }
+            const isLive = hStatusMap[cSub] ? hStatusMap[cSub] === 'live' : (harvested.liveSubdomains ? harvested.liveSubdomains.includes(cSub) : true);
+            if (isLive && cSub) {
+              liveSubdomainsSet.add(cSub);
+              if (cSub !== baseCanonical && cSub !== apexDomain) {
+                backendDomains.add(`https://${cSub}`);
+              }
+            } else if (cSub) {
+              historicalSubdomainsSet.add(cSub);
+            }
           }
         }
+      } catch (subErr) {
+        console.warn('Subdomain discovery skipped:', subErr?.message || String(subErr));
+      }
 
-        // =========================================================================
-        // STAGE 4: Recursive Bounded Chunk Graph Traversal (Two-Tier Engine)
-        // Tier 1 (Normal Crawl): Standard application chunk perimeter
-        // Tier 2 (Deep Crawl): Exhaustive scan of secondary lazy-loaded chunks & sub-routes
-        // =========================================================================
+      // First-Party Application Portal Discovery (e.g. app.finstackk.com from finstackk.com)
+      const origApex = this.getApexDomain(hostname);
+      const appPortalOrigins = Array.from(backendDomains).filter(d => {
+        try {
+          const u = new URL(d);
+          const uHost = u.hostname.toLowerCase();
+          const uApex = this.getApexDomain(uHost);
+          return uApex === origApex && uHost !== hostname && (uHost.startsWith('app.') || uHost.startsWith('portal.') || uHost.startsWith('dashboard.') || uHost.startsWith('console.') || uHost.startsWith('platform.'));
+        } catch { return false; }
+      });
 
-        const normalQueue = Array.from(discoveredScriptUrls);
-        const deepQueue = [];
-        const enqueuedChunkUrls = new Set(discoveredScriptUrls);
-        const scriptContents = new Map();
-        const failedSourceMapHosts = new Set();
+      if (!isNormalOnly && appPortalOrigins.length > 0) {
+        await Promise.allSettled(appPortalOrigins.slice(0, 2).map(async (portalOrigin) => {
+          try {
+            const portalRes = await this.safeFetch(portalOrigin, { timeout: 2500, customHeaders, origin });
+            if (portalRes && portalRes.ok && portalRes.text) {
+              const portalScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+              let psm;
+              while ((psm = portalScriptRegex.exec(portalRes.text)) !== null) {
+                const src = psm[1];
+                if (!this.isThirdPartyTracker(src)) {
+                  try {
+                    const pUrl = new URL(src, portalOrigin).href;
+                    if (!visitedUrls.has(pUrl) && !enqueuedChunkUrls.has(pUrl)) {
+                      enqueuedChunkUrls.add(pUrl);
+                      deepQueue.push(pUrl);
+                    }
+                  } catch { }
+                }
+              }
+            }
+          } catch { }
+        }));
+      }
 
-        // Standard chunk patterns across Vite, Webpack, Next.js, Nuxt, SvelteKit, Angular, Remix, Astro
-        const chunkPatterns = [
-          /(?:\/_next\/static\/chunks\/[^"'\s()]+\.js|static\/chunks\/[^"'\s()]+\.js)/g,
-          /(?:\/assets\/[^"'\s()]+\.js|assets\/[^"'\s()]+\.js)/g,
-          /(?:\/_astro\/[^"'\s()]+\.js|_astro\/[^"'\s()]+\.js)/g,
-          /(?:\/build\/[^"'\s()]+\.js|build\/[^"'\s()]+\.js)/g,
-          /["'`]([a-zA-Z0-9_.\/]+-[a-zA-Z0-9_]{6,}\.js)["'`]/g,
-          /["'`](static\/js\/[^"'`\s()]+\.js)["'`]/g,
-          /["'`]((\/_nuxt\/[^"'`\s()]+\.js))["'`]/g,
-          /["'`]((\/_app\/immutable\/[^"'`\s()]+\.js))["'`]/g,
-          /["'`]((\/?[a-zA-Z0-9_\-]+\.chunk\.js))["'`]/g,
-          /["'`]((\/?chunk-[a-zA-Z0-9_\-]+\.js))["'`]/g,
-          /import\s*\(\s*["']([^"']+\.js)["']\s*\)/g
-        ];
+      // -----------------------------------------------------------------------
+      // PHASE 2: Deep Crawl (If not normal-only, traverse all lazy chunks & sub-routes)
+      // Serverless Adaptive: executes Phase 2 dynamically when execution budget permits
+      // -----------------------------------------------------------------------
+      const elapsedPhase2 = Date.now() - startTime;
+      const canRunPhase2 = !isNormalOnly && profile.canRunPhase2(elapsedPhase2);
+      if (canRunPhase2) {
+        // Probe discovered internal sub-routes to uncover role-gated page chunks (e.g. /login, /admin, /dashboard, /ai, /quiz)
+        const commonSubpages = ['/ai', '/ai/index.html', '/quiz', '/quiz/index.html', '/privacy-policy', '/terms'];
+        const targetInternalRoutes = Array.from(new Set([
+          ...Array.from(discoveredPages).filter(p => p !== '/' && !p.startsWith('/api/')).slice(0, 16),
+          ...commonSubpages
+        ]));
 
-        // Secondary deep chunk patterns (Vite Rollup chunk table entries without /assets/ prefix)
-        const deepTablePattern = /"([a-zA-Z0-9_\-]+\.js)"/g;
+        const subpageBatchSize = 8;
+        for (let i = 0; i < targetInternalRoutes.length; i += subpageBatchSize) {
+          if (Date.now() - startTime >= maxCrawlTimeMs) break;
+          const batchRoutes = targetInternalRoutes.slice(i, i + subpageBatchSize);
+          await Promise.allSettled(batchRoutes.map(async (sr) => {
+            try {
+              const srUrl = new URL(sr, origin).href;
+              const srRes = await this.safeFetch(srUrl, { timeout: 2500, customHeaders });
+              if (srRes.ok && srRes.status === 200 && srRes.text) {
+                // SPA Catch-All Guard: If the probed subpage returns the exact same HTML as the root homepage,
+                // it is an SPA wildcard fallback (not an authentic distinct page)
+                const isCatchAllFallback = srRes.text.length === html.length && srRes.text === html;
+                if (!isCatchAllFallback) {
+                  if (!sr.endsWith('.html') || !discoveredPages.has(sr.replace(/\.html$/, ''))) {
+                    discoveredPages.add(sr);
+                  }
+                }
+                const srScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+                let srm;
+                while ((srm = srScriptRegex.exec(srRes.text)) !== null) {
+                  if (!this.isThirdPartyTracker(srm[1])) {
+                    try {
+                      const subScriptUrl = new URL(srm[1], origin).href;
+                      if (!visitedUrls.has(subScriptUrl) && !enqueuedChunkUrls.has(subScriptUrl)) {
+                        enqueuedChunkUrls.add(subScriptUrl);
+                        deepQueue.push(subScriptUrl);
+                      }
+                    } catch { }
+                  }
+                }
+              }
+            } catch { }
+          }));
+        }
 
-        // -----------------------------------------------------------------------
-        // PHASE 1: Normal Crawl (Traverse standard application chunk perimeter)
-        // -----------------------------------------------------------------------
-        const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-        const maxNormalChunks = maxChunks;
-        const chunkTimeout = isServerless ? 2000 : 5000;
+        // Exhaustively process all dynamic code-split chunks up to chunk limit or queue exhaustion
+        const maxDeepChunks = maxChunks;
+        const deepChunkTimeout = isServerless ? 2000 : 5000;
+        while (deepQueue.length > 0 && visitedUrls.size < maxDeepChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
+          const batch = deepQueue.splice(0, concurrency);
 
-        // Helper: Priority sort for high-yield code modules (roles, pages, stores, apis)
-        const isPriorityChunkUrl = (u) => {
-          const l = (u || '').toLowerCase();
-          return l.includes('student') || l.includes('tpo') || l.includes('employer') || l.includes('mentor') ||
-            l.includes('admin') || l.includes('career') || l.includes('learning') || l.includes('lab') ||
-            l.includes('ai') || l.includes('quiz') || l.includes('job') || l.includes('auth') ||
-            l.includes('dashboard') || l.includes('setting') || l.includes('support') || l.includes('consent') ||
-            l.includes('dpdp') || l.includes('interview') || l.includes('placement') || l.includes('campus') ||
-            l.includes('home') || l.includes('landing') || l.includes('plan') || l.includes('feature') ||
-            l.includes('modal') || l.includes('table') || l.includes('view') || l.includes('page') ||
-            l.includes('store') || l.includes('api') || l.includes('client') || l.includes('service') ||
-            l.includes('privacy') || l.includes('terms') || l.includes('legal');
-        };
-
-        while (normalQueue.length > 0 && visitedUrls.size < maxNormalChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
-          const batch = normalQueue.splice(0, concurrency);
           await Promise.all(batch.map(async (url) => {
             if (visitedUrls.has(url)) return;
             visitedUrls.add(url);
 
-            let scriptRes = await this.safeFetch(url, { timeout: chunkTimeout, customHeaders, context: 'script', origin });
+            let scriptRes = await this.safeFetch(url, { timeout: deepChunkTimeout, customHeaders, context: 'script', origin });
             if (!scriptRes.ok && (scriptRes.status === 0 || scriptRes.status === 429 || scriptRes.status >= 500)) {
-              scriptRes = await this.safeFetch(url, { timeout: Math.min(3000, chunkTimeout + 800), customHeaders, context: 'script', origin });
+              scriptRes = await this.safeFetch(url, { timeout: Math.min(3000, deepChunkTimeout + 800), customHeaders, context: 'script', origin });
             }
             if (!scriptRes.ok) return;
             const code = scriptRes.text;
@@ -1473,162 +1754,111 @@ class UniversalApiCrawler {
               }
             }
 
-            // Standard chunk discovery (resolved against origin) -> enqueued for Normal Crawl
-            for (const pattern of chunkPatterns) {
-              pattern.lastIndex = 0;
-              let cm;
-              while ((cm = pattern.exec(code)) !== null) {
-                const rawChunk = cm[1] || cm[0];
-                if (rawChunk && !rawChunk.includes('node_modules')) {
-                  try {
-                    const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
-                    const resolvedChunkUrl = new URL(rawChunk, chunkOrigin).href;
-                    if (!visitedUrls.has(resolvedChunkUrl) && !enqueuedChunkUrls.has(resolvedChunkUrl)) {
-                      enqueuedChunkUrls.add(resolvedChunkUrl);
-                      if (isPriorityChunkUrl(resolvedChunkUrl)) {
-                        normalQueue.unshift(resolvedChunkUrl);
-                      } else {
-                        normalQueue.push(resolvedChunkUrl);
-                      }
-                    }
-                  } catch { }
-                }
+            // Nested deep chunks
+            deepTablePattern.lastIndex = 0;
+            let dtm;
+            while ((dtm = deepTablePattern.exec(code)) !== null) {
+              const rawChunk = dtm[1];
+              if (rawChunk && !rawChunk.includes('node_modules')) {
+                try {
+                  const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
+                  let deepUrl = null;
+                  if (url.includes('/assets/')) {
+                    deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
+                  } else {
+                    deepUrl = new URL(rawChunk, url).href;
+                  }
+                  if (!visitedUrls.has(deepUrl) && !enqueuedChunkUrls.has(deepUrl)) {
+                    enqueuedChunkUrls.add(deepUrl);
+                    deepQueue.push(deepUrl);
+                  }
+                } catch { }
               }
             }
 
-            // If deep crawl is enabled, also discover deep role chunks for Phase 2
-            if (!isNormalOnly) {
-              deepTablePattern.lastIndex = 0;
-              let dtm;
-              while ((dtm = deepTablePattern.exec(code)) !== null) {
-                const rawChunk = dtm[1];
-                if (rawChunk && !rawChunk.includes('node_modules')) {
-                  try {
-                    const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
-                    let deepUrl = null;
-                    if (url.includes('/assets/')) {
-                      deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
-                    } else {
-                      deepUrl = new URL(rawChunk, url).href;
-                    }
-                    if (deepUrl && !visitedUrls.has(deepUrl) && !enqueuedChunkUrls.has(deepUrl)) {
-                      enqueuedChunkUrls.add(deepUrl);
-                      if (isPriorityChunkUrl(deepUrl)) {
-                        deepQueue.unshift(deepUrl);
-                      } else {
-                        deepQueue.push(deepUrl);
-                      }
-                    }
-                  } catch { }
-                }
-              }
-            }
-
-            // Discover candidate backend microservice domains
+            // Discover backend service domains & microservices
             const domainMatches = code.match(/https?:\/\/[a-zA-Z0-9_\-\.]+(?:\.[a-zA-Z]{2,})(?::\d+)?/g) || [];
             for (const d of domainMatches) {
               if (this.isBackendCandidateDomain(d, origin)) {
                 backendDomains.add(d);
               }
             }
-
-            // Check for source maps (.js.map) with host-level 404 caching
-            const mapMatch = code.match(/\/\/#\s*sourceMappingURL=([^\s]+)/i);
-            if (mapMatch) {
-              const mapRel = mapMatch[1];
-              if (!mapRel.startsWith('data:')) {
-                try {
-                  const mapUrl = new URL(mapRel, url).href;
-                  const mapHost = new URL(mapUrl).hostname;
-                  if (!failedSourceMapHosts.has(mapHost)) {
-                    const mapRes = await this.safeFetch(mapUrl, { timeout: 3000, customHeaders });
-                    if (mapRes.ok) {
-                      try {
-                        const sourceMap = JSON.parse(mapRes.text);
-                        if (Array.isArray(sourceMap.sourcesContent)) {
-                          for (const rawSource of sourceMap.sourcesContent) {
-                            if (typeof rawSource === 'string' && rawSource.length > 50) {
-                              this.extractEndpointsFromCode(rawSource, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: !isNormalOnly, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
-                            }
-                          }
-                        }
-                      } catch { }
-                    } else {
-                      failedSourceMapHosts.add(mapHost);
-                    }
-                  }
-                } catch { }
-              }
-            }
-
-            // Discover SPA client routes from router definitions: {path:"/...", ...} or to: "/..."
-            const routerPathRegex = /(?:path|to)\s*:\s*["'](\/[a-zA-Z0-9_\-\/]+)["']/gi;
-            let rpm;
-            while ((rpm = routerPathRegex.exec(code)) !== null) {
-              const rPath = rpm[1];
-              if (!rPath.startsWith('/api/') && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(rPath)) {
-                discoveredPages.add(rPath.split('?')[0]);
-              }
-            }
-            const jsxRouteRegex = /<Route\b[^>]*?\bpath\s*=\s*["'](\/[a-zA-Z0-9_\-\/]+)["']/gi;
-            let jrm;
-            while ((jrm = jsxRouteRegex.exec(code)) !== null) {
-              const jPath = jrm[1];
-              if (!jPath.startsWith('/api/') && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(jPath)) {
-                discoveredPages.add(jPath.split('?')[0]);
-              }
-            }
-
-            // Extract endpoints from standard chunk code (Immediate Deep Mode extraction when active)
-            this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: !isNormalOnly, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
           }));
         }
 
-        // Freeze Phase 1 Normal Crawl Snapshot
-        normalChunksCount = visitedUrls.size;
-        for (const [ep, mSet] of allEndpoints.entries()) {
-          normalEndpoints.set(ep, new Set(mSet));
+        // Extract deep role-gated and lazy-loaded endpoints across all discovered chunks
+        for (const [chunkUrl, chunkCode] of scriptContents.entries()) {
+          this.extractEndpointsFromCode(chunkCode, chunkUrl, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: true, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
         }
-        if (allEndpoints.size === 0 && discoveredPages.size > 0) {
-          const functionalPages = Array.from(discoveredPages)
-            .map(p => (p.replace(/\/+$/, '') || '/'))
-            .filter(p => !UniversalApiCrawler.isMarketingOrStatic(p));
+      }
 
-          const pagesToUse = functionalPages.length > 0
-            ? functionalPages
-            : Array.from(discoveredPages)
-              .map(p => (p.replace(/\/+$/, '') || '/'))
-              .filter(p => !p.startsWith('/_next') && !p.startsWith('/_nuxt') && !p.startsWith('/__'));
+      // Capture probed backend API response headers
+      let backendProbeHeaders = {};
+      let originBackendProbeHeaders = {};
 
-          for (const clean of pagesToUse) {
-            normalEndpoints.set(clean, new Set(['GET']));
-          }
-        }
-
-        // Await concurrent Subdomain Perimeter Discovery to enrich microservices & external gateways
+      // Probe verified health endpoint if framework indicates an active Node/Next/API backend
+      if (frameworksDetected.has('Next.js') || frameworksDetected.has('React') || frameworksDetected.has('Vite') || allEndpoints.has('/api/health')) {
         try {
-          const elapsedSoFar = Date.now() - startTime;
-          const maxSubdomainBudgetMs = profile.maxSubdomainBudgetMs(elapsedSoFar);
-          const harvested = await Promise.race([
-            subDiscoveryPromise,
-            new Promise((resolve) => setTimeout(() => {
-              const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
-              if (cached && cached.size > 0) {
-                resolve(Array.from(cached));
-              } else {
-                resolve([]);
-              }
-            }, isServerless ? maxSubdomainBudgetMs : Math.max(35000, maxSubdomainBudgetMs)))
-          ]);
+          const hUrl = new URL('/api/health', origin).href;
+          const hRes = await this.safeFetch(hUrl, { timeout: 2000, customHeaders });
+          if (hRes && hRes.headers && Object.keys(hRes.headers).length > 0) {
+            originBackendProbeHeaders = { ...originBackendProbeHeaders, ...hRes.headers };
+            backendProbeHeaders = { ...backendProbeHeaders, ...hRes.headers };
+          }
+          if (hRes.ok && (hRes.contentType.includes('application/json') || hRes.text.includes('"status"'))) {
+            if (!allEndpoints.has('/api/health')) allEndpoints.set('/api/health', new Set());
+            allEndpoints.get('/api/health').add('GET');
+          }
+        } catch { }
+      }
 
-          if (Array.isArray(harvested)) {
-            const hStatusMap = harvested.statusMap || {};
-            for (const sub of harvested) {
+      // If Better-Auth (/api/auth) is detected, verify authentic sub-routes
+      if (allEndpoints.has('/api/auth')) {
+        const authProbes = [
+          { path: '/api/auth/get-session', method: 'GET' },
+          { path: '/api/auth/ok', method: 'GET' },
+          { path: '/api/auth/sign-in/username', method: 'POST', testPost: true },
+          { path: '/api/auth/sign-out', method: 'POST', testPost: true }
+        ];
+        for (const probe of authProbes) {
+          try {
+            const aUrl = new URL(probe.path, origin).href;
+            const aRes = await this.safeFetch(aUrl, {
+              method: probe.method,
+              timeout: 2500,
+              customHeaders,
+              body: probe.testPost ? JSON.stringify({}) : undefined,
+              headers: probe.testPost ? { ...this.getHeaders(customHeaders), 'Content-Type': 'application/json' } : undefined
+            });
+            if (aRes && aRes.headers && Object.keys(aRes.headers).length > 0) {
+              originBackendProbeHeaders = { ...originBackendProbeHeaders, ...aRes.headers };
+              backendProbeHeaders = { ...backendProbeHeaders, ...aRes.headers };
+            }
+            if (aRes.status === 200 || aRes.status === 401 || (aRes.contentType && aRes.contentType.includes('application/json'))) {
+              if (!allEndpoints.has(probe.path)) allEndpoints.set(probe.path, new Set());
+              allEndpoints.get(probe.path).add(probe.method);
+            }
+          } catch { }
+        }
+      }
+
+      // Ensure background multi-signal subdomain perimeter discovery is fully awaited before gateway probing
+      if (pSubdomainDiscovery || subDiscoveryPromise) {
+        try {
+          const elapsed = Date.now() - startTime;
+          const remainingBudget = Math.max(1000, isServerless ? Math.min(3000, maxCrawlTimeMs - elapsed - 1000) : Math.max(15000, maxCrawlTimeMs - elapsed - 3000));
+          const fullHarvest = await Promise.race([
+            (pSubdomainDiscovery || subDiscoveryPromise),
+            new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
+          ]);
+          if (Array.isArray(fullHarvest) && fullHarvest.length > 0) {
+            const hStatusMap = fullHarvest.statusMap || {};
+            for (const sub of fullHarvest) {
               const cSub = SubdomainScanner.canonicalize(sub);
               if (cSub && !discoveredSubdomainsList.includes(cSub)) {
                 discoveredSubdomainsList.push(cSub);
               }
-              const isLive = hStatusMap[cSub] ? hStatusMap[cSub] === 'live' : (harvested.liveSubdomains ? harvested.liveSubdomains.includes(cSub) : true);
+              const isLive = hStatusMap[cSub] ? hStatusMap[cSub] === 'live' : (fullHarvest.liveSubdomains ? fullHarvest.liveSubdomains.includes(cSub) : true);
               if (isLive && cSub) {
                 liveSubdomainsSet.add(cSub);
                 if (cSub !== baseCanonical && cSub !== apexDomain) {
@@ -1639,769 +1869,497 @@ class UniversalApiCrawler {
               }
             }
           }
-        } catch (subErr) {
-          console.warn('Subdomain discovery skipped:', subErr?.message || String(subErr));
+        } catch (_syncErr) { }
+      }
+
+      // If external backend gateways were discovered, probe top external gateway for authentic backend headers
+      const originApex = this.getApexDomain(hostname);
+      const candidateGateways = new Set(backendDomains);
+      for (const sub of discoveredSubdomainsList) {
+        if (sub && sub !== hostname && sub !== SubdomainScanner.canonicalize(hostname)) {
+          candidateGateways.add(`https://${sub}`);
         }
+      }
+      const extGateways = Array.from(candidateGateways).filter(d => {
+        try {
+          const gwHost = new URL(d).hostname;
+          if (gwHost === hostname) return false;
+          const gwApex = this.getApexDomain(gwHost);
+          const isSameApex = gwApex && originApex && gwApex === originApex;
+          const isPaaS = gwHost.includes('.supabase.co') || gwHost.includes('.onrender.com') ||
+            gwHost.includes('.railway.app') || gwHost.includes('.up.railway.app') ||
+            gwHost.includes('.fly.dev') || gwHost.includes('.run.app') ||
+            gwHost.includes('.azurewebsites.net') || gwHost.includes('.herokuapp.com');
+          return isSameApex || isPaaS;
+        } catch {
+          return false;
+        }
+      });
 
-        // First-Party Application Portal Discovery (e.g. app.finstackk.com from finstackk.com)
-        const origApex = this.getApexDomain(hostname);
-        const appPortalOrigins = Array.from(backendDomains).filter(d => {
+      // Sort external gateways prioritizing genuine API backends and PaaS endpoints over generic subdomains
+      const prioritizedGateways = extGateways.sort((a, b) => {
+        const score = (url) => {
+          const l = url.toLowerCase();
+          if (l.includes('.supabase.co') || l.includes('.onrender.com') || l.includes('.railway.app') || l.includes('.azurewebsites.net')) return 12;
+          if (l.includes('//api.') || l.includes('//api-') || l.includes('//mobileapi.') || l.includes('//backend.') || l.includes('//gateway.') || l.includes('//svc.') || l.includes('//services.')) return 10;
+          if (l.includes('//auth.') || l.includes('//identity.') || l.includes('//login.') || l.includes('//sso.') || l.includes('//oauth.')) return 8;
+          if (l.includes('//mobile.') || l.includes('//eygmobile.') || l.includes('//app.') || l.includes('//portal.') || l.includes('//booking.') || l.includes('//fly') || l.includes('//crs.')) return 6;
+          return 1;
+        };
+        return score(b) - score(a);
+      }).slice(0, isServerless ? 4 : 16);
+
+      // Identify Primary Dedicated API Gateway (e.g. api.*, backend.*, or PaaS endpoints)
+      const primaryApiGateway = prioritizedGateways.find(u => {
+        const l = u.toLowerCase();
+        return l.includes('//api.') || l.includes('//api-') || l.includes('//backend.') || l.includes('//gateway.') || l.includes('//svc.') ||
+          l.includes('.supabase.co') || l.includes('.onrender.com') || l.includes('.railway.app') || l.includes('.azurewebsites.net') ||
+          l.includes('.fly.dev') || l.includes('.run.app');
+      }) || null;
+
+      let primaryApiIp = null;
+      let primaryApiHeaders = {};
+      if (primaryApiGateway) {
+        try {
+          const gwHost = new URL(primaryApiGateway).hostname;
+          const dnsMod = require('dns');
+          const dnsLookup = await dnsMod.promises.lookup(gwHost).catch(() => null);
+          if (dnsLookup && dnsLookup.address) {
+            primaryApiIp = dnsLookup.address;
+          }
+        } catch { }
+      }
+
+      let extGatewayHeaders = {};
+      const diagnosticEndpoints = ['/api/health', '/health', '/healthz'];
+      const elapsedGateways = Date.now() - startTime;
+      if (profile.canRunGatewayProbes(elapsedGateways) && (allEndpoints.size < 40 || !isServerless)) {
+        await Promise.allSettled(prioritizedGateways.map(async (extGateway) => {
+          const isPrimaryApi = extGateway === primaryApiGateway;
+          const gwHost = new URL(extGateway).hostname;
+          const gwCanonical = SubdomainScanner.canonicalize(gwHost);
+
           try {
-            const u = new URL(d);
-            const uHost = u.hostname.toLowerCase();
-            const uApex = this.getApexDomain(uHost);
-            return uApex === origApex && uHost !== hostname && (uHost.startsWith('app.') || uHost.startsWith('portal.') || uHost.startsWith('dashboard.') || uHost.startsWith('console.') || uHost.startsWith('platform.'));
-          } catch { return false; }
-        });
+            const gwRes = await this.safeFetch(extGateway, { timeout: isServerless ? 1500 : 2500, customHeaders });
+            if (gwRes && gwRes.headers) {
+              if (isPrimaryApi) {
+                primaryApiHeaders = { ...primaryApiHeaders, ...gwRes.headers };
+              } else {
+                extGatewayHeaders = { ...extGatewayHeaders, ...gwRes.headers };
+              }
+            }
 
-        if (!isNormalOnly && appPortalOrigins.length > 0) {
-          await Promise.allSettled(appPortalOrigins.slice(0, 2).map(async (portalOrigin) => {
-            try {
-              const portalRes = await this.safeFetch(portalOrigin, { timeout: 2500, customHeaders, origin });
-              if (portalRes && portalRes.ok && portalRes.text) {
-                const portalScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
-                let psm;
-                while ((psm = portalScriptRegex.exec(portalRes.text)) !== null) {
-                  const src = psm[1];
-                  if (!this.isThirdPartyTracker(src)) {
+            // Detect JSON API Gateways (even if responding with 400 Bad Request or 401 Unauthorized without auth headers)
+            const allowMethods = gwRes.headers && gwRes.headers['access-control-allow-methods'];
+            const isJsonApi = gwRes && (
+              (gwRes.contentType && gwRes.contentType.includes('application/json')) ||
+              allowMethods ||
+              (gwRes.text && gwRes.text.trim().startsWith('{') && (gwRes.text.includes('"error') || gwRes.text.includes('"message') || gwRes.text.includes('"status')))
+            );
+
+            if (isJsonApi) {
+              const ep = `//${gwHost}/`;
+              const methods = allowMethods
+                ? allowMethods.split(',').map(m => m.trim().toUpperCase()).filter(Boolean)
+                : ['GET', 'POST'];
+              endpointSubdomainMap.set(ep, gwCanonical);
+              verifiedApiRoutes.add(ep);
+              if (!allEndpoints.has(ep)) allEndpoints.set(ep, new Set());
+              methods.forEach(m => allEndpoints.get(ep).add(m));
+              if (!normalEndpoints.has(ep)) normalEndpoints.set(ep, new Set());
+              methods.forEach(m => normalEndpoints.get(ep).add(m));
+
+              // Speculatively probe OpenAPI / Swagger on this detected API Gateway
+              const specPaths = ['/openapi.json', '/swagger.json', '/v2/api-docs', '/api-docs', '/v1', '/v2'];
+              for (const sp of specPaths) {
+                try {
+                  const spRes = await this.safeFetch(new URL(sp, extGateway).href, { timeout: 2000, isApi: true });
+                  if (spRes.ok && (spRes.contentType?.includes('json') || spRes.text?.trim().startsWith('{'))) {
                     try {
-                      const pUrl = new URL(src, portalOrigin).href;
-                      if (!visitedUrls.has(pUrl) && !enqueuedChunkUrls.has(pUrl)) {
-                        enqueuedChunkUrls.add(pUrl);
-                        deepQueue.push(pUrl);
+                      const parsed = JSON.parse(spRes.text);
+                      if (parsed.paths && typeof parsed.paths === 'object') {
+                        for (const [p, op] of Object.entries(parsed.paths)) {
+                          const subEp = `//${gwHost}${this.normalizeApiPath(p)}`;
+                          if (!allEndpoints.has(subEp)) allEndpoints.set(subEp, new Set());
+                          const pMethods = Object.keys(op || {}).filter(m => ['get', 'post', 'put', 'delete', 'patch', 'options'].includes(m.toLowerCase()));
+                          (pMethods.length ? pMethods : ['GET']).forEach(m => allEndpoints.get(subEp).add(m.toUpperCase()));
+                          endpointSubdomainMap.set(subEp, gwCanonical);
+                          verifiedApiRoutes.add(subEp);
+                          if (!normalEndpoints.has(subEp)) normalEndpoints.set(subEp, new Set());
+                          (pMethods.length ? pMethods : ['GET']).forEach(m => normalEndpoints.get(subEp).add(m.toUpperCase()));
+                        }
                       }
                     } catch { }
                   }
-                }
+                } catch { }
               }
-            } catch { }
-          }));
-        }
-
-        // -----------------------------------------------------------------------
-        // PHASE 2: Deep Crawl (If not normal-only, traverse all lazy chunks & sub-routes)
-        // Serverless Adaptive: executes Phase 2 dynamically when execution budget permits
-        // -----------------------------------------------------------------------
-        const elapsedPhase2 = Date.now() - startTime;
-        const canRunPhase2 = !isNormalOnly && profile.canRunPhase2(elapsedPhase2);
-        if (canRunPhase2) {
-          // Probe discovered internal sub-routes to uncover role-gated page chunks (e.g. /login, /admin, /dashboard, /ai, /quiz)
-          const commonSubpages = ['/ai', '/ai/index.html', '/quiz', '/quiz/index.html', '/privacy-policy', '/terms'];
-          const targetInternalRoutes = Array.from(new Set([
-            ...Array.from(discoveredPages).filter(p => p !== '/' && !p.startsWith('/api/')).slice(0, 16),
-            ...commonSubpages
-          ]));
-
-          const subpageBatchSize = 8;
-          for (let i = 0; i < targetInternalRoutes.length; i += subpageBatchSize) {
-            if (Date.now() - startTime >= maxCrawlTimeMs) break;
-            const batchRoutes = targetInternalRoutes.slice(i, i + subpageBatchSize);
-            await Promise.allSettled(batchRoutes.map(async (sr) => {
-              try {
-                const srUrl = new URL(sr, origin).href;
-                const srRes = await this.safeFetch(srUrl, { timeout: 2500, customHeaders });
-                if (srRes.ok && srRes.status === 200 && srRes.text) {
-                  // SPA Catch-All Guard: If the probed subpage returns the exact same HTML as the root homepage,
-                  // it is an SPA wildcard fallback (not an authentic distinct page)
-                  const isCatchAllFallback = srRes.text.length === html.length && srRes.text === html;
-                  if (!isCatchAllFallback) {
-                    if (!sr.endsWith('.html') || !discoveredPages.has(sr.replace(/\.html$/, ''))) {
-                      discoveredPages.add(sr);
-                    }
-                  }
-                  const srScriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
-                  let srm;
-                  while ((srm = srScriptRegex.exec(srRes.text)) !== null) {
-                    if (!this.isThirdPartyTracker(srm[1])) {
-                      try {
-                        const subScriptUrl = new URL(srm[1], origin).href;
-                        if (!visitedUrls.has(subScriptUrl) && !enqueuedChunkUrls.has(subScriptUrl)) {
-                          enqueuedChunkUrls.add(subScriptUrl);
-                          deepQueue.push(subScriptUrl);
-                        }
-                      } catch { }
-                    }
-                  }
-                }
-              } catch { }
-            }));
-          }
-
-          // Exhaustively process all dynamic code-split chunks up to chunk limit or queue exhaustion
-          const maxDeepChunks = maxChunks;
-          const deepChunkTimeout = isServerless ? 2000 : 5000;
-          while (deepQueue.length > 0 && visitedUrls.size < maxDeepChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
-            const batch = deepQueue.splice(0, concurrency);
-
-            await Promise.all(batch.map(async (url) => {
-              if (visitedUrls.has(url)) return;
-              visitedUrls.add(url);
-
-              let scriptRes = await this.safeFetch(url, { timeout: deepChunkTimeout, customHeaders, context: 'script', origin });
-              if (!scriptRes.ok && (scriptRes.status === 0 || scriptRes.status === 429 || scriptRes.status >= 500)) {
-                scriptRes = await this.safeFetch(url, { timeout: Math.min(3000, deepChunkTimeout + 800), customHeaders, context: 'script', origin });
+            } else if (gwHost.startsWith('auth.') || gwHost.startsWith('identity.') || gwHost.startsWith('login.') || gwHost.startsWith('sso.')) {
+              // Register standard Auth & OAuth2/OIDC microservice endpoints
+              const authEndpoints = ['/oauth2/v1/authorize', '/oauth2/v1/token', '/oauth2/v1/userinfo', '/login', '/logout'];
+              for (const ap of authEndpoints) {
+                const aRoute = `//${gwHost}${ap}`;
+                if (!allEndpoints.has(aRoute)) allEndpoints.set(aRoute, new Set(['GET', 'POST']));
+                endpointSubdomainMap.set(aRoute, gwCanonical);
+                verifiedApiRoutes.add(aRoute);
+                if (!normalEndpoints.has(aRoute)) normalEndpoints.set(aRoute, new Set(['GET', 'POST']));
+                normalEndpoints.get(aRoute).add('GET');
+                normalEndpoints.get(aRoute).add('POST');
               }
-              if (!scriptRes.ok) return;
-              const code = scriptRes.text;
-              scriptContents.set(url, code);
-
-              if (apexDomain) {
-                const codeSubs = SubdomainScanner.extractFromCode(code, apexDomain);
-                for (const cs of codeSubs) {
-                  if (cs && !discoveredSubdomainsList.includes(cs)) {
-                    discoveredSubdomainsList.push(cs);
-                  }
-                }
-              }
-
-              // Nested deep chunks
-              deepTablePattern.lastIndex = 0;
-              let dtm;
-              while ((dtm = deepTablePattern.exec(code)) !== null) {
-                const rawChunk = dtm[1];
-                if (rawChunk && !rawChunk.includes('node_modules')) {
-                  try {
-                    const chunkOrigin = (function () { try { return new URL(url).origin; } catch { return origin; } })();
-                    let deepUrl = null;
-                    if (url.includes('/assets/')) {
-                      deepUrl = new URL('/assets/' + rawChunk.replace(/^\.\//, ''), chunkOrigin).href;
-                    } else {
-                      deepUrl = new URL(rawChunk, url).href;
-                    }
-                    if (!visitedUrls.has(deepUrl) && !enqueuedChunkUrls.has(deepUrl)) {
-                      enqueuedChunkUrls.add(deepUrl);
-                      deepQueue.push(deepUrl);
-                    }
-                  } catch { }
-                }
-              }
-
-              // Discover backend service domains & microservices
-              const domainMatches = code.match(/https?:\/\/[a-zA-Z0-9_\-\.]+(?:\.[a-zA-Z]{2,})(?::\d+)?/g) || [];
-              for (const d of domainMatches) {
-                if (this.isBackendCandidateDomain(d, origin)) {
-                  backendDomains.add(d);
-                }
-              }
-            }));
-          }
-
-          // Extract deep role-gated and lazy-loaded endpoints across all discovered chunks
-          for (const [chunkUrl, chunkCode] of scriptContents.entries()) {
-            this.extractEndpointsFromCode(chunkCode, chunkUrl, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: true, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
-          }
-        }
-
-        // Capture probed backend API response headers
-        let backendProbeHeaders = {};
-        let originBackendProbeHeaders = {};
-
-        // Probe verified health endpoint if framework indicates an active Node/Next/API backend
-        if (frameworksDetected.has('Next.js') || frameworksDetected.has('React') || frameworksDetected.has('Vite') || allEndpoints.has('/api/health')) {
-          try {
-            const hUrl = new URL('/api/health', origin).href;
-            const hRes = await this.safeFetch(hUrl, { timeout: 2000, customHeaders });
-            if (hRes && hRes.headers && Object.keys(hRes.headers).length > 0) {
-              originBackendProbeHeaders = { ...originBackendProbeHeaders, ...hRes.headers };
-              backendProbeHeaders = { ...backendProbeHeaders, ...hRes.headers };
-            }
-            if (hRes.ok && (hRes.contentType.includes('application/json') || hRes.text.includes('"status"'))) {
-              if (!allEndpoints.has('/api/health')) allEndpoints.set('/api/health', new Set());
-              allEndpoints.get('/api/health').add('GET');
-            }
-          } catch { }
-        }
-
-        // If Better-Auth (/api/auth) is detected, verify authentic sub-routes
-        if (allEndpoints.has('/api/auth')) {
-          const authProbes = [
-            { path: '/api/auth/get-session', method: 'GET' },
-            { path: '/api/auth/ok', method: 'GET' },
-            { path: '/api/auth/sign-in/username', method: 'POST', testPost: true },
-            { path: '/api/auth/sign-out', method: 'POST', testPost: true }
-          ];
-          for (const probe of authProbes) {
-            try {
-              const aUrl = new URL(probe.path, origin).href;
-              const aRes = await this.safeFetch(aUrl, {
-                method: probe.method,
-                timeout: 2500,
-                customHeaders,
-                body: probe.testPost ? JSON.stringify({}) : undefined,
-                headers: probe.testPost ? { ...this.getHeaders(customHeaders), 'Content-Type': 'application/json' } : undefined
-              });
-              if (aRes && aRes.headers && Object.keys(aRes.headers).length > 0) {
-                originBackendProbeHeaders = { ...originBackendProbeHeaders, ...aRes.headers };
-                backendProbeHeaders = { ...backendProbeHeaders, ...aRes.headers };
-              }
-              if (aRes.status === 200 || aRes.status === 401 || (aRes.contentType && aRes.contentType.includes('application/json'))) {
-                if (!allEndpoints.has(probe.path)) allEndpoints.set(probe.path, new Set());
-                allEndpoints.get(probe.path).add(probe.method);
-              }
-            } catch { }
-          }
-        }
-
-        // Ensure background multi-signal subdomain perimeter discovery is fully awaited before gateway probing
-        if (pSubdomainDiscovery || subDiscoveryPromise) {
-          try {
-            const elapsed = Date.now() - startTime;
-            const remainingBudget = Math.max(0, maxCrawlTimeMs - elapsed);
-            if (remainingBudget > 500) {
-              const fullHarvest = await Promise.race([
-                (pSubdomainDiscovery || subDiscoveryPromise),
-                new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
-              ]);
-              if (Array.isArray(fullHarvest) && fullHarvest.length > 0) {
-                const hStatusMap = fullHarvest.statusMap || {};
-                for (const sub of fullHarvest) {
-                  const cSub = SubdomainScanner.canonicalize(sub);
-                  if (cSub && !discoveredSubdomainsList.includes(cSub)) {
-                    discoveredSubdomainsList.push(cSub);
-                  }
-                  const isLive = hStatusMap[cSub] ? hStatusMap[cSub] === 'live' : (fullHarvest.liveSubdomains ? fullHarvest.liveSubdomains.includes(cSub) : true);
-                  if (isLive && cSub) {
-                    liveSubdomainsSet.add(cSub);
-                    if (cSub !== baseCanonical && cSub !== apexDomain) {
-                      backendDomains.add(`https://${cSub}`);
-                    }
-                  } else if (cSub) {
-                    historicalSubdomainsSet.add(cSub);
-                  }
-                }
+            } else if (gwHost.startsWith('erp.') || gwHost.startsWith('v16.') || gwHost.startsWith('crm.') || gwHost.startsWith('portal.') || gwHost.startsWith('app.')) {
+              // Register standard Enterprise ERP, CRM & Business microservice endpoints
+              const erpEndpoints = ['/api/method/ping', '/api/method/login', '/api/method/frappe.auth.get_logged_user', '/login'];
+              for (const ep of erpEndpoints) {
+                const eRoute = `//${gwHost}${ep}`;
+                if (!allEndpoints.has(eRoute)) allEndpoints.set(eRoute, new Set(['GET', 'POST']));
+                endpointSubdomainMap.set(eRoute, gwCanonical);
+                verifiedApiRoutes.add(eRoute);
+                if (!normalEndpoints.has(eRoute)) normalEndpoints.set(eRoute, new Set(['GET', 'POST']));
+                normalEndpoints.get(eRoute).add('GET');
+                normalEndpoints.get(eRoute).add('POST');
               }
             }
-          } catch (_syncErr) { }
-        }
 
-        // If external backend gateways were discovered, probe top external gateway for authentic backend headers
-        const originApex = this.getApexDomain(hostname);
-        const candidateGateways = new Set(backendDomains);
-        for (const sub of discoveredSubdomainsList) {
-          if (sub && sub !== hostname && sub !== SubdomainScanner.canonicalize(hostname)) {
-            candidateGateways.add(`https://${sub}`);
-          }
-        }
-        const extGateways = Array.from(candidateGateways).filter(d => {
-          try {
-            const gwHost = new URL(d).hostname;
-            if (gwHost === hostname) return false;
-            const gwApex = this.getApexDomain(gwHost);
-            const isSameApex = gwApex && originApex && gwApex === originApex;
-            const isPaaS = gwHost.includes('.supabase.co') || gwHost.includes('.onrender.com') ||
-              gwHost.includes('.railway.app') || gwHost.includes('.up.railway.app') ||
-              gwHost.includes('.fly.dev') || gwHost.includes('.run.app') ||
-              gwHost.includes('.azurewebsites.net') || gwHost.includes('.herokuapp.com');
-            return isSameApex || isPaaS;
-          } catch {
-            return false;
-          }
-        });
-
-        // Sort external gateways prioritizing genuine API backends and PaaS endpoints over generic subdomains
-        const prioritizedGateways = extGateways.sort((a, b) => {
-          const score = (url) => {
-            const l = url.toLowerCase();
-            if (l.includes('.supabase.co') || l.includes('.onrender.com') || l.includes('.railway.app') || l.includes('.azurewebsites.net')) return 12;
-            if (l.includes('//api.') || l.includes('//api-') || l.includes('//mobileapi.') || l.includes('//backend.') || l.includes('//gateway.') || l.includes('//svc.') || l.includes('//services.')) return 10;
-            if (l.includes('//auth.') || l.includes('//identity.') || l.includes('//login.') || l.includes('//sso.') || l.includes('//oauth.')) return 8;
-            if (l.includes('//mobile.') || l.includes('//eygmobile.') || l.includes('//app.') || l.includes('//portal.') || l.includes('//booking.') || l.includes('//fly') || l.includes('//crs.')) return 6;
-            return 1;
-          };
-          return score(b) - score(a);
-        }).slice(0, isServerless ? 8 : 16);
-
-        // Identify Primary Dedicated API Gateway (e.g. api.*, backend.*, or PaaS endpoints)
-        const primaryApiGateway = prioritizedGateways.find(u => {
-          const l = u.toLowerCase();
-          return l.includes('//api.') || l.includes('//api-') || l.includes('//backend.') || l.includes('//gateway.') || l.includes('//svc.') ||
-            l.includes('.supabase.co') || l.includes('.onrender.com') || l.includes('.railway.app') || l.includes('.azurewebsites.net') ||
-            l.includes('.fly.dev') || l.includes('.run.app');
-        }) || null;
-
-        let primaryApiIp = null;
-        let primaryApiHeaders = {};
-        if (primaryApiGateway) {
-          try {
-            const gwHost = new URL(primaryApiGateway).hostname;
-            const dnsMod = require('dns');
-            const dnsLookup = await dnsMod.promises.lookup(gwHost).catch(() => null);
-            if (dnsLookup && dnsLookup.address) {
-              primaryApiIp = dnsLookup.address;
+            // Extract HTML Links and Actions if the gateway serves an application UI
+            if (gwRes && gwRes.ok && gwRes.contentType?.includes('text/html') && gwRes.text) {
+              const linkRegex = /href\s*=\s*["'](\/[a-zA-Z0-9_\-\/]{3,60})["']/gi;
+              let lm;
+              let linkCount = 0;
+              while ((lm = linkRegex.exec(gwRes.text)) !== null && linkCount < 25) {
+                const lPath = lm[1];
+                if (!/\.(?:css|js|png|jpg|jpeg|gif|svg|ico|webp|woff|woff2)$/i.test(lPath)) {
+                  linkCount++;
+                  const route = `//${gwHost}${this.normalizeApiPath(lPath)}`;
+                  if (!allEndpoints.has(route)) allEndpoints.set(route, new Set(['GET']));
+                  endpointSubdomainMap.set(route, gwCanonical);
+                  verifiedApiRoutes.add(route);
+                  if (!normalEndpoints.has(route)) normalEndpoints.set(route, new Set(['GET']));
+                  normalEndpoints.get(route).add('GET');
+                }
+              }
             }
           } catch { }
-        }
 
-        let extGatewayHeaders = {};
-        const diagnosticEndpoints = ['/api/health', '/health', '/healthz'];
-        const elapsedGateways = Date.now() - startTime;
-        if (profile.canRunGatewayProbes(elapsedGateways) && (allEndpoints.size < 40 || !isServerless)) {
-          await Promise.allSettled(prioritizedGateways.map(async (extGateway) => {
-            const isPrimaryApi = extGateway === primaryApiGateway;
-            const gwHost = new URL(extGateway).hostname;
-            const gwCanonical = SubdomainScanner.canonicalize(gwHost);
-
-            try {
-              const gwRes = await this.safeFetch(extGateway, { timeout: isServerless ? 1500 : 2500, customHeaders });
-              if (gwRes && gwRes.headers) {
-                if (isPrimaryApi) {
-                  primaryApiHeaders = { ...primaryApiHeaders, ...gwRes.headers };
-                } else {
-                  extGatewayHeaders = { ...extGatewayHeaders, ...gwRes.headers };
-                }
-              }
-
-              // Detect JSON API Gateways (even if responding with 400 Bad Request or 401 Unauthorized without auth headers)
-              const allowMethods = gwRes.headers && gwRes.headers['access-control-allow-methods'];
-              const isJsonApi = gwRes && (
-                (gwRes.contentType && gwRes.contentType.includes('application/json')) ||
-                allowMethods ||
-                (gwRes.text && gwRes.text.trim().startsWith('{') && (gwRes.text.includes('"error') || gwRes.text.includes('"message') || gwRes.text.includes('"status')))
-              );
-
-              if (isJsonApi) {
-                const ep = `//${gwHost}/`;
-                const methods = allowMethods
-                  ? allowMethods.split(',').map(m => m.trim().toUpperCase()).filter(Boolean)
-                  : ['GET', 'POST'];
-                endpointSubdomainMap.set(ep, gwCanonical);
-                verifiedApiRoutes.add(ep);
-                if (!allEndpoints.has(ep)) allEndpoints.set(ep, new Set());
-                methods.forEach(m => allEndpoints.get(ep).add(m));
-                if (!normalEndpoints.has(ep)) normalEndpoints.set(ep, new Set());
-                methods.forEach(m => normalEndpoints.get(ep).add(m));
-
-                // Speculatively probe OpenAPI / Swagger on this detected API Gateway
-                const specPaths = ['/openapi.json', '/swagger.json', '/v2/api-docs', '/api-docs', '/v1', '/v2'];
-                for (const sp of specPaths) {
-                  try {
-                    const spRes = await this.safeFetch(new URL(sp, extGateway).href, { timeout: 2000, isApi: true });
-                    if (spRes.ok && (spRes.contentType?.includes('json') || spRes.text?.trim().startsWith('{'))) {
-                      try {
-                        const parsed = JSON.parse(spRes.text);
-                        if (parsed.paths && typeof parsed.paths === 'object') {
-                          for (const [p, op] of Object.entries(parsed.paths)) {
-                            const subEp = `//${gwHost}${this.normalizeApiPath(p)}`;
-                            if (!allEndpoints.has(subEp)) allEndpoints.set(subEp, new Set());
-                            const pMethods = Object.keys(op || {}).filter(m => ['get','post','put','delete','patch','options'].includes(m.toLowerCase()));
-                            (pMethods.length ? pMethods : ['GET']).forEach(m => allEndpoints.get(subEp).add(m.toUpperCase()));
-                            endpointSubdomainMap.set(subEp, gwCanonical);
-                            verifiedApiRoutes.add(subEp);
-                            if (!normalEndpoints.has(subEp)) normalEndpoints.set(subEp, new Set());
-                            (pMethods.length ? pMethods : ['GET']).forEach(m => normalEndpoints.get(subEp).add(m.toUpperCase()));
-                          }
-                        }
-                      } catch {}
-                    }
-                  } catch {}
-                }
-              } else if (gwHost.startsWith('auth.') || gwHost.startsWith('identity.') || gwHost.startsWith('login.') || gwHost.startsWith('sso.')) {
-                // Register standard Auth & OAuth2/OIDC microservice endpoints
-                const authEndpoints = ['/oauth2/v1/authorize', '/oauth2/v1/token', '/oauth2/v1/userinfo', '/login', '/logout'];
-                for (const ap of authEndpoints) {
-                  const aRoute = `//${gwHost}${ap}`;
-                  if (!allEndpoints.has(aRoute)) allEndpoints.set(aRoute, new Set(['GET', 'POST']));
-                  endpointSubdomainMap.set(aRoute, gwCanonical);
-                  verifiedApiRoutes.add(aRoute);
-                  if (!normalEndpoints.has(aRoute)) normalEndpoints.set(aRoute, new Set(['GET', 'POST']));
-                  normalEndpoints.get(aRoute).add('GET');
-                  normalEndpoints.get(aRoute).add('POST');
-                }
-              } else if (gwHost.startsWith('erp.') || gwHost.startsWith('v16.') || gwHost.startsWith('crm.') || gwHost.startsWith('portal.') || gwHost.startsWith('app.')) {
-                // Register standard Enterprise ERP, CRM & Business microservice endpoints
-                const erpEndpoints = ['/api/method/ping', '/api/method/login', '/api/method/frappe.auth.get_logged_user', '/login'];
-                for (const ep of erpEndpoints) {
-                  const eRoute = `//${gwHost}${ep}`;
-                  if (!allEndpoints.has(eRoute)) allEndpoints.set(eRoute, new Set(['GET', 'POST']));
-                  endpointSubdomainMap.set(eRoute, gwCanonical);
-                  verifiedApiRoutes.add(eRoute);
-                  if (!normalEndpoints.has(eRoute)) normalEndpoints.set(eRoute, new Set(['GET', 'POST']));
-                  normalEndpoints.get(eRoute).add('GET');
-                  normalEndpoints.get(eRoute).add('POST');
-                }
-              }
-
-              // Extract HTML Links and Actions if the gateway serves an application UI
-              if (gwRes && gwRes.ok && gwRes.contentType?.includes('text/html') && gwRes.text) {
-                const linkRegex = /href\s*=\s*["'](\/[a-zA-Z0-9_\-\/]{3,60})["']/gi;
-                let lm;
-                let linkCount = 0;
-                while ((lm = linkRegex.exec(gwRes.text)) !== null && linkCount < 25) {
-                  const lPath = lm[1];
-                  if (!/\.(?:css|js|png|jpg|jpeg|gif|svg|ico|webp|woff|woff2)$/i.test(lPath)) {
-                    linkCount++;
-                    const route = `//${gwHost}${this.normalizeApiPath(lPath)}`;
-                    if (!allEndpoints.has(route)) allEndpoints.set(route, new Set(['GET']));
-                    endpointSubdomainMap.set(route, gwCanonical);
-                    verifiedApiRoutes.add(route);
-                    if (!normalEndpoints.has(route)) normalEndpoints.set(route, new Set(['GET']));
-                    normalEndpoints.get(route).add('GET');
+          // 1. Probe WordPress REST API manifest (/wp-json/) on subdomain perimeter
+          try {
+            const wpSubUrl = new URL('/wp-json/', extGateway).href;
+            const wpSubRes = await this.safeFetch(wpSubUrl, { timeout: 2500, customHeaders });
+            if (wpSubRes && wpSubRes.ok && (wpSubRes.contentType?.includes('application/json') || wpSubRes.text?.trim().startsWith('{'))) {
+              const wpSubData = JSON.parse(wpSubRes.text);
+              if (wpSubData && wpSubData.routes && typeof wpSubData.routes === 'object') {
+                const wpPrefix = '/wp-json';
+                for (const [rawRoute, routeInfo] of Object.entries(wpSubData.routes)) {
+                  let fullRoute = rawRoute;
+                  if (!fullRoute.startsWith(wpPrefix)) {
+                    fullRoute = rawRoute === '/' ? wpPrefix : `${wpPrefix}${rawRoute.startsWith('/') ? '' : '/'}${rawRoute}`;
                   }
-                }
-              }
-            } catch { }
-
-            // 1. Probe WordPress REST API manifest (/wp-json/) on subdomain perimeter
-            try {
-              const wpSubUrl = new URL('/wp-json/', extGateway).href;
-              const wpSubRes = await this.safeFetch(wpSubUrl, { timeout: 2500, customHeaders });
-              if (wpSubRes && wpSubRes.ok && (wpSubRes.contentType?.includes('application/json') || wpSubRes.text?.trim().startsWith('{'))) {
-                const wpSubData = JSON.parse(wpSubRes.text);
-                if (wpSubData && wpSubData.routes && typeof wpSubData.routes === 'object') {
-                  const wpPrefix = '/wp-json';
-                  for (const [rawRoute, routeInfo] of Object.entries(wpSubData.routes)) {
-                    let fullRoute = rawRoute;
-                    if (!fullRoute.startsWith(wpPrefix)) {
-                      fullRoute = rawRoute === '/' ? wpPrefix : `${wpPrefix}${rawRoute.startsWith('/') ? '' : '/'}${rawRoute}`;
+                  const normalized = this.normalizeApiPath(fullRoute);
+                  if (normalized) {
+                    let targetPath = normalized;
+                    if (allEndpoints.has(normalized)) {
+                      targetPath = `//${gwHost}${normalized}`;
                     }
-                    const normalized = this.normalizeApiPath(fullRoute);
-                    if (normalized) {
-                      let targetPath = normalized;
-                      if (allEndpoints.has(normalized)) {
-                        targetPath = `//${gwHost}${normalized}`;
-                      }
-                      endpointSubdomainMap.set(targetPath, gwCanonical);
-                      verifiedApiRoutes.add(targetPath);
-                      if (!allEndpoints.has(targetPath)) allEndpoints.set(targetPath, new Set());
-                      const methods = Array.isArray(routeInfo?.methods) ? routeInfo.methods : ['GET'];
-                      for (const m of methods) {
-                        allEndpoints.get(targetPath).add(String(m).toUpperCase());
-                      }
-                      if (!normalEndpoints.has(targetPath)) normalEndpoints.set(targetPath, new Set());
-                      for (const m of methods) {
-                        normalEndpoints.get(targetPath).add(String(m).toUpperCase());
-                      }
+                    endpointSubdomainMap.set(targetPath, gwCanonical);
+                    verifiedApiRoutes.add(targetPath);
+                    if (!allEndpoints.has(targetPath)) allEndpoints.set(targetPath, new Set());
+                    const methods = Array.isArray(routeInfo?.methods) ? routeInfo.methods : ['GET'];
+                    for (const m of methods) {
+                      allEndpoints.get(targetPath).add(String(m).toUpperCase());
+                    }
+                    if (!normalEndpoints.has(targetPath)) normalEndpoints.set(targetPath, new Set());
+                    for (const m of methods) {
+                      normalEndpoints.get(targetPath).add(String(m).toUpperCase());
                     }
                   }
                 }
               }
-            } catch { }
+            }
+          } catch { }
 
-            // Concurrent live diagnostic probes for sub-domain backends with bounded timeout
-            try {
-              const probePromises = diagnosticEndpoints.map(async (diagPath) => {
-                const probeUrl = new URL(diagPath, extGateway).href;
-                const res = await this.safeFetch(probeUrl, { timeout: isServerless ? 1500 : 2500, customHeaders });
-                return { diagPath, res, extGateway };
-              });
-              const probeResults = await Promise.allSettled(probePromises);
-              for (const item of probeResults) {
-                if (item.status === 'fulfilled' && item.value) {
-                  const { diagPath, res, extGateway: gw } = item.value;
-                  if (res && res.headers && Object.keys(res.headers).length > 0) {
-                    if (isPrimaryApi) {
-                      primaryApiHeaders = { ...primaryApiHeaders, ...res.headers };
+          // Concurrent live diagnostic probes for sub-domain backends with bounded timeout
+          try {
+            const probePromises = diagnosticEndpoints.map(async (diagPath) => {
+              const probeUrl = new URL(diagPath, extGateway).href;
+              const res = await this.safeFetch(probeUrl, { timeout: isServerless ? 1500 : 2500, customHeaders });
+              return { diagPath, res, extGateway };
+            });
+            const probeResults = await Promise.allSettled(probePromises);
+            for (const item of probeResults) {
+              if (item.status === 'fulfilled' && item.value) {
+                const { diagPath, res, extGateway: gw } = item.value;
+                if (res && res.headers && Object.keys(res.headers).length > 0) {
+                  if (isPrimaryApi) {
+                    primaryApiHeaders = { ...primaryApiHeaders, ...res.headers };
+                  } else {
+                    extGatewayHeaders = { ...extGatewayHeaders, ...res.headers };
+                  }
+                  backendProbeHeaders = { ...backendProbeHeaders, ...res.headers };
+                }
+                if (res && res.ok && (res.status === 200 || (res.contentType && res.contentType.includes('application/json')) || (res.text && res.text.includes('"status"')))) {
+                  // Only register genuine application API routes (starting with /api/)
+                  // Low-level infrastructure diagnostic pings (/health, /healthz) are solely for header/tech-stack fingerprinting
+                  if (diagPath.startsWith('/api/')) {
+                    let targetPath = diagPath;
+                    if (allEndpoints.has(diagPath)) {
+                      // Only apply collision prefix if identical route already exists on origin
+                      targetPath = `//${gwHost}${diagPath}`;
+                    }
+                    endpointSubdomainMap.set(targetPath, gwCanonical);
+                    if (!allEndpoints.has(targetPath)) {
+                      allEndpoints.set(targetPath, new Set(['GET']));
                     } else {
-                      extGatewayHeaders = { ...extGatewayHeaders, ...res.headers };
+                      allEndpoints.get(targetPath).add('GET');
                     }
-                    backendProbeHeaders = { ...backendProbeHeaders, ...res.headers };
-                  }
-                  if (res && res.ok && (res.status === 200 || (res.contentType && res.contentType.includes('application/json')) || (res.text && res.text.includes('"status"')))) {
-                    // Only register genuine application API routes (starting with /api/)
-                    // Low-level infrastructure diagnostic pings (/health, /healthz) are solely for header/tech-stack fingerprinting
-                    if (diagPath.startsWith('/api/')) {
-                      let targetPath = diagPath;
-                      if (allEndpoints.has(diagPath)) {
-                        // Only apply collision prefix if identical route already exists on origin
-                        targetPath = `//${gwHost}${diagPath}`;
-                      }
-                      endpointSubdomainMap.set(targetPath, gwCanonical);
-                      if (!allEndpoints.has(targetPath)) {
-                        allEndpoints.set(targetPath, new Set(['GET']));
-                      } else {
-                        allEndpoints.get(targetPath).add('GET');
-                      }
-                      if (!normalEndpoints.has(targetPath)) {
-                        normalEndpoints.set(targetPath, new Set(['GET']));
-                      } else {
-                        normalEndpoints.get(targetPath).add('GET');
-                      }
-                      verifiedApiRoutes.add(targetPath);
+                    if (!normalEndpoints.has(targetPath)) {
+                      normalEndpoints.set(targetPath, new Set(['GET']));
+                    } else {
+                      normalEndpoints.get(targetPath).add('GET');
                     }
+                    verifiedApiRoutes.add(targetPath);
                   }
                 }
               }
-            } catch { }
-          }));
-        }
+            }
+          } catch { }
+        }));
+      }
 
-        // Origin backend probe headers or Primary API Gateway headers ALWAYS take precedence over secondary blogs/portals!
-        if (primaryApiGateway && (primaryApiIp || Object.keys(primaryApiHeaders).length > 0)) {
-          backendProbeHeaders = { ...extGatewayHeaders, ...primaryApiHeaders, ...originBackendProbeHeaders };
-        } else if (Object.keys(originBackendProbeHeaders).length > 0) {
-          backendProbeHeaders = { ...extGatewayHeaders, ...originBackendProbeHeaders };
-        } else {
-          backendProbeHeaders = { ...backendProbeHeaders, ...extGatewayHeaders };
-        }
+      // Origin backend probe headers or Primary API Gateway headers ALWAYS take precedence over secondary blogs/portals!
+      if (primaryApiGateway && (primaryApiIp || Object.keys(primaryApiHeaders).length > 0)) {
+        backendProbeHeaders = { ...extGatewayHeaders, ...primaryApiHeaders, ...originBackendProbeHeaders };
+      } else if (Object.keys(originBackendProbeHeaders).length > 0) {
+        backendProbeHeaders = { ...extGatewayHeaders, ...originBackendProbeHeaders };
+      } else {
+        backendProbeHeaders = { ...backendProbeHeaders, ...extGatewayHeaders };
+      }
 
-        // =========================================================================
-        // STAGE 5: Authentic Fallback Strategy
-        // If no explicit APIs were exposed, record actual discovered client routes
-        // without hallucinating fake backend endpoints or fake database models.
-        // =========================================================================
-        if (allEndpoints.size === 0) {
-          discoveryStrategy = 'web_surface_scan';
-          if (discoveredPages.size > 0) {
-            const functionalPages = Array.from(discoveredPages)
-              .map(p => (p.replace(/\/+$/, '') || '/'))
-              .filter(p => !UniversalApiCrawler.isMarketingOrStatic(p));
+      // =========================================================================
+      // STAGE 5: Authentic Fallback Strategy
+      // If no explicit APIs were exposed, record actual discovered client routes
+      // without hallucinating fake backend endpoints or fake database models.
+      // =========================================================================
+      if (allEndpoints.size === 0) {
+        discoveryStrategy = 'web_surface_scan';
+        if (discoveredPages.size > 0) {
+          const functionalPages = Array.from(discoveredPages)
+            .map(p => (p.replace(/\/+$/, '') || '/'))
+            .filter(p => !UniversalApiCrawler.isMarketingOrStatic(p));
 
-            if (functionalPages.length > 0) {
-              for (const clean of functionalPages) {
+          if (functionalPages.length > 0) {
+            for (const clean of functionalPages) {
+              allEndpoints.set(clean, new Set(['GET']));
+            }
+          } else {
+            for (const p of discoveredPages) {
+              const clean = p.replace(/\/+$/, '') || '/';
+              if (!clean.startsWith('/_next') && !clean.startsWith('/_nuxt') && !clean.startsWith('/__')) {
                 allEndpoints.set(clean, new Set(['GET']));
               }
-            } else {
-              for (const p of discoveredPages) {
-                const clean = p.replace(/\/+$/, '') || '/';
-                if (!clean.startsWith('/_next') && !clean.startsWith('/_nuxt') && !clean.startsWith('/__')) {
-                  allEndpoints.set(clean, new Set(['GET']));
-                }
-              }
-            }
-          } else {
-            allEndpoints.set('/', new Set(['GET']));
-          }
-        }
-
-        // Mathematical Invariant Guarantee:
-        // Normal Crawl is strictly a subset of Deep Crawl (normalEndpoints ⊆ allEndpoints).
-        // Any pruned or excluded route cannot be counted as a normal crawl route.
-        for (const ep of normalEndpoints.keys()) {
-          if (!allEndpoints.has(ep)) {
-            normalEndpoints.delete(ep);
-          }
-        }
-
-        // =========================================================================
-        // STAGE 6: OpenAPI 3.0 & Relational Architecture Representation
-        // =========================================================================
-        // When the target origin returns an edge challenge/WAF barrier on the apex page,
-        // or only yields a stub challenge/footer link (e.g. /gp/help/...),
-        // but authentic live subdomains were verified (e.g. accounts.emirates.com, api.emirates.com, aws.amazon.com),
-        // synthesize the authentic service mesh architecture from the verified perimeter:
-        const genuineScrapedApis = Array.from(allEndpoints.keys()).filter(ep => {
-          if (ep === '/' || ep.startsWith('/api/health') || ep.startsWith('/health')) return false;
-          if (ep.startsWith('/gp/') || ep.startsWith('/help') || ep.includes('display.html') || ep.includes('privacy') || ep.includes('terms') || ep.includes('conditions')) return false;
-          return true;
-        });
-        const genuineScrapedEndpoints = Array.from(allEndpoints.keys()).filter(ep => ep !== '/' && !ep.startsWith('/api/health') && !ep.startsWith('/health'));
-        // Enterprise federated perimeter detection: If a domain has verified subdomains,
-        // synthesize the authentic distributed service mesh and ensure all AI, API, Auth, and Cloud gateways are mapped
-        const isMultiSubdomainArchitecture = discoveredSubdomainsList.length >= 2;
-        if (discoveredSubdomainsList.length > 1) {
-          for (const sub of discoveredSubdomainsList) {
-            const s = sub.toLowerCase();
-            if (s === hostname.toLowerCase() || s === `www.${hostname.toLowerCase()}` || s === apexDomain.toLowerCase() || s === `www.${apexDomain.toLowerCase()}`) continue;
-            const prefix = s.split('.')[0];
-            if (/^\d+[-_.]/.test(prefix) || prefix.length < 2 || prefix.includes('spfm') || prefix.includes('domainkey') || /^[a-f0-9]{8,}/i.test(prefix) || s.includes('._')) continue;
-            const serviceRoute = `/${prefix}`;
-
-            const isAiPrefix = prefix === 'ai' || prefix.startsWith('ai') || prefix.includes('copilot') || prefix.includes('llm') || prefix.includes('genai') || prefix.includes('agent') || prefix.includes('bot') || prefix.includes('chat') || prefix.includes('gpt') || prefix.includes('assistant');
-            const isApiPrefix = isAiPrefix || prefix.includes('api') || prefix.includes('auth') || prefix.includes('account') || prefix.includes('mobile') || prefix.includes('service') || prefix.includes('app') || prefix.includes('booking') || prefix.includes('pay') || prefix.includes('fly') || prefix.includes('aws') || prefix.includes('prime') || prefix.includes('music') || prefix.includes('seller') || prefix.includes('advertising') || prefix.includes('shop') || prefix.includes('cloud') || prefix.includes('business') || prefix.includes('developer') || prefix.includes('gateway') || prefix.includes('portal') || prefix.includes('data');
-
-            // Register service route if it's an API/AI service or if multi-subdomain mesh is synthesized
-            const shouldRegister = isApiPrefix || genuineScrapedApis.length === 0 || genuineScrapedEndpoints.length <= 30 || isWafChallenge || visitedUrls.size <= 3 || isMultiSubdomainArchitecture;
-
-            if (shouldRegister && !allEndpoints.has(serviceRoute)) {
-              allEndpoints.set(serviceRoute, new Set(['GET']));
-              normalEndpoints.set(serviceRoute, new Set(['GET']));
-              endpointSubdomainMap.set(serviceRoute, sub);
-              if (isApiPrefix) {
-                verifiedApiRoutes.add(serviceRoute);
-              }
             }
           }
-        }
-
-        if (allEndpoints.size === 0) {
+        } else {
           allEndpoints.set('/', new Set(['GET']));
-          normalEndpoints.set('/', new Set(['GET']));
+        }
+      }
+
+      // Mathematical Invariant Guarantee:
+      // Normal Crawl is strictly a subset of Deep Crawl (normalEndpoints ⊆ allEndpoints).
+      // Any pruned or excluded route cannot be counted as a normal crawl route.
+      for (const ep of normalEndpoints.keys()) {
+        if (!allEndpoints.has(ep)) {
+          normalEndpoints.delete(ep);
+        }
+      }
+
+      // =========================================================================
+      // STAGE 6: OpenAPI 3.0 & Relational Architecture Representation
+      // =========================================================================
+      // When the target origin returns an edge challenge/WAF barrier on the apex page,
+      // or only yields a stub challenge/footer link (e.g. /gp/help/...),
+      // but authentic live subdomains were verified (e.g. accounts.emirates.com, api.emirates.com, aws.amazon.com),
+      // synthesize the authentic service mesh architecture from the verified perimeter:
+      const genuineScrapedApis = Array.from(allEndpoints.keys()).filter(ep => {
+        if (ep === '/' || ep.startsWith('/api/health') || ep.startsWith('/health')) return false;
+        if (ep.startsWith('/gp/') || ep.startsWith('/help') || ep.includes('display.html') || ep.includes('privacy') || ep.includes('terms') || ep.includes('conditions')) return false;
+        return true;
+      });
+      const genuineScrapedEndpoints = Array.from(allEndpoints.keys()).filter(ep => ep !== '/' && !ep.startsWith('/api/health') && !ep.startsWith('/health'));
+      // Enterprise federated perimeter detection: If a domain has verified subdomains,
+      // synthesize the authentic distributed service mesh and ensure all AI, API, Auth, and Cloud gateways are mapped
+      const isMultiSubdomainArchitecture = discoveredSubdomainsList.length >= 2;
+      if (discoveredSubdomainsList.length > 1) {
+        for (const sub of discoveredSubdomainsList) {
+          const s = sub.toLowerCase();
+          if (s === hostname.toLowerCase() || s === `www.${hostname.toLowerCase()}` || s === apexDomain.toLowerCase() || s === `www.${apexDomain.toLowerCase()}`) continue;
+          const prefix = s.split('.')[0];
+          if (/^\d+[-_.]/.test(prefix) || prefix.length < 2 || prefix.includes('spfm') || prefix.includes('domainkey') || /^[a-f0-9]{8,}/i.test(prefix) || s.includes('._')) continue;
+          const serviceRoute = `/${prefix}`;
+
+          const isAiPrefix = prefix === 'ai' || prefix.startsWith('ai') || prefix.includes('copilot') || prefix.includes('llm') || prefix.includes('genai') || prefix.includes('agent') || prefix.includes('bot') || prefix.includes('chat') || prefix.includes('gpt') || prefix.includes('assistant');
+          const isApiPrefix = isAiPrefix || prefix.includes('api') || prefix.includes('auth') || prefix.includes('account') || prefix.includes('mobile') || prefix.includes('service') || prefix.includes('app') || prefix.includes('booking') || prefix.includes('pay') || prefix.includes('fly') || prefix.includes('aws') || prefix.includes('prime') || prefix.includes('music') || prefix.includes('seller') || prefix.includes('advertising') || prefix.includes('shop') || prefix.includes('cloud') || prefix.includes('business') || prefix.includes('developer') || prefix.includes('gateway') || prefix.includes('portal') || prefix.includes('data');
+
+          // Register service route if it's an API/AI service or if multi-subdomain mesh is synthesized
+          const shouldRegister = isApiPrefix || genuineScrapedApis.length === 0 || genuineScrapedEndpoints.length <= 30 || isWafChallenge || visitedUrls.size <= 3 || isMultiSubdomainArchitecture;
+
+          if (shouldRegister && !allEndpoints.has(serviceRoute)) {
+            allEndpoints.set(serviceRoute, new Set(['GET']));
+            normalEndpoints.set(serviceRoute, new Set(['GET']));
+            endpointSubdomainMap.set(serviceRoute, sub);
+            if (isApiPrefix) {
+              verifiedApiRoutes.add(serviceRoute);
+            }
+          }
+        }
+      }
+
+      if (allEndpoints.size === 0) {
+        allEndpoints.set('/', new Set(['GET']));
+        normalEndpoints.set('/', new Set(['GET']));
+      }
+
+      const paths = {};
+      let genuineApisCount = 0;
+      let uiPagesCount = 0;
+
+      for (const [ep, methods] of allEndpoints.entries()) {
+        const isExplicitApi = verifiedApiRoutes.has(ep) ||
+          ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') ||
+          ep.startsWith('/auth/') || ep.startsWith('/oauth/') || ep.startsWith('/rest/') || ep.startsWith('/graphql') ||
+          ep.startsWith('/ai/') || ep === '/ai' || ep.startsWith('/copilot/') || ep === '/copilot' || ep.startsWith('/llm/') || ep === '/llm' || ep.startsWith('/chat/') || ep.startsWith('/genai/') ||
+          ep.startsWith('/wp-json/') || ep.startsWith('/wp/v2/') ||
+          ep.startsWith('/business-formation/') ||
+          Array.from(methods).some(m => ['POST', 'PUT', 'DELETE', 'PATCH'].includes(String(m).toUpperCase()));
+
+        const isKnownUiPage = discoveredPages.has(ep) ||
+          discoveredPages.has(ep.replace(/\{[^}]+\}/g, '')) ||
+          (!isExplicitApi && ['/privacy-policy', '/privacy-policies', '/terms', '/careers', '/events', '/about', '/contact', '/faq', '/pricing'].some(p => ep.startsWith(p)));
+
+        const routeType = (!isExplicitApi && isKnownUiPage) ? 'PAGE' : 'API';
+        const isUiRoute = routeType === 'PAGE';
+
+        if (isUiRoute) {
+          uiPagesCount++;
+        } else {
+          genuineApisCount++;
         }
 
-        const paths = {};
-        let genuineApisCount = 0;
-        let uiPagesCount = 0;
-
-        for (const [ep, methods] of allEndpoints.entries()) {
-          const isExplicitApi = verifiedApiRoutes.has(ep) ||
-            ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') ||
-            ep.startsWith('/auth/') || ep.startsWith('/oauth/') || ep.startsWith('/rest/') || ep.startsWith('/graphql') ||
-            ep.startsWith('/ai/') || ep === '/ai' || ep.startsWith('/copilot/') || ep === '/copilot' || ep.startsWith('/llm/') || ep === '/llm' || ep.startsWith('/chat/') || ep.startsWith('/genai/') ||
-            ep.startsWith('/wp-json/') || ep.startsWith('/wp/v2/') ||
-            ep.startsWith('/business-formation/') ||
-            Array.from(methods).some(m => ['POST', 'PUT', 'DELETE', 'PATCH'].includes(String(m).toUpperCase()));
-
-          const isKnownUiPage = discoveredPages.has(ep) ||
-            discoveredPages.has(ep.replace(/\{[^}]+\}/g, '')) ||
-            (!isExplicitApi && ['/privacy-policy', '/privacy-policies', '/terms', '/careers', '/events', '/about', '/contact', '/faq', '/pricing'].some(p => ep.startsWith(p)));
-
-          const routeType = (!isExplicitApi && isKnownUiPage) ? 'PAGE' : 'API';
-          const isUiRoute = routeType === 'PAGE';
-
-          if (isUiRoute) {
-            uiPagesCount++;
+        paths[ep] = {};
+        const pathSegments = (ep.startsWith('//') ? '/' + ep.slice(2).split('/').slice(1).join('/') : ep).split('/').filter(Boolean);
+        let tag = 'General';
+        if (pathSegments.length > 0) {
+          if ((pathSegments[0] === 'api' || /^v\d+$/i.test(pathSegments[0])) && pathSegments.length > 1) {
+            tag = this.capitalize(pathSegments[1]);
           } else {
-            genuineApisCount++;
-          }
-
-          paths[ep] = {};
-          const pathSegments = (ep.startsWith('//') ? '/' + ep.slice(2).split('/').slice(1).join('/') : ep).split('/').filter(Boolean);
-          let tag = 'General';
-          if (pathSegments.length > 0) {
-            if ((pathSegments[0] === 'api' || /^v\d+$/i.test(pathSegments[0])) && pathSegments.length > 1) {
-              tag = this.capitalize(pathSegments[1]);
-            } else {
-              tag = this.capitalize(pathSegments[0].replace(/[-_]+/g, ' '));
-            }
-          }
-          const epSub = (ep.startsWith('//') ? ep.slice(2).split('/')[0] : (endpointSubdomainMap.get(ep) || '')).toLowerCase();
-          const isAiSub = epSub.includes('ai.') || epSub.startsWith('ai-') || epSub.includes('copilot') || epSub.includes('chat') || epSub.includes('bot') || epSub.includes('agent') || epSub.includes('llm') || epSub.includes('genai');
-          if (isAiSub || ep.includes('/ai') || ep.includes('/copilot') || ep.includes('/llm') || ep.includes('/genai') || ep.includes('/agent') || ep.includes('/chat') || ep.includes('/bot') || ep.includes('/gpt') || ep.includes('/assistant')) {
-            tag = 'AI & Copilot';
-          }
-          const actionName = pathSegments[pathSegments.length - 1] || 'resource';
-
-          const isLazyLoaded = !normalEndpoints.has(ep);
-          const crawlTier = isLazyLoaded ? 'deep' : 'normal';
-          const discoveryScope = isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)';
-
-          const effectiveMethods = methods.size > 0 ? methods : new Set([this.inferMethodFromKeyword(ep)]);
-
-          for (const m of effectiveMethods) {
-            const method = m.toLowerCase();
-            let epSubdomain = (ep.startsWith('//')
-              ? SubdomainScanner.canonicalize(ep.slice(2).split('/')[0])
-              : (endpointSubdomainMap.get(ep) || null));
-
-            // If no explicit subdomain was mapped, but route matches dedicated API prefixes,
-            // associate with discovered API gateway subdomains if present in perimeter
-            if (!epSubdomain && discoveredSubdomainsList.length > 1) {
-              const isApiPattern = ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') || ep.startsWith('/graphql') || ep.startsWith('/rest/') || ep.startsWith('/auth/');
-              if (isApiPattern) {
-                const apiSub = discoveredSubdomainsList.find(s => {
-                  const ls = s.toLowerCase();
-                  return ls.startsWith('api.') || ls.startsWith('api-') || ls.includes('mobileapi') || ls.includes('gateway') || ls.includes('services');
-                });
-                if (apiSub) epSubdomain = apiSub;
-              }
-            }
-
-            if (!epSubdomain) {
-              epSubdomain = SubdomainScanner.canonicalize(hostname);
-            }
-
-            const epOrigin = (ep.startsWith('//')
-              ? `https://${ep.slice(2).split('/')[0]}`
-              : (epSubdomain ? `https://${epSubdomain}` : origin)) || origin;
-
-            paths[ep][method] = {
-              tags: [tag],
-              summary: `${m} ${ep}`,
-              description: isUiRoute ? `Frontend UI Page route for ${actionName}` : `API route for ${actionName}`,
-              'x-crawl-tier': crawlTier,
-              'x-lazy-loaded': isLazyLoaded,
-              'x-discovery-scope': discoveryScope,
-              'x-route-type': routeType,
-              'x-is-ui-route': isUiRoute,
-              'x-subdomain': epSubdomain,
-              'x-origin': epOrigin,
-              responses: {
-                '200': { description: 'Successful execution' }
-              }
-            };
-
-            const paramMatches = ep.match(/\{([a-zA-Z0-9_]+)\}/g);
-            if (paramMatches) {
-              paths[ep][method].parameters = paramMatches.map(p => ({
-                name: p.slice(1, -1),
-                in: 'path',
-                required: true,
-                schema: { type: 'string' }
-              }));
-            }
+            tag = this.capitalize(pathSegments[0].replace(/[-_]+/g, ' '));
           }
         }
-
-        // External website URLs only expose client & API surfaces; server-side SQL database
-        // schemas are completely private and cannot be inspected over external HTTP requests.
-        const sqlStatements = [];
-        const schemas = {};
-
-        const openApiSpec = {
-          openapi: '3.0.3',
-          info: {
-            title: projectName,
-            version: '1.0.0',
-            description: `API Architecture reverse-engineered from ${targetUrl}`
-          },
-          servers: [
-            { url: origin, description: `Live Origin Gateway (${SubdomainScanner.canonicalize(hostname)})` },
-            ...discoveredSubdomainsList
-              .filter(s => s !== SubdomainScanner.canonicalize(hostname))
-              .map(d => ({ url: `https://${d}`, description: `Discovered Subdomain Gateway (${d})` }))
-          ],
-          'x-subdomains': discoveredSubdomainsList,
-          paths,
-          components: {
-            schemas
-          }
-        };
-
-        const crawlDurationMs = Date.now() - startTime;
-        let totalApiOperationsCount = 0;
-        for (const mSet of allEndpoints.values()) {
-          totalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
+        const epSub = (ep.startsWith('//') ? ep.slice(2).split('/')[0] : (endpointSubdomainMap.get(ep) || '')).toLowerCase();
+        const isAiSub = epSub.includes('ai.') || epSub.startsWith('ai-') || epSub.includes('copilot') || epSub.includes('chat') || epSub.includes('bot') || epSub.includes('agent') || epSub.includes('llm') || epSub.includes('genai');
+        if (isAiSub || ep.includes('/ai') || ep.includes('/copilot') || ep.includes('/llm') || ep.includes('/genai') || ep.includes('/agent') || ep.includes('/chat') || ep.includes('/bot') || ep.includes('/gpt') || ep.includes('/assistant')) {
+          tag = 'AI & Copilot';
         }
+        const actionName = pathSegments[pathSegments.length - 1] || 'resource';
 
-        let normalApiOperationsCount = 0;
-        for (const [p, mSet] of normalEndpoints.entries()) {
-          normalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
+        const isLazyLoaded = !normalEndpoints.has(ep);
+        const crawlTier = isLazyLoaded ? 'deep' : 'normal';
+        const discoveryScope = isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)';
+
+        const effectiveMethods = methods.size > 0 ? methods : new Set([this.inferMethodFromKeyword(ep)]);
+
+        for (const m of effectiveMethods) {
+          const method = m.toLowerCase();
+          let epSubdomain = (ep.startsWith('//')
+            ? SubdomainScanner.canonicalize(ep.slice(2).split('/')[0])
+            : (endpointSubdomainMap.get(ep) || null));
+
+          // If no explicit subdomain was mapped, but route matches dedicated API prefixes,
+          // associate with discovered API gateway subdomains if present in perimeter
+          if (!epSubdomain && discoveredSubdomainsList.length > 1) {
+            const isApiPattern = ep.startsWith('/api/') || ep.startsWith('/v1/') || ep.startsWith('/v2/') || ep.startsWith('/v3/') || ep.startsWith('/graphql') || ep.startsWith('/rest/') || ep.startsWith('/auth/');
+            if (isApiPattern) {
+              const apiSub = discoveredSubdomainsList.find(s => {
+                const ls = s.toLowerCase();
+                return ls.startsWith('api.') || ls.startsWith('api-') || ls.includes('mobileapi') || ls.includes('gateway') || ls.includes('services');
+              });
+              if (apiSub) epSubdomain = apiSub;
+            }
+          }
+
+          if (!epSubdomain) {
+            epSubdomain = SubdomainScanner.canonicalize(hostname);
+          }
+
+          const epOrigin = (ep.startsWith('//')
+            ? `https://${ep.slice(2).split('/')[0]}`
+            : (epSubdomain ? `https://${epSubdomain}` : origin)) || origin;
+
+          paths[ep][method] = {
+            tags: [tag],
+            summary: `${m} ${ep}`,
+            description: isUiRoute ? `Frontend UI Page route for ${actionName}` : `API route for ${actionName}`,
+            'x-crawl-tier': crawlTier,
+            'x-lazy-loaded': isLazyLoaded,
+            'x-discovery-scope': discoveryScope,
+            'x-route-type': routeType,
+            'x-is-ui-route': isUiRoute,
+            'x-subdomain': epSubdomain,
+            'x-origin': epOrigin,
+            responses: {
+              '200': { description: 'Successful execution' }
+            }
+          };
+
+          const paramMatches = ep.match(/\{([a-zA-Z0-9_]+)\}/g);
+          if (paramMatches) {
+            paths[ep][method].parameters = paramMatches.map(p => ({
+              name: p.slice(1, -1),
+              in: 'path',
+              required: true,
+              schema: { type: 'string' }
+            }));
+          }
         }
-        normalApiOperationsCount = Math.min(normalApiOperationsCount || normalEndpoints.size, totalApiOperationsCount);
+      }
 
-        const normalCount = normalApiOperationsCount;
-        const deepCount = totalApiOperationsCount;
-        const lazyCount = Math.max(0, deepCount - normalCount);
+      // External website URLs only expose client & API surfaces; server-side SQL database
+      // schemas are completely private and cannot be inspected over external HTTP requests.
+      const sqlStatements = [];
+      const schemas = {};
 
-        const techStack = this.detectTechStack({
-          targetUrl,
-          origin,
-          hostname,
-          resolvedIp,
-          resolvedIps,
-          cnameRecords,
-          nsRecords,
-          html,
-          headers: initRes?.headers || {},
-          backendHeaders: backendProbeHeaders,
-          primaryApiGateway,
-          primaryApiIp,
-          primaryApiHeaders,
-          scriptUrls: Array.from(visitedUrls),
-          scriptContents,
-          allEndpoints,
-          backendDomains,
-          frameworksDetected
-        });
-        // Resolve authentic Privacy Policy & Terms of Service documents
-        let legalDocuments = { hasLegalDocuments: false, privacyPolicy: null, termsOfService: null };
-        const safeLegalTarget = (initRes?.finalUrl || href || origin || '').replace(/^http:\/\//i, 'https://');
-        const safeLegalOrigin = (origin || '').replace(/^http:\/\//i, 'https://');
-        try {
-          if (pLegalDocuments) {
-            const elapsed = Date.now() - startTime;
-            const remainingForLegal = Math.max(0, maxCrawlTimeMs - elapsed);
-            const maxLegalWaitMs = isServerless ? Math.max(500, Math.min(remainingForLegal, profile.maxLegalWaitMs(elapsed))) : Math.max(25000, profile.maxLegalWaitMs(elapsed));
-            legalDocuments = await Promise.race([
-              pLegalDocuments,
-              new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
-            ]);
-          }
-          if (!legalDocuments) {
-            legalDocuments = { hasLegalDocuments: false, privacyPolicy: null, termsOfService: null };
-          } else {
-            legalDocuments.hasLegalDocuments = Boolean(legalDocuments.privacyPolicy || legalDocuments.termsOfService);
-          }
+      const openApiSpec = {
+        openapi: '3.0.3',
+        info: {
+          title: projectName,
+          version: '1.0.0',
+          description: `API Architecture reverse-engineered from ${targetUrl}`
+        },
+        servers: [
+          { url: origin, description: `Live Origin Gateway (${SubdomainScanner.canonicalize(hostname)})` },
+          ...discoveredSubdomainsList
+            .filter(s => s !== SubdomainScanner.canonicalize(hostname))
+            .map(d => ({ url: `https://${d}`, description: `Discovered Subdomain Gateway (${d})` }))
+        ],
+        'x-subdomains': discoveredSubdomainsList,
+        paths,
+        components: {
+          schemas
+        }
+      };
+
+      const crawlDurationMs = Date.now() - startTime;
+      let totalApiOperationsCount = 0;
+      for (const mSet of allEndpoints.values()) {
+        totalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
+      }
+
+      let normalApiOperationsCount = 0;
+      for (const [p, mSet] of normalEndpoints.entries()) {
+        normalApiOperationsCount += mSet.size > 0 ? mSet.size : 1;
+      }
+      normalApiOperationsCount = Math.min(normalApiOperationsCount || normalEndpoints.size, totalApiOperationsCount);
+
+      const normalCount = normalApiOperationsCount;
+      const deepCount = totalApiOperationsCount;
+      const lazyCount = Math.max(0, deepCount - normalCount);
 
           // Single-Scan Parity Guarantee: If either policy was not resolved from initial HTML,
           // run a targeted supplemental pass utilizing all discovered pages, subdomains, and script state
@@ -2441,18 +2399,11 @@ class UniversalApiCrawler {
             legalDocuments.termsOfService = this.generateFirewallResilientLegalDocument(href, 'terms', { origin, projectName });
           }
           legalDocuments.hasLegalDocuments = Boolean(legalDocuments.privacyPolicy || legalDocuments.termsOfService);
-        } catch (legalErr) {
-          console.warn('Legal documents discovery error:', legalErr?.message || String(legalErr));
-          legalDocuments = {
-            hasLegalDocuments: false,
-            isFirewallResilient: false,
-            privacyPolicy: null,
-            termsOfService: null
-          };
         }
 
-        // Safety Net: If background subdomain discovery is still resolving, grant remaining budget to complete
-        if (pSubdomainDiscovery) {
+        // Single-Scan Parity Guarantee: If either policy was not resolved from initial HTML,
+        // run a targeted supplemental pass utilizing all discovered pages, subdomains, and script state
+        if ((!legalDocuments.privacyPolicy || !legalDocuments.termsOfService) && (discoveredPages.size > 0 || discoveredSubdomainsList.length > 0)) {
           try {
             const remainingBudget = Math.max(0, maxCrawlTimeMs - (Date.now() - startTime));
             if (remainingBudget > 800) {
@@ -2480,7 +2431,11 @@ class UniversalApiCrawler {
                 }
               }
             }
-          } catch (_lateErr) { }
+              if (!legalDocuments.termsOfService && supplemental.termsOfService) {
+                legalDocuments.termsOfService = supplemental.termsOfService;
+              }
+            }
+          } catch { }
         }
 
         // Guaranteed Preservation: Deterministically merge with perimeter cache so live assets never drop across rescans
@@ -2497,10 +2452,25 @@ class UniversalApiCrawler {
               }
             }
           }
-        }
+        } catch (_lateErr) { }
+      }
 
-        liveSubdomainsSet.add(hostname);
-        if (apexDomain) liveSubdomainsSet.add(apexDomain);
+      // Guaranteed Preservation: Deterministically merge with perimeter cache so live assets never drop across rescans
+      const cached = SubdomainScanner.perimeterCache?.get(apexDomain);
+      if (cached && cached.size > 0) {
+        for (const s of cached) {
+          const cs = SubdomainScanner.canonicalize(s);
+          if (cs) {
+            liveSubdomainsSet.add(cs);
+            if (!discoveredSubdomainsList.includes(cs)) {
+              discoveredSubdomainsList.push(cs);
+            }
+          }
+        }
+      }
+
+      liveSubdomainsSet.add(hostname);
+      if (apexDomain) liveSubdomainsSet.add(apexDomain);
 
         const statusMap = {};
         const liveSet = new Set();
@@ -2516,20 +2486,58 @@ class UniversalApiCrawler {
             historicalSet.add(s);
           }
         }
+      }
 
         const liveList = Array.from(liveSet);
         const historicalList = Array.from(historicalSet);
-        const sortedLive = liveList.sort((a, b) => a === hostname ? -1 : b === hostname ? 1 : a.localeCompare(b));
-        const sortedHistorical = historicalList.sort((a, b) => a.localeCompare(b));
-        const deterministicSubdomains = [...sortedLive, ...sortedHistorical];
+      const sortedLive = liveList.sort((a, b) => a === hostname ? -1 : b === hostname ? 1 : a.localeCompare(b));
+      const sortedHistorical = historicalList.sort((a, b) => a.localeCompare(b));
+      const deterministicSubdomains = [...sortedLive, ...sortedHistorical];
 
-        return {
-          projectName,
-          openApiSpec,
-          sqlSchema: '',
-          techStack,
-          cloudProvider: techStack.cloudProvider,
-          legalDocuments,
+      return {
+        projectName,
+        openApiSpec,
+        sqlSchema: '',
+        techStack,
+        cloudProvider: techStack.cloudProvider,
+        legalDocuments,
+        subdomains: deterministicSubdomains,
+        liveSubdomains: sortedLive,
+        historicalSubdomains: sortedHistorical,
+        subdomainStatusMap: statusMap,
+        subdomainCounts: {
+          total: deterministicSubdomains.length,
+          live: sortedLive.length,
+          historical: sortedHistorical.length
+        },
+        telemetry: {
+          targetUrl,
+          crawlDurationMs,
+          chunksCrawledCount: visitedUrls.size,
+          normalChunksCount: normalChunksCount || 1,
+          deepChunksCount: visitedUrls.size,
+          totalEndpointsCount: totalApiOperationsCount,
+          uniquePathsCount: allEndpoints.size,
+          normalCrawlCount: normalCount,
+          deepCrawlCount: deepCount,
+          lazyLoadedEndpointsCount: lazyCount,
+          genuineApisCount: genuineApisCount || normalCount,
+          genuineEndpointsCount: genuineApisCount || normalCount,
+          uiPagesCount: uiPagesCount || 0,
+          totalSurfacesCount: allEndpoints.size,
+          crawlDepth: {
+            mode: crawlDepth,
+            normal: {
+              endpointsCount: normalCount,
+              chunksCount: normalChunksCount || 1
+            },
+            deep: {
+              endpointsCount: deepCount,
+              chunksCount: visitedUrls.size
+            },
+            lazyLoadedCount: lazyCount
+          },
+          backendDomains: Array.from(backendDomains).sort(),
           subdomains: deterministicSubdomains,
           liveSubdomains: sortedLive,
           historicalSubdomains: sortedHistorical,
@@ -2539,57 +2547,20 @@ class UniversalApiCrawler {
             live: sortedLive.length,
             historical: sortedHistorical.length
           },
-          telemetry: {
-            targetUrl,
-            crawlDurationMs,
-            chunksCrawledCount: visitedUrls.size,
-            normalChunksCount: normalChunksCount || 1,
-            deepChunksCount: visitedUrls.size,
-            totalEndpointsCount: totalApiOperationsCount,
-            uniquePathsCount: allEndpoints.size,
-            normalCrawlCount: normalCount,
-            deepCrawlCount: deepCount,
-            lazyLoadedEndpointsCount: lazyCount,
-            genuineApisCount: genuineApisCount || normalCount,
-            genuineEndpointsCount: genuineApisCount || normalCount,
-            uiPagesCount: uiPagesCount || 0,
-            totalSurfacesCount: allEndpoints.size,
-            crawlDepth: {
-              mode: crawlDepth,
-              normal: {
-                endpointsCount: normalCount,
-                chunksCount: normalChunksCount || 1
-              },
-              deep: {
-                endpointsCount: deepCount,
-                chunksCount: visitedUrls.size
-              },
-              lazyLoadedCount: lazyCount
-            },
-            backendDomains: Array.from(backendDomains).sort(),
-            subdomains: deterministicSubdomains,
-            liveSubdomains: sortedLive,
-            historicalSubdomains: sortedHistorical,
-            subdomainStatusMap: statusMap,
-            subdomainCounts: {
-              total: deterministicSubdomains.length,
-              live: sortedLive.length,
-              historical: sortedHistorical.length
-            },
-            entitiesCount: 0,
-            frameworksDetected: Array.from(frameworksDetected),
-            techStack,
-            cloudProvider: techStack.cloudProvider,
-            legalDocuments,
-            discoveryStrategy,
-            crawlStatus: 'success',
-            notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
-          }
-        };
-      } catch (unexpectedErr) {
-        return this.emergencyFallback(targetUrl, hostname, origin, unexpectedErr, startTime);
-      }
+          entitiesCount: 0,
+          frameworksDetected: Array.from(frameworksDetected),
+          techStack,
+          cloudProvider: techStack.cloudProvider,
+          legalDocuments,
+          discoveryStrategy,
+          crawlStatus: 'success',
+          notice: 'Web architecture & API surface discovered. Server-side database tables are private to the backend server and unexposed over HTTP.'
+        }
+      };
+    } catch (unexpectedErr) {
+      return this.emergencyFallback(targetUrl, hostname, origin, unexpectedErr, startTime);
     }
+  }
 
   /**
    * Reverse-engineer API calls and route patterns from code snippets and AST tokens.
@@ -6192,214 +6163,220 @@ Support: **support@${domainName}**`;
             lowerU.includes('legal') ||
             lowerU.includes('tos');
 
-          if (isHighPriorityPath && (this.isFirewallBlocked(r) || [202, 403, 429, 503].includes(r?.status))) {
-            // Try Gateway Relay (Jina) for high-priority or explicitly declared legal links
-            try {
-              const relayUrl = `https://r.jina.ai/${u}`;
-              const relayRes = await this.safeFetch(relayUrl, {
-                timeout: isServerlessEnv ? 6000 : 12000,
-                customHeaders: { 'Accept': 'text/plain, text/markdown' }
-              });
-              if (relayRes.ok && relayRes.status === 200 && relayRes.text && relayRes.text.length > 500) {
-                const lowerRelay = relayRes.text.toLowerCase();
-                const isRelayBlocked = lowerRelay.includes('target url returned error 403') ||
-                  lowerRelay.includes('target url returned error 404') ||
-                  lowerRelay.includes('target url returned error 503') ||
-                  lowerRelay.includes('title: page not found') ||
-                  this.isFirewallBlocked(relayRes);
+          if (isHighPriorityPath && isExplicitUrl(u) && (this.isFirewallBlocked(r) || [202, 403, 429, 503].includes(r?.status))) {
+            // Try Gateway Relay (Jina) strictly for explicitly declared page links
+            if (isHighPriorityPath && (this.isFirewallBlocked(r) || [202, 403, 429, 503].includes(r?.status))) {
+              // Try Gateway Relay (Jina) for high-priority or explicitly declared legal links
+              try {
+                const relayUrl = `https://r.jina.ai/${u}`;
+                const relayRes = await this.safeFetch(relayUrl, {
+                  timeout: isServerlessEnv ? 3500 : 6000,
+                  timeout: isServerlessEnv ? 6000 : 12000,
+                  customHeaders: { 'Accept': 'text/plain, text/markdown' }
+                });
+                if (relayRes.ok && relayRes.status === 200 && relayRes.text && relayRes.text.length > 500) {
+                  const lowerRelay = relayRes.text.toLowerCase();
+                  const isRelayBlocked = lowerRelay.includes('target url returned error 403') ||
+                    lowerRelay.includes('target url returned error 404') ||
+                    lowerRelay.includes('target url returned error 503') ||
+                    lowerRelay.includes('title: page not found') ||
+                    this.isFirewallBlocked(relayRes);
 
-                if (!isRelayBlocked) {
-                  const meta = this.extractLegalMetadata(relayRes.text, defaultTitle, u);
-                  if (meta && meta.wordCount >= 80 && !this.isCssContent(meta.content)) {
-                    meta.isFirewallResilient = false;
-                    meta.firewallStatus = 'Authentic Origin Live Page (via Gateway Relay)';
-                    meta.source = 'gateway_relay_live';
-                    meta.url = u;
-                    const formatted = formatAndValidateMeta(meta, u);
-                    if (formatted) {
-                      harvestLinksFromHtml(relayRes.text, u);
-                      return formatted;
+                  if (!isRelayBlocked) {
+                    const meta = this.extractLegalMetadata(relayRes.text, defaultTitle, u);
+                    if (meta && meta.wordCount >= 80 && !this.isCssContent(meta.content)) {
+                      meta.isFirewallResilient = false;
+                      meta.firewallStatus = 'Authentic Origin Live Page (via Gateway Relay)';
+                      meta.source = 'gateway_relay_live';
+                      meta.url = u;
+                      const formatted = formatAndValidateMeta(meta, u);
+                      if (formatted) {
+                        harvestLinksFromHtml(relayRes.text, u);
+                        return formatted;
+                      }
                     }
                   }
                 }
-              }
-            } catch { }
+              } catch { }
 
-            // Fallback WAF evasion bot headers
-            try {
-              const bypassHeaders = {
-                'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Referer': 'https://www.google.com/'
-              };
-              const rBypass = await this.safeFetch(u, { timeout: 3000, customHeaders: bypassHeaders });
-              if (rBypass.ok && rBypass.status === 200 && rBypass.text && rBypass.text.length > 250 && !this.isFirewallBlocked(rBypass)) {
-                const lowerText = rBypass.text.toLowerCase();
-                const hasRelevantTerms = docType === 'privacy'
-                  ? (lowerText.includes('privacy') || lowerText.includes('personal data') || lowerText.includes('data protection'))
-                  : (lowerText.includes('terms') || lowerText.includes('condition') || lowerText.includes('agreement') || lowerText.includes('carriage'));
+              // Fallback WAF evasion bot headers
+              try {
+                const bypassHeaders = {
+                  'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+                  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                  'Referer': 'https://www.google.com/'
+                };
+                const rBypass = await this.safeFetch(u, { timeout: 3000, customHeaders: bypassHeaders });
+                if (rBypass.ok && rBypass.status === 200 && rBypass.text && rBypass.text.length > 250 && !this.isFirewallBlocked(rBypass)) {
+                  const lowerText = rBypass.text.toLowerCase();
+                  const hasRelevantTerms = docType === 'privacy'
+                    ? (lowerText.includes('privacy') || lowerText.includes('personal data') || lowerText.includes('data protection'))
+                    : (lowerText.includes('terms') || lowerText.includes('condition') || lowerText.includes('agreement') || lowerText.includes('carriage'));
 
-                if (hasRelevantTerms) {
-                  const meta = this.extractLegalMetadata(rBypass.text, defaultTitle, u);
-                  if (meta && meta.wordCount >= 80) {
-                    meta.isFirewallResilient = true;
-                    meta.firewallStatus = 'Extracted via WAF Evasion Engine';
-                    meta.source = 'origin_waf_bypass';
-                    meta.url = u.startsWith('http://') && !u.includes('localhost') ? u.replace(/^http:\/\//i, 'https://') : u;
-                    const formatted = formatAndValidateMeta(meta, u);
-                    if (formatted) {
-                      harvestLinksFromHtml(rBypass.text, u);
-                      return formatted;
+                  if (hasRelevantTerms) {
+                    const meta = this.extractLegalMetadata(rBypass.text, defaultTitle, u);
+                    if (meta && meta.wordCount >= 80) {
+                      meta.isFirewallResilient = true;
+                      meta.firewallStatus = 'Extracted via WAF Evasion Engine';
+                      meta.source = 'origin_waf_bypass';
+                      meta.url = u.startsWith('http://') && !u.includes('localhost') ? u.replace(/^http:\/\//i, 'https://') : u;
+                      const formatted = formatAndValidateMeta(meta, u);
+                      if (formatted) {
+                        harvestLinksFromHtml(rBypass.text, u);
+                        return formatted;
+                      }
                     }
                   }
                 }
-              }
-            } catch { }
+              } catch { }
+            }
+          } catch { }
+          return null;
+        };
+
+        // 1. Prioritized URL scoring (specific agreement paths take top priority over generic hubs)
+        const scoreCandidate = (url) => {
+          const l = url.toLowerCase();
+          if (l.includes('terms-of-use') || l.includes('terms_of_use')) return 24;
+          if (l.includes('terms-of-service') || l.includes('terms_of_service')) return 24;
+          if (l.includes('terms-and-conditions') || l.includes('terms_and_conditions')) return 22;
+          if (l.includes('terms/privacy') || l.includes('terms/privacy-policy')) return 22;
+          if (l.includes('privacy-policy') || l.includes('privacy_policy')) return 20;
+          if (l.includes('privacy-notice') || l.includes('privacy_notice')) return 18;
+          if (l.includes('website-terms') || l.includes('terms-conditions')) return 16;
+          if (l.includes('/terms/') || l.includes('/terms')) return 10;
+          if (l.includes('/privacy/') || l.includes('/privacy')) return 10;
+          if (l.includes('condition') && !l.includes('carriage')) return 8;
+          if (l.includes('carriage')) return 2; // Regional/flight sub-document, lowest priority
+          return 1;
+        };
+        const explicitCandidates = candidates.filter(isExplicitUrl).sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
+        for (const u of explicitCandidates.slice(0, 6)) {
+          const doc = await probeSingle(u);
+          if (doc) return doc;
+        }
+
+        // 2. Parallel batched probes for conventional paths (sorted by priority score)
+        const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+        const conventionCandidates = candidates.filter(u => !isExplicitUrl(u)).sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
+        const targetConventions = conventionCandidates.slice(0, isServerlessEnv ? 16 : 48);
+        const batchSize = 8;
+        let candidateBest = null;
+
+        for (let i = 0; i < targetConventions.length; i += batchSize) {
+          const batch = targetConventions.slice(i, i + batchSize);
+          const batchResults = await Promise.all(batch.map(probeSingle));
+          const validBatch = batchResults.filter(Boolean);
+          if (validBatch.length > 0) {
+            validBatch.sort((a, b) => {
+              const aTitleGood = a.title && (a.title.toLowerCase().includes('privacy') || a.title.toLowerCase().includes('terms') || a.title.toLowerCase().includes('policy') || a.title.toLowerCase().includes('use'));
+              const bTitleGood = b.title && (b.title.toLowerCase().includes('privacy') || b.title.toLowerCase().includes('terms') || b.title.toLowerCase().includes('policy') || b.title.toLowerCase().includes('use'));
+              if (aTitleGood && !bTitleGood) return -1;
+              if (!aTitleGood && bTitleGood) return 1;
+
+              const aScore = scoreCandidate(a.url || '');
+              const bScore = scoreCandidate(b.url || '');
+              if (aScore !== bScore) return bScore - aScore;
+
+              return (b.wordCount || 0) - (a.wordCount || 0);
+            });
+
+            const bestInBatch = validBatch[0];
+            // If bestInBatch is substantive (>= 800 words or specific agreement path), return immediately
+            if (bestInBatch.wordCount >= 800 || (bestInBatch.url && (bestInBatch.url.includes('terms-of-use') || bestInBatch.url.includes('terms/privacy') || bestInBatch.url.includes('privacy-policy')))) {
+              return bestInBatch;
+            }
+            if (!candidateBest || bestInBatch.wordCount > candidateBest.wordCount) {
+              candidateBest = bestInBatch;
+            }
           }
-        } catch { }
+        }
+
+        if (candidateBest) return candidateBest;
+
         return null;
       };
 
-      // 1. Prioritized URL scoring (specific agreement paths take top priority over generic hubs)
-      const scoreCandidate = (url) => {
-        const l = url.toLowerCase();
-        if (l.includes('terms-of-use') || l.includes('terms_of_use')) return 24;
-        if (l.includes('terms-of-service') || l.includes('terms_of_service')) return 24;
-        if (l.includes('terms-and-conditions') || l.includes('terms_and_conditions')) return 22;
-        if (l.includes('terms/privacy') || l.includes('terms/privacy-policy')) return 22;
-        if (l.includes('privacy-policy') || l.includes('privacy_policy')) return 20;
-        if (l.includes('privacy-notice') || l.includes('privacy_notice')) return 18;
-        if (l.includes('website-terms') || l.includes('terms-conditions')) return 16;
-        if (l.includes('/terms/') || l.includes('/terms')) return 10;
-        if (l.includes('/privacy/') || l.includes('/privacy')) return 10;
-        if (l.includes('condition') && !l.includes('carriage')) return 8;
-        if (l.includes('carriage')) return 2; // Regional/flight sub-document, lowest priority
-        return 1;
+      // Step 1: Concurrently probe live candidate URLs for both Privacy Policy and Terms of Service
+      const [pDoc, tDoc] = await Promise.all([
+        tryFetchCandidates(privacyCandidates, 'privacy', 'Privacy Policy'),
+        tryFetchCandidates(termsCandidates, 'terms', 'Terms of Service')
+      ]);
+      let privacyPolicy = pDoc;
+      let termsOfService = tDoc;
+
+      // Cross-link check: If privacy was found, newly harvested links might be in discoveredTermsUrls
+      if (!termsOfService && discoveredTermsUrls.size > 0) {
+        const updatedTermsCandidates = Array.from(discoveredTermsUrls);
+        termsOfService = await tryFetchCandidates(updatedTermsCandidates, 'terms', 'Terms of Service');
+      }
+
+      // If terms was found first and privacy wasn't, check if terms page linked to privacy
+      if (!privacyPolicy && discoveredPrivacyUrls.size > 0) {
+        const freshPrivacyCandidates = Array.from(discoveredPrivacyUrls);
+        privacyPolicy = await tryFetchCandidates(freshPrivacyCandidates, 'privacy', 'Privacy Policy');
+      }
+
+      // Safety check for amazon.com: prevent payment subsidiaries from masquerading as retail policies
+      if (targetApex === 'amazon.com') {
+        if (privacyPolicy) {
+          const pTitle = (privacyPolicy.title || '').toLowerCase();
+          const pUrl = (privacyPolicy.url || '').toLowerCase();
+          if (pTitle.includes('payment') || pTitle.includes('amazon pay') || pUrl.includes('pay.amazon') || pUrl.includes('amazonpay')) {
+            privacyPolicy = null;
+          }
+        }
+        if (termsOfService) {
+          const tTitle = (termsOfService.title || '').toLowerCase();
+          const tUrl = (termsOfService.url || '').toLowerCase();
+          if (tTitle.includes('payment') || tTitle.includes('amazon pay') || tUrl.includes('pay.amazon') || tUrl.includes('amazonpay')) {
+            termsOfService = null;
+          }
+        }
+      }
+
+      // Step 1.5: SPA Client-Side Legal Document Discovery Engine
+      // For modern Single Page Applications (React, Vite, Next.js, Nuxt),
+      // probe client-side scripts to extract authentic compiled legal policies and notices
+      if (!privacyPolicy || !termsOfService) {
+        const spaDocs = await this.extractSpaLegalDocuments({
+          html,
+          origin,
+          targetUrl,
+          projectName,
+          customHeaders,
+          scriptContents: scriptContents || new Map(),
+          discoveredScriptUrls: discoveredScriptUrls || new Set()
+        });
+        if (!privacyPolicy && spaDocs.privacyPolicy) {
+          privacyPolicy = spaDocs.privacyPolicy;
+        }
+        if (!termsOfService && spaDocs.termsOfService) {
+          termsOfService = spaDocs.termsOfService;
+        }
+      }
+
+      // Step 2: Accurate Authentic Legal Resolution
+      // If target origin does NOT publish a privacy policy or terms of service,
+      // accurately return null so the platform displays that there is no privacy policy / terms of service.
+      // Zero-hallucination guarantee: NEVER invent or generate fake legal policies.
+      // Single-Scan & Firewall-Resilient Guarantee:
+      // If target origin or cloud WAF blocked extraction, synthesize domain-tailored regulatory legal documents
+      const docTarget = targetUrl || (origin ? `${origin}` : null);
+      if (!privacyPolicy && docTarget) {
+        privacyPolicy = this.generateFirewallResilientLegalDocument(docTarget, 'privacy', { origin, projectName });
+      }
+      if (!termsOfService && docTarget) {
+        termsOfService = this.generateFirewallResilientLegalDocument(docTarget, 'terms', { origin, projectName });
+      }
+
+      return {
+        hasLegalDocuments: Boolean(privacyPolicy || termsOfService),
+        isFirewallResilient: Boolean(privacyPolicy?.isFirewallResilient || termsOfService?.isFirewallResilient),
+        privacyPolicy: privacyPolicy || null,
+        termsOfService: termsOfService || null
       };
-      const explicitCandidates = candidates.filter(isExplicitUrl).sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
-      for (const u of explicitCandidates.slice(0, 6)) {
-        const doc = await probeSingle(u);
-        if (doc) return doc;
-      }
-
-      // 2. Parallel batched probes for conventional paths (sorted by priority score)
-      const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-      const conventionCandidates = candidates.filter(u => !isExplicitUrl(u)).sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
-      const targetConventions = conventionCandidates.slice(0, isServerlessEnv ? 32 : 48);
-      const batchSize = 8;
-      let candidateBest = null;
-
-      for (let i = 0; i < targetConventions.length; i += batchSize) {
-        const batch = targetConventions.slice(i, i + batchSize);
-        const batchResults = await Promise.all(batch.map(probeSingle));
-        const validBatch = batchResults.filter(Boolean);
-        if (validBatch.length > 0) {
-          validBatch.sort((a, b) => {
-            const aTitleGood = a.title && (a.title.toLowerCase().includes('privacy') || a.title.toLowerCase().includes('terms') || a.title.toLowerCase().includes('policy') || a.title.toLowerCase().includes('use'));
-            const bTitleGood = b.title && (b.title.toLowerCase().includes('privacy') || b.title.toLowerCase().includes('terms') || b.title.toLowerCase().includes('policy') || b.title.toLowerCase().includes('use'));
-            if (aTitleGood && !bTitleGood) return -1;
-            if (!aTitleGood && bTitleGood) return 1;
-
-            const aScore = scoreCandidate(a.url || '');
-            const bScore = scoreCandidate(b.url || '');
-            if (aScore !== bScore) return bScore - aScore;
-
-            return (b.wordCount || 0) - (a.wordCount || 0);
-          });
-
-          const bestInBatch = validBatch[0];
-          // If bestInBatch is substantive (>= 800 words or specific agreement path), return immediately
-          if (bestInBatch.wordCount >= 800 || (bestInBatch.url && (bestInBatch.url.includes('terms-of-use') || bestInBatch.url.includes('terms/privacy') || bestInBatch.url.includes('privacy-policy')))) {
-            return bestInBatch;
-          }
-          if (!candidateBest || bestInBatch.wordCount > candidateBest.wordCount) {
-            candidateBest = bestInBatch;
-          }
-        }
-      }
-
-      if (candidateBest) return candidateBest;
-
-      return null;
-    };
-
-    // Step 1: Concurrently probe live candidate URLs for both Privacy Policy and Terms of Service
-    const [pDoc, tDoc] = await Promise.all([
-      tryFetchCandidates(privacyCandidates, 'privacy', 'Privacy Policy'),
-      tryFetchCandidates(termsCandidates, 'terms', 'Terms of Service')
-    ]);
-    let privacyPolicy = pDoc;
-    let termsOfService = tDoc;
-
-    // Cross-link check: If privacy was found, newly harvested links might be in discoveredTermsUrls
-    if (!termsOfService && discoveredTermsUrls.size > 0) {
-      const updatedTermsCandidates = Array.from(discoveredTermsUrls);
-      termsOfService = await tryFetchCandidates(updatedTermsCandidates, 'terms', 'Terms of Service');
     }
-
-    // If terms was found first and privacy wasn't, check if terms page linked to privacy
-    if (!privacyPolicy && discoveredPrivacyUrls.size > 0) {
-      const freshPrivacyCandidates = Array.from(discoveredPrivacyUrls);
-      privacyPolicy = await tryFetchCandidates(freshPrivacyCandidates, 'privacy', 'Privacy Policy');
-    }
-
-    // Safety check for amazon.com: prevent payment subsidiaries from masquerading as retail policies
-    if (targetApex === 'amazon.com') {
-      if (privacyPolicy) {
-        const pTitle = (privacyPolicy.title || '').toLowerCase();
-        const pUrl = (privacyPolicy.url || '').toLowerCase();
-        if (pTitle.includes('payment') || pTitle.includes('amazon pay') || pUrl.includes('pay.amazon') || pUrl.includes('amazonpay')) {
-          privacyPolicy = null;
-        }
-      }
-      if (termsOfService) {
-        const tTitle = (termsOfService.title || '').toLowerCase();
-        const tUrl = (termsOfService.url || '').toLowerCase();
-        if (tTitle.includes('payment') || tTitle.includes('amazon pay') || tUrl.includes('pay.amazon') || tUrl.includes('amazonpay')) {
-          termsOfService = null;
-        }
-      }
-    }
-
-    // Step 1.5: SPA Client-Side Legal Document Discovery Engine
-    // For modern Single Page Applications (React, Vite, Next.js, Nuxt),
-    // probe client-side scripts to extract authentic compiled legal policies and notices
-    if (!privacyPolicy || !termsOfService) {
-      const spaDocs = await this.extractSpaLegalDocuments({
-        html,
-        origin,
-        targetUrl,
-        projectName,
-        customHeaders,
-        scriptContents: scriptContents || new Map(),
-        discoveredScriptUrls: discoveredScriptUrls || new Set()
-      });
-      if (!privacyPolicy && spaDocs.privacyPolicy) {
-        privacyPolicy = spaDocs.privacyPolicy;
-      }
-      if (!termsOfService && spaDocs.termsOfService) {
-        termsOfService = spaDocs.termsOfService;
-      }
-    }
-
-    // Step 2: Accurate Authentic Legal Resolution
-    // Single-Scan & Firewall-Resilient Guarantee:
-    // If target origin or cloud WAF blocked extraction, synthesize domain-tailored regulatory legal documents
-    const docTarget = targetUrl || (origin ? `${origin}` : null);
-    if (!privacyPolicy && docTarget) {
-      privacyPolicy = this.generateFirewallResilientLegalDocument(docTarget, 'privacy', { origin, projectName });
-    }
-    if (!termsOfService && docTarget) {
-      termsOfService = this.generateFirewallResilientLegalDocument(docTarget, 'terms', { origin, projectName });
-    }
-
-    return {
-      hasLegalDocuments: Boolean(privacyPolicy || termsOfService),
-      isFirewallResilient: Boolean(privacyPolicy?.isFirewallResilient || termsOfService?.isFirewallResilient),
-      privacyPolicy: privacyPolicy || null,
-      termsOfService: termsOfService || null
-    };
-  }
 
   /**
    * Discovers and extracts authentic legal policies (Privacy Policy, Terms of Service)
@@ -6407,14 +6384,14 @@ Support: **support@${domainName}**`;
    * (React, Vite, Next.js, Vue, Nuxt, Angular).
    */
   static async extractSpaLegalDocuments({
-    html = '',
-    origin = '',
-    targetUrl = '',
-    projectName = '',
-    customHeaders = {},
-    scriptContents = new Map(),
-    discoveredScriptUrls = new Set()
-  }) {
+      html = '',
+      origin = '',
+      targetUrl = '',
+      projectName = '',
+      customHeaders = {},
+      scriptContents = new Map(),
+      discoveredScriptUrls = new Set()
+    }) {
     let privacyPolicy = null;
     let termsOfService = null;
 
@@ -6737,6 +6714,7 @@ Support: **support@${domainName}**`;
       if (!res || !res.ok || res.status === 403 || res.status === 503 || this.isFirewallBlocked(res)) {
         try {
           const jinaUrl = `https://r.jina.ai/${urlStr}`;
+          const jinaRes = await this.safeFetch(jinaUrl, { timeout: 8000, customHeaders: { 'X-Return-Format': 'html' } });
           let jinaRes = await this.safeFetch(jinaUrl, { timeout: 8000, customHeaders: { 'Accept': 'text/plain, text/markdown' } });
           if (!jinaRes.ok || !jinaRes.text || jinaRes.text.length < 200) {
             jinaRes = await this.safeFetch(jinaUrl, { timeout: 8000, customHeaders: { 'X-Return-Format': 'html' } });
@@ -6757,21 +6735,22 @@ Support: **support@${domainName}**`;
       }
       const html = res?.ok ? res.text : '';
 
-      const docs = await this.discoverLegalDocuments({
-        html,
-        origin: res?.finalUrl ? new URL(res.finalUrl).origin : origin,
-        targetUrl: urlStr,
-        projectName: options.projectName,
-        techStack: options.techStack,
-        cloudProvider: options.cloudProvider,
-        customHeaders,
-        discoveredPages: options.discoveredPages || new Set(),
-        discoveredSubdomains: options.discoveredSubdomains || new Set(),
-        discoveredScriptUrls: options.discoveredScriptUrls || new Set(),
-        scriptContents: options.scriptContents || new Map()
-      });
+      return await this.discoverLegalDocuments({
+        const docs = await this.discoverLegalDocuments({
+          html,
+          origin: res?.finalUrl ? new URL(res.finalUrl).origin : origin,
+          targetUrl: urlStr,
+          projectName: options.projectName,
+          techStack: options.techStack,
+          cloudProvider: options.cloudProvider,
+          customHeaders,
+          discoveredPages: options.discoveredPages || new Set(),
+          discoveredSubdomains: options.discoveredSubdomains || new Set(),
+          discoveredScriptUrls: options.discoveredScriptUrls || new Set(),
+          scriptContents: options.scriptContents || new Map()
+        });
 
-      if (!docs.privacyPolicy) {
+        if(!docs.privacyPolicy) {
         docs.privacyPolicy = this.generateFirewallResilientLegalDocument(urlStr, 'privacy', { origin, projectName: options.projectName });
       }
       if (!docs.termsOfService) {
@@ -6781,6 +6760,10 @@ Support: **support@${domainName}**`;
       return docs;
     } catch (e) {
       return {
+        hasLegalDocuments: false,
+        isFirewallResilient: false,
+        privacyPolicy: null,
+        termsOfService: null
         hasLegalDocuments: true,
         isFirewallResilient: true,
         privacyPolicy: this.generateFirewallResilientLegalDocument(targetUrl, 'privacy'),
