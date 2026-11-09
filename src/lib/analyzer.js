@@ -480,6 +480,7 @@ class ProjectAnalyzer {
             discoveryScope: api.discoveryScope || (api.isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)'),
             routeType: api.routeType || 'API',
             isUiRoute: api.isUiRoute === true,
+            tags: Array.isArray(api.tags) ? api.tags : (api.tags ? [api.tags] : []),
             subdomain: api.subdomain ? api.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : null,
             origin: api.origin || null,
           };
@@ -638,6 +639,7 @@ class ProjectAnalyzer {
             discoveryScope: api.discoveryScope || (api.isLazyLoaded ? 'Deep Crawl (Lazy-Loaded)' : 'Standard Crawl (Normal)'),
             routeType: api.routeType || 'API',
             isUiRoute: api.isUiRoute === true,
+            tags: Array.isArray(api.tags) ? api.tags : (api.tags ? [api.tags] : []),
             subdomain: api.subdomain ? api.subdomain.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : null,
             origin: api.origin || null
           };

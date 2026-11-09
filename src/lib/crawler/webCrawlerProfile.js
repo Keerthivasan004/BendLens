@@ -26,16 +26,16 @@ const webCrawlerProfile = {
   // Subdomain discovery & verification limits (aligned with local profile for zero divergence)
   dnsLookupConcurrency: 100,
   candidateTimeout: 1500,
-  subdomainValidationTimeout: 35000,
-  subdomainCandidateLimit: 2000,
+  subdomainValidationTimeout: 30000,
+  subdomainCandidateLimit: 3000,
   activeDnsPrefixes: 500,
 
   // Passive reconnaissance timeouts (concurrent parallel execution)
-  subdomainCenterTimeout: 7000,
-  alienVaultTimeout: 6000,
-  certSpotterPages: 6,
-  certSpotterTimeout: 4000,
-  crtShTimeout: 4000,
+  subdomainCenterTimeout: 12000,
+  alienVaultTimeout: 10000,
+  certSpotterPages: 8,
+  certSpotterTimeout: 8000,
+  crtShTimeout: 12000,
   hackerTargetTimeout: 4000,
   rapidDnsTimeout: 8000,
 

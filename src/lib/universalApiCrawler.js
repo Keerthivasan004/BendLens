@@ -1219,52 +1219,85 @@ class UniversalApiCrawler {
         }
       }
 
-      // 6. Discover HTML Form actions (<form action="/api/..." method="post">)
-      const formRegex = /<form\b[^>]*?\baction\s*=\s*["']([^"']+)["'][^>]*>/gi;
+      // 6. Discover HTML Form actions and Interactive Form Endpoints (<form action="/api/..." method="post"> or contact/inquiry forms)
+      const formRegex = /<form\b([^>]*)>([\s\S]*?)<\/form>/gi;
       let formMatch;
       while ((formMatch = formRegex.exec(html)) !== null) {
-        const action = formMatch[1];
-        const normalized = this.normalizeApiPath(action);
-        if (normalized) {
-          const methodMatch = formMatch[0].match(/method\s*=\s*["'](GET|POST|PUT|DELETE)["']/i);
-          const method = methodMatch ? methodMatch[1].toUpperCase() : 'POST';
-          if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
-          allEndpoints.get(normalized).add(method);
-          this.extractEntitiesFromPath(normalized, distinctEntities);
+        const formTagAttrs = formMatch[1] || '';
+        const actionMatch = formTagAttrs.match(/\baction\s*=\s*["']([^"']+)["']/i);
+        const methodMatch = formTagAttrs.match(/\bmethod\s*=\s*["'](GET|POST|PUT|DELETE)["']/i);
+        const method = methodMatch ? methodMatch[1].toUpperCase() : 'POST';
+        let action = actionMatch ? actionMatch[1].trim() : '';
+        action = action.split('#')[0].split('?')[0];
+
+        if (!action || action === '#' || action === '') {
+          const formName = (formTagAttrs.match(/\b(?:id|name|data-name)\s*=\s*["']([^"']+)["']/i)?.[1] || '').toLowerCase();
+          if (formName.includes('contact')) {
+            action = '/contact';
+          } else if (formName.includes('inquiry') || formName.includes('lead')) {
+            action = '/inquiry';
+          } else if (formName.includes('subscribe') || formName.includes('newsletter')) {
+            action = '/newsletter/subscribe';
+          } else if (formName.includes('login') || formName.includes('auth')) {
+            action = '/login';
+          } else if (formName.includes('search')) {
+            action = '/search';
+          }
+        }
+
+        if (action && action.startsWith('/') && !action.startsWith('//')) {
+          const normalized = this.normalizeApiPath(action);
+          if (normalized) {
+            if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set());
+            allEndpoints.get(normalized).add(method);
+            this.extractEntitiesFromPath(normalized, distinctEntities);
+          }
         }
       }
 
-      // 7. Discover HTML Anchor Links (<a href="/api/..." or navigation routes)
+      // 7. Discover HTML Anchor Links (<a href="/contact", navigation routes, and API surfaces)
       const aRegex = /<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>/gi;
       let aMatch;
       while ((aMatch = aRegex.exec(html)) !== null) {
-        const hrefAttr = aMatch[1];
-        if (hrefAttr.startsWith('/') && !hrefAttr.startsWith('//') && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(hrefAttr)) {
-          discoveredPages.add(hrefAttr.split('?')[0]);
-          if (hrefAttr.startsWith('/api/') || hrefAttr.startsWith('/v1/')) {
-            const normalized = this.normalizeApiPath(hrefAttr);
+        let hrefAttr = (aMatch[1] || '').trim();
+        if (!hrefAttr || hrefAttr === '#' || hrefAttr.startsWith('javascript:') || hrefAttr.startsWith('mailto:') || hrefAttr.startsWith('tel:')) continue;
+        const cleanHref = hrefAttr.split('#')[0].split('?')[0].trim();
+        if (!cleanHref) continue;
+
+        if (cleanHref.startsWith('/') && !cleanHref.startsWith('//') && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp|woff|woff2|ttf|eot|mp4|webm|pdf|zip|gz)$/i.test(cleanHref)) {
+          const normPath = cleanHref.replace(/\/+$/, '') || '/';
+          if (!normPath.startsWith('/_next') && !normPath.startsWith('/_nuxt') && !normPath.startsWith('/__')) {
+            discoveredPages.add(normPath);
+            const normalized = this.normalizeApiPath(normPath);
             if (normalized) {
               if (!allEndpoints.has(normalized)) allEndpoints.set(normalized, new Set(['GET']));
               this.extractEntitiesFromPath(normalized, distinctEntities);
             }
           }
-        } else if (hrefAttr.startsWith('http://') || hrefAttr.startsWith('https://')) {
+        } else if (cleanHref.startsWith('http://') || cleanHref.startsWith('https://')) {
           try {
-            const u = new URL(hrefAttr);
+            const u = new URL(cleanHref);
             const uApex = this.getApexDomain(u.hostname);
             const origApex = this.getApexDomain(hostname);
-            if (uApex && origApex && uApex === origApex && u.hostname !== hostname) {
-              backendDomains.add(u.origin);
+            if (uApex && origApex && uApex === origApex) {
+              if (u.hostname !== hostname) {
+                backendDomains.add(u.origin);
+              }
               const relPath = u.pathname;
-              if (relPath && relPath !== '/' && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp)$/i.test(relPath)) {
-                discoveredPages.add(relPath);
-                const normalized = this.normalizeApiPath(relPath);
-                if (normalized) {
-                  const targetPath = `//${u.hostname}${normalized}`;
-                  if (!allEndpoints.has(targetPath)) allEndpoints.set(targetPath, new Set(['GET']));
-                  endpointSubdomainMap.set(targetPath, SubdomainScanner.canonicalize(u.hostname));
-                  verifiedApiRoutes.add(targetPath);
-                  this.extractEntitiesFromPath(normalized, distinctEntities);
+              if (relPath && !/\.(?:png|jpg|jpeg|gif|svg|ico|css|js|webp|woff|woff2|ttf|eot|mp4|webm|pdf|zip|gz)$/i.test(relPath)) {
+                const normRel = relPath.replace(/\/+$/, '') || '/';
+                if (!normRel.startsWith('/_next') && !normRel.startsWith('/_nuxt') && !normRel.startsWith('/__')) {
+                  discoveredPages.add(normRel);
+                  const normalized = this.normalizeApiPath(normRel);
+                  if (normalized) {
+                    const targetPath = u.hostname !== hostname ? `//${u.hostname}${normalized}` : normalized;
+                    if (!allEndpoints.has(targetPath)) allEndpoints.set(targetPath, new Set(['GET']));
+                    if (u.hostname !== hostname) {
+                      endpointSubdomainMap.set(targetPath, SubdomainScanner.canonicalize(u.hostname));
+                      verifiedApiRoutes.add(targetPath);
+                    }
+                    this.extractEntitiesFromPath(normalized, distinctEntities);
+                  }
                 }
               }
             }
@@ -1962,6 +1995,18 @@ class UniversalApiCrawler {
                   normalEndpoints.get(aRoute).add('GET');
                   normalEndpoints.get(aRoute).add('POST');
                 }
+              } else if (gwHost.startsWith('erp.') || gwHost.startsWith('v16.') || gwHost.startsWith('crm.') || gwHost.startsWith('portal.') || gwHost.startsWith('app.')) {
+                // Register standard Enterprise ERP, CRM & Business microservice endpoints
+                const erpEndpoints = ['/api/method/ping', '/api/method/login', '/api/method/frappe.auth.get_logged_user', '/login'];
+                for (const ep of erpEndpoints) {
+                  const eRoute = `//${gwHost}${ep}`;
+                  if (!allEndpoints.has(eRoute)) allEndpoints.set(eRoute, new Set(['GET', 'POST']));
+                  endpointSubdomainMap.set(eRoute, gwCanonical);
+                  verifiedApiRoutes.add(eRoute);
+                  if (!normalEndpoints.has(eRoute)) normalEndpoints.set(eRoute, new Set(['GET', 'POST']));
+                  normalEndpoints.get(eRoute).add('GET');
+                  normalEndpoints.get(eRoute).add('POST');
+                }
               }
 
               // Extract HTML Links and Actions if the gateway serves an application UI
@@ -2136,10 +2181,10 @@ class UniversalApiCrawler {
             const s = sub.toLowerCase();
             if (s === hostname.toLowerCase() || s === `www.${hostname.toLowerCase()}` || s === apexDomain.toLowerCase() || s === `www.${apexDomain.toLowerCase()}`) continue;
             const prefix = s.split('.')[0];
-            if (/^\d+[-_.]/.test(prefix) || prefix.length < 2) continue;
+            if (/^\d+[-_.]/.test(prefix) || prefix.length < 2 || prefix.includes('spfm') || prefix.includes('domainkey') || /^[a-f0-9]{8,}/i.test(prefix) || s.includes('._')) continue;
             const serviceRoute = `/${prefix}`;
 
-            const isAiPrefix = prefix === 'ai' || prefix.includes('copilot') || prefix.includes('llm') || prefix.includes('genai') || prefix.includes('agent') || prefix.includes('bot') || prefix.includes('chat') || prefix.includes('gpt');
+            const isAiPrefix = prefix === 'ai' || prefix.startsWith('ai') || prefix.includes('copilot') || prefix.includes('llm') || prefix.includes('genai') || prefix.includes('agent') || prefix.includes('bot') || prefix.includes('chat') || prefix.includes('gpt') || prefix.includes('assistant');
             const isApiPrefix = isAiPrefix || prefix.includes('api') || prefix.includes('auth') || prefix.includes('account') || prefix.includes('mobile') || prefix.includes('service') || prefix.includes('app') || prefix.includes('booking') || prefix.includes('pay') || prefix.includes('fly') || prefix.includes('aws') || prefix.includes('prime') || prefix.includes('music') || prefix.includes('seller') || prefix.includes('advertising') || prefix.includes('shop') || prefix.includes('cloud') || prefix.includes('business') || prefix.includes('developer') || prefix.includes('gateway') || prefix.includes('portal') || prefix.includes('data');
 
             // Register service route if it's an API/AI service or if multi-subdomain mesh is synthesized
@@ -2188,12 +2233,21 @@ class UniversalApiCrawler {
           }
 
           paths[ep] = {};
-          const segments = ep.split('/').filter(Boolean);
-          let tag = segments.length > 1 ? this.capitalize(segments[1] || segments[0]) : 'General';
-          if (ep.includes('/ai') || ep.includes('/copilot') || ep.includes('/llm') || ep.includes('/genai') || ep.includes('/agent') || ep.includes('/chat')) {
+          const pathSegments = (ep.startsWith('//') ? '/' + ep.slice(2).split('/').slice(1).join('/') : ep).split('/').filter(Boolean);
+          let tag = 'General';
+          if (pathSegments.length > 0) {
+            if ((pathSegments[0] === 'api' || /^v\d+$/i.test(pathSegments[0])) && pathSegments.length > 1) {
+              tag = this.capitalize(pathSegments[1]);
+            } else {
+              tag = this.capitalize(pathSegments[0].replace(/[-_]+/g, ' '));
+            }
+          }
+          const epSub = (ep.startsWith('//') ? ep.slice(2).split('/')[0] : (endpointSubdomainMap.get(ep) || '')).toLowerCase();
+          const isAiSub = epSub.includes('ai.') || epSub.startsWith('ai-') || epSub.includes('copilot') || epSub.includes('chat') || epSub.includes('bot') || epSub.includes('agent') || epSub.includes('llm') || epSub.includes('genai');
+          if (isAiSub || ep.includes('/ai') || ep.includes('/copilot') || ep.includes('/llm') || ep.includes('/genai') || ep.includes('/agent') || ep.includes('/chat') || ep.includes('/bot') || ep.includes('/gpt') || ep.includes('/assistant')) {
             tag = 'AI & Copilot';
           }
-          const actionName = segments[segments.length - 1] || 'resource';
+          const actionName = pathSegments[pathSegments.length - 1] || 'resource';
 
           const isLazyLoaded = !normalEndpoints.has(ep);
           const crawlTier = isLazyLoaded ? 'deep' : 'normal';
@@ -4643,19 +4697,17 @@ class UniversalApiCrawler {
   static isMarketingOrStatic(p) {
     if (!p || typeof p !== 'string') return true;
     const lower = p.toLowerCase();
-    // Never filter authentic API endpoints
+    // Never filter authentic API endpoints, functional pages, or contact/product routes
     if (lower.startsWith('/api/') || lower.startsWith('/v1/') || lower.startsWith('/v2/') || lower.startsWith('/v3/') || lower.startsWith('/auth/') || lower.startsWith('/rest/') || lower.startsWith('/graphql') || lower.startsWith('/wp-json/')) {
       return false;
     }
+    if (lower === '/contact' || lower === '/contact-us' || lower === '/products' || lower === '/product' || lower === '/about' || lower === '/about-us' || lower === '/process' || lower === '/pricing' || lower === '/careers' || lower === '/services') {
+      return false;
+    }
     if (lower.startsWith('/_next') || lower.startsWith('/_nuxt') || lower.startsWith('/__')) return true;
-    if (lower.startsWith('/legal') || lower.includes('privacy') || lower.includes('terms') || lower.includes('license') || lower.includes('agreement') || lower.includes('policy')) return true;
     if (lower.startsWith('/invoice-templates') || lower.startsWith('/templates') || lower.startsWith('/downloads')) return true;
-    if (lower.startsWith('/research') || lower.startsWith('/articles') || lower.startsWith('/blog') || lower.startsWith('/news') || lower.startsWith('/press')) return true;
-    if (lower.startsWith('/integrations')) return true;
-    if (lower === '/about' || lower === '/about-us' || lower === '/contact' || lower === '/contact-us' || lower === '/careers' || lower === '/pricing' || lower === '/tools' || lower.startsWith('/tools/') || lower === '/faq' || lower === '/help') return true;
-    if (lower === '/alternative' || lower === '/compare' || lower === '/list') return true;
-    const marketingLandingRoots = ['/', '/finstart', '/finbooks', '/finsights', '/fintax', '/finhire', '/finstock', '/finally', '/firmstackk', '/complyy'];
-    if (marketingLandingRoots.includes(lower)) return true;
+    if (lower.startsWith('/research') || lower.startsWith('/articles') || lower.startsWith('/press')) return true;
+    if (lower.startsWith('/alternative') || lower.startsWith('/compare') || lower.startsWith('/list')) return true;
     return false;
   }
 
@@ -5520,6 +5572,28 @@ Support: **support@${domainName}**`;
           }
         } catch { }
       }
+
+      // Also harvest from Markdown formatted links (e.g. from Jina reader, CMS markdown, or raw documentation)
+      // e.g. [Privacy Policy](https://www.udemy.com/terms/privacy/), [Terms of Use](/terms/terms-of-use/)
+      const mdLinkRegex = /\[([^\]]+)\]\(([^)\s]+)\)/gi;
+      let mm;
+      while ((mm = mdLinkRegex.exec(pageHtml)) !== null) {
+        const linkText = (mm[1] || '').trim().toLowerCase();
+        const raw = this.decodeHtmlEntities(mm[2] || '').trim();
+        if (!raw || raw.startsWith('#') || raw.startsWith('javascript:')) continue;
+        if (this.isStaticAssetUrl(raw)) continue;
+        try {
+          const resolved = new URL(raw, pageBaseUrl).href;
+          const lower = raw.toLowerCase();
+          const linkApex = this.getApexDomain(new URL(resolved).hostname);
+          const isFirstParty = !targetApex || linkApex === targetApex;
+          const isEligibleExternal = !isFirstParty && !isUnrelatedThirdPartyLegalDomain(linkApex);
+          if (isFirstParty || isEligibleExternal) {
+            if (lower.includes('privacy') || linkText.includes('privacy')) discoveredPrivacyUrls.add(resolved);
+            if (lower.includes('terms') || linkText.includes('terms') || lower.includes('condition') || linkText.includes('condition') || lower.includes('tos') || linkText.includes('tos') || lower.includes('use') || linkText.includes('terms of use')) discoveredTermsUrls.add(resolved);
+          }
+        } catch { }
+      }
     };
 
     harvestLinksFromHtml(html, origin);
@@ -5595,23 +5669,27 @@ Support: **support@${domainName}**`;
 
     // Prioritized candidate lists (universal conventions first, followed by enterprise, subdomains, and multi-lingual conventions)
     const primaryPrivacyPaths = [
-      '/privacy-policy',
-      '/privacy-policy/',
-      '/privacy',
-      '/privacy/',
-      '/privacy_policy',
-      '/privacy_policy/',
-      '/privacy.html',
-      '/terms/privacy',
       '/terms/privacy/',
-      '/terms/privacy-policy',
+      '/terms/privacy',
       '/terms/privacy-policy/',
-      '/terms/privacy-notice',
+      '/terms/privacy-policy',
+      '/privacy-policy/',
+      '/privacy-policy',
+      '/privacy_policy/',
+      '/privacy_policy',
       '/terms/privacy-notice/',
-      '/policies/privacy-notice',
+      '/terms/privacy-notice',
       '/policies/privacy-notice/',
-      '/privacy/policy',
+      '/policies/privacy-notice',
+      '/policies/privacy-policy/',
+      '/policies/privacy-policy',
+      '/legal/privacy-policy/',
+      '/legal/privacy-policy',
       '/privacy/policy/',
+      '/privacy/policy',
+      '/privacy.html',
+      '/privacy/',
+      '/privacy',
       '/legal/privacy.html',
       '/legal/privacy-policy.html',
       '/legal/privacy-policy',
@@ -5699,26 +5777,26 @@ Support: **support@${domainName}**`;
     ]));
 
     const primaryTermsPaths = [
-      '/terms',
-      '/terms/',
-      '/terms/terms-of-use',
       '/terms/terms-of-use/',
-      '/terms/terms-of-service',
+      '/terms/terms-of-use',
       '/terms/terms-of-service/',
-      '/terms/terms-and-conditions',
+      '/terms/terms-of-service',
       '/terms/terms-and-conditions/',
-      '/terms-of-service',
-      '/terms-of-service/',
-      '/terms-and-conditions',
-      '/terms-and-conditions/',
-      '/terms-of-use',
+      '/terms/terms-and-conditions',
       '/terms-of-use/',
-      '/policies/terms',
-      '/policies/terms/',
-      '/policies/terms-of-use',
+      '/terms-of-use',
+      '/terms-of-service/',
+      '/terms-of-service',
+      '/terms-and-conditions/',
+      '/terms-and-conditions',
       '/policies/terms-of-use/',
-      '/policies/terms-of-service',
+      '/policies/terms-of-use',
       '/policies/terms-of-service/',
+      '/policies/terms-of-service',
+      '/policies/terms/',
+      '/policies/terms',
+      '/terms/',
+      '/terms',
       '/terms_of_service',
       '/terms_of_service/',
       '/terms_of_use',
@@ -5817,6 +5895,16 @@ Support: **support@${domainName}**`;
 
       const formatAndValidateMeta = (meta, candidateUrl) => {
         if (!meta || meta.wordCount < 80 || this.isCssContent(meta.content)) return null;
+
+        const mTitleLower = (meta.title || '').toLowerCase();
+        const isTitleRelevant = docType === 'privacy'
+          ? (mTitleLower.includes('privacy') || mTitleLower.includes('policy') || mTitleLower.includes('data') || mTitleLower.includes('protection') || mTitleLower.includes('cookie') || mTitleLower.includes('notice'))
+          : (mTitleLower.includes('terms') || mTitleLower.includes('condition') || mTitleLower.includes('use') || mTitleLower.includes('agreement') || mTitleLower.includes('carriage') || mTitleLower.includes('legal') || mTitleLower.includes('policy') || mTitleLower.includes('disclaimer'));
+
+        // Reject generic landing pages or home page redirects that lack legal terminology and have short word count
+        if (!isTitleRelevant && meta.wordCount < 1000) {
+          return null;
+        }
 
         if (targetApex === 'amazon.com') {
           const mTitleLower = (meta.title || '').toLowerCase();
@@ -6099,8 +6187,12 @@ Support: **support@${domainName}**`;
                     meta.isFirewallResilient = false;
                     meta.firewallStatus = 'Authentic Origin Live Page (via Gateway Relay)';
                     meta.source = 'gateway_relay_live';
+                    meta.url = u;
                     const formatted = formatAndValidateMeta(meta, u);
-                    if (formatted) return formatted;
+                    if (formatted) {
+                      harvestLinksFromHtml(relayRes.text, u);
+                      return formatted;
+                    }
                   }
                 }
               }
@@ -6141,13 +6233,18 @@ Support: **support@${domainName}**`;
         return null;
       };
 
-      // 1. Explicitly discovered URLs from page anchors (prioritized & sequential with early exit)
+      // 1. Prioritized URL scoring (specific agreement paths take top priority over generic hubs)
       const scoreCandidate = (url) => {
         const l = url.toLowerCase();
-        if (l.includes('terms-and-conditions') || l.includes('terms_and_conditions')) return 16;
-        if (l.includes('privacy-policy') || l.includes('privacy_policy')) return 16;
-        if (l.includes('terms-of-use') || l.includes('terms_of_use') || l.includes('terms-of-service') || l.includes('terms_of_service')) return 14;
-        if (l.includes('/terms') || l.includes('/privacy')) return 10;
+        if (l.includes('terms-of-use') || l.includes('terms_of_use')) return 24;
+        if (l.includes('terms-of-service') || l.includes('terms_of_service')) return 24;
+        if (l.includes('terms-and-conditions') || l.includes('terms_and_conditions')) return 22;
+        if (l.includes('terms/privacy') || l.includes('terms/privacy-policy')) return 22;
+        if (l.includes('privacy-policy') || l.includes('privacy_policy')) return 20;
+        if (l.includes('privacy-notice') || l.includes('privacy_notice')) return 18;
+        if (l.includes('website-terms') || l.includes('terms-conditions')) return 16;
+        if (l.includes('/terms/') || l.includes('/terms')) return 10;
+        if (l.includes('/privacy/') || l.includes('/privacy')) return 10;
         if (l.includes('condition') && !l.includes('carriage')) return 8;
         if (l.includes('carriage')) return 2; // Regional/flight sub-document, lowest priority
         return 1;
@@ -6158,17 +6255,43 @@ Support: **support@${domainName}**`;
         if (doc) return doc;
       }
 
-      // 2. Parallel batched probes for conventional paths (concurrency: 6 on serverless)
+      // 2. Parallel batched probes for conventional paths (sorted by priority score)
       const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-      const conventionCandidates = candidates.filter(u => !isExplicitUrl(u));
+      const conventionCandidates = candidates.filter(u => !isExplicitUrl(u)).sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
       const targetConventions = isServerlessEnv ? conventionCandidates.slice(0, 28) : conventionCandidates;
       const batchSize = isServerlessEnv ? 6 : 8;
+      let candidateBest = null;
+
       for (let i = 0; i < targetConventions.length; i += batchSize) {
         const batch = targetConventions.slice(i, i + batchSize);
         const batchResults = await Promise.all(batch.map(probeSingle));
-        const found = batchResults.find(Boolean);
-        if (found) return found;
+        const validBatch = batchResults.filter(Boolean);
+        if (validBatch.length > 0) {
+          validBatch.sort((a, b) => {
+            const aTitleGood = a.title && (a.title.toLowerCase().includes('privacy') || a.title.toLowerCase().includes('terms') || a.title.toLowerCase().includes('policy') || a.title.toLowerCase().includes('use'));
+            const bTitleGood = b.title && (b.title.toLowerCase().includes('privacy') || b.title.toLowerCase().includes('terms') || b.title.toLowerCase().includes('policy') || b.title.toLowerCase().includes('use'));
+            if (aTitleGood && !bTitleGood) return -1;
+            if (!aTitleGood && bTitleGood) return 1;
+
+            const aScore = scoreCandidate(a.url || '');
+            const bScore = scoreCandidate(b.url || '');
+            if (aScore !== bScore) return bScore - aScore;
+
+            return (b.wordCount || 0) - (a.wordCount || 0);
+          });
+
+          const bestInBatch = validBatch[0];
+          // If bestInBatch is substantive (>= 800 words or specific agreement path), return immediately
+          if (bestInBatch.wordCount >= 800 || (bestInBatch.url && (bestInBatch.url.includes('terms-of-use') || bestInBatch.url.includes('terms/privacy') || bestInBatch.url.includes('privacy-policy')))) {
+            return bestInBatch;
+          }
+          if (!candidateBest || bestInBatch.wordCount > candidateBest.wordCount) {
+            candidateBest = bestInBatch;
+          }
+        }
       }
+
+      if (candidateBest) return candidateBest;
 
       return null;
     };

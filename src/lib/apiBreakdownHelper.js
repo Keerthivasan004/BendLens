@@ -21,6 +21,10 @@ export function formatResourceName(resourceKey) {
   // Specific canonical naming
   const lower = resourceKey.toLowerCase().replace(/^\/+|\/+$/g, '');
   if (lower === 'auth' || lower === 'login' || lower === 'oauth') return 'Authentication & Identity API';
+  if (lower === 'contact' || lower === 'contact-us' || lower === 'inquiry' || lower === 'leads') return 'Contact & Inquiries API';
+  if (lower === 'about' || lower === 'about-us') return 'Company Information & About API';
+  if (lower === 'process') return 'Operations & Process API';
+  if (lower === 'terms' || lower === 'terms-conditions' || lower === 'terms-of-service' || lower === 'privacy' || lower === 'privacy-policy') return 'Legal & Compliance API';
   if (lower === 'users' || lower === 'user' || lower === 'profile' || lower === 'profiles') return 'User & Account Management API';
   if (lower === 'orders' || lower === 'order') return 'Order Processing API';
   if (lower === 'products' || lower === 'product' || lower === 'items') return 'Product Catalog API';

@@ -24,18 +24,18 @@ const localCrawlerProfile = {
   // Subdomain discovery & verification limits
   dnsLookupConcurrency: 100,
   candidateTimeout: 1500,
-  subdomainValidationTimeout: 40000,
-  subdomainCandidateLimit: 2500,
+  subdomainValidationTimeout: 35000,
+  subdomainCandidateLimit: 3500,
   activeDnsPrefixes: 600,
 
   // Passive reconnaissance timeouts (concurrent parallel execution)
-  subdomainCenterTimeout: 8000,
-  alienVaultTimeout: 8000,
+  subdomainCenterTimeout: 15000,
+  alienVaultTimeout: 12000,
   certSpotterPages: 10,
-  certSpotterTimeout: 6000,
-  crtShTimeout: 5000,
+  certSpotterTimeout: 10000,
+  crtShTimeout: 15000,
   hackerTargetTimeout: 4000,
-  rapidDnsTimeout: 8000,
+  rapidDnsTimeout: 10000,
 
   // Stage budget calculators
   canRunPhase2: (elapsed) => true,

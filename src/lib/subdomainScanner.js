@@ -126,6 +126,8 @@ class SubdomainScanner {
     clean = clean.replace(/\.+$/, '');
     // Filter out reverse-DNS IP PTR artifacts (e.g. 207-171-168-34.amazon.com or 207_171_168_34)
     if (/^\d{1,3}[-_.]\d{1,3}[-_.]\d{1,3}[-_.]\d{1,3}\./.test(clean)) return '';
+    // Filter out DNS protocol records, DKIM hashes, SPF markers, and ACME challenge domains
+    if (clean.startsWith('_') || clean.includes('._') || clean.includes('._spfm') || clean.includes('._domainkey') || clean.includes('._dmarc') || clean.includes('._acme')) return '';
     return clean;
   }
 
@@ -408,23 +410,26 @@ class SubdomainScanner {
       return null;
     };
 
-    const [urlListData, passiveDnsData] = await Promise.all([
-      fetchJson(`https://otx.alienvault.com/api/v1/indicators/domain/${encodeURIComponent(apexDomain)}/url_list?limit=500`),
-      fetchJson(`https://otx.alienvault.com/api/v1/indicators/domain/${encodeURIComponent(apexDomain)}/passive_dns`)
+    const pages = [1, 2, 3, 4, 5, 6, 7, 8];
+    const [passiveDnsData, ...urlListResults] = await Promise.all([
+      fetchJson(`https://otx.alienvault.com/api/v1/indicators/domain/${encodeURIComponent(apexDomain)}/passive_dns`),
+      ...pages.map((p) => fetchJson(`https://otx.alienvault.com/api/v1/indicators/domain/${encodeURIComponent(apexDomain)}/url_list?limit=500&page=${p}`))
     ]);
 
-    if (urlListData && Array.isArray(urlListData.url_list)) {
-      for (const entry of urlListData.url_list) {
-        if (entry && entry.url && typeof entry.url === 'string') {
-          try {
-            const u = new URL(entry.url);
-            const clean = this.canonicalize(u.hostname);
+    for (const urlListData of urlListResults) {
+      if (urlListData && Array.isArray(urlListData.url_list)) {
+        for (const entry of urlListData.url_list) {
+          if (entry && entry.url && typeof entry.url === 'string') {
+            try {
+              const u = new URL(entry.url);
+              const clean = this.canonicalize(u.hostname);
+              if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) results.add(clean);
+            } catch (_e) { }
+          }
+          if (entry && entry.hostname && typeof entry.hostname === 'string') {
+            const clean = this.canonicalize(entry.hostname);
             if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) results.add(clean);
-          } catch (_e) { }
-        }
-        if (entry && entry.hostname && typeof entry.hostname === 'string') {
-          const clean = this.canonicalize(entry.hostname);
-          if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) results.add(clean);
+          }
         }
       }
     }
@@ -444,89 +449,100 @@ class SubdomainScanner {
   /**
    * Certificate Transparency logs from crt.sh with resilient retry & JSON parsing
    */
-  static async getCrtShSubdomains(apexDomain, timeoutMs = 10000) {
-  if (!apexDomain) return [];
-  const fetchOnce = () => new Promise((resolve) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        resolve([]);
-      }
-    }, timeoutMs);
+  static async getCrtShSubdomains(apexDomain, timeoutMs = 15000) {
+    if (!apexDomain) return [];
+    const fetchQuery = (queryStr) => new Promise((resolve) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve([]);
+        }
+      }, timeoutMs);
 
-    try {
-      const req = https.get(
-        `https://crt.sh/?q=%25.${encodeURIComponent(apexDomain)}&output=json`,
-        {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
-            'Accept': 'application/json, text/plain, */*'
+      try {
+        const req = https.get(
+          `https://crt.sh/?q=${queryStr}&output=json`,
+          {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+              'Accept': 'application/json, text/plain, */*'
+            },
+            timeout: timeoutMs
           },
-          timeout: timeoutMs
-        },
-        (res) => {
-          let data = '';
-          res.on('data', (chunk) => { data += chunk; });
-          res.on('end', () => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            if (!data || !data.trim().startsWith('[')) {
-              return resolve([]);
-            }
-            try {
-              const parsed = JSON.parse(data);
-              const results = [];
-              if (Array.isArray(parsed)) {
-                for (const entry of parsed) {
-                  if (entry && typeof entry === 'object' && entry.name_value) {
-                    const names = String(entry.name_value).split('\n');
-                    for (const n of names) {
-                      const clean = this.canonicalize(n.replace(/^\*\./, ''));
-                      if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
-                        results.push(clean);
+          (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              if (!data || !data.trim().startsWith('[')) {
+                return resolve([]);
+              }
+              try {
+                const parsed = JSON.parse(data);
+                const results = [];
+                if (Array.isArray(parsed)) {
+                  for (const entry of parsed) {
+                    if (entry && typeof entry === 'object') {
+                      if (entry.name_value) {
+                        const names = String(entry.name_value).split('\n');
+                        for (const n of names) {
+                          const clean = this.canonicalize(n.replace(/^\*\./, ''));
+                          if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
+                            results.push(clean);
+                          }
+                        }
+                      }
+                      if (entry.common_name) {
+                        const clean = this.canonicalize(String(entry.common_name).replace(/^\*\./, ''));
+                        if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
+                          results.push(clean);
+                        }
                       }
                     }
                   }
                 }
+                resolve(results);
+              } catch (_err) {
+                resolve([]);
               }
-              resolve(results);
-            } catch (_err) {
-              resolve([]);
-            }
-          });
-        }
-      );
-      req.on('error', () => {
+            });
+          }
+        );
+        req.on('error', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve([]);
+          }
+        });
+        req.on('timeout', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            try { req.destroy(); } catch (_e) { }
+            resolve([]);
+          }
+        });
+      } catch (_err) {
         if (!settled) {
           settled = true;
           clearTimeout(timer);
           resolve([]);
         }
-      });
-      req.on('timeout', () => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          try { req.destroy(); } catch (_e) { }
-          resolve([]);
-        }
-      });
-    } catch (_err) {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timer);
-        resolve([]);
       }
-    }
-  });
+    });
 
-  const first = await fetchOnce();
-  if (first.length > 0) return first;
-  // Resilient retry on transient 502/503 from crt.sh
-  return fetchOnce();
-}
+    // Primary: query with wildcard %.<apexDomain> (fast PostgreSQL index scan)
+    const primary = await fetchQuery(`%.${encodeURIComponent(apexDomain)}`);
+    if (primary.length > 0) return primary;
+
+    // Fallback: query bare <apexDomain>
+    const fallback = await fetchQuery(encodeURIComponent(apexDomain));
+    return fallback;
+  }
 
   /**
    * RapidDNS Open Subdomain Reconnaissance (HTML table scraping, barrier-free & zero rate limits)
@@ -740,12 +756,47 @@ class SubdomainScanner {
 
   /**
    * High-Speed Multi-Tier Non-Blocking DNS Verification
-   * Tier 1: Google DNS-over-HTTPS (DoH) via port 443 (sub-30ms, no libuv threadpool blocking, unblocked by AWS/VPC/ISPs)
+   * Tier 0: Direct c-ares UDP resolver (blazing fast 10-30ms in local Node.js environments)
+   * Tier 1: Google DNS-over-HTTPS (DoH) via port 443 (sub-50ms, unblocked by AWS/VPC/ISPs)
    * Tier 2: Cloudflare DNS-over-HTTPS (DoH) via port 443 (fallback DoH provider)
    * Tier 3: Native OS dns.lookup (Winsock / getaddrinfo / local VPC resolver)
    */
   static async resolveHostMultiTier(host, timeoutMs = 1500) {
     if (!host) return false;
+
+    // Tier 0: High-speed non-blocking c-ares UDP resolver (parallel 20-30ms resolution in local Node.js)
+    if (!isServerlessEnv) {
+      try {
+        const live = await new Promise((resolve) => {
+          let done = false;
+          const timer = setTimeout(() => {
+            if (!done) { done = true; resolve(null); }
+          }, Math.min(1000, timeoutMs));
+
+          sharedResolver.resolve4(host, (err, addrs) => {
+            if (done) return;
+            if (!err && Array.isArray(addrs) && addrs.length > 0) {
+              done = true;
+              clearTimeout(timer);
+              return resolve(true);
+            }
+            sharedResolver.resolveCname(host, (cErr, cnames) => {
+              if (done) return;
+              done = true;
+              clearTimeout(timer);
+              if (!cErr && Array.isArray(cnames) && cnames.length > 0) {
+                return resolve(true);
+              }
+              if (err && (err.code === 'ENOTFOUND' || err.code === 'NODATA')) {
+                return resolve(false);
+              }
+              resolve(null);
+            });
+          });
+        });
+        if (typeof live === 'boolean') return live;
+      } catch (_e) { }
+    }
 
     // Tier 1: Google DoH (global anycast HTTPS 443)
     try {
