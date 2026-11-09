@@ -22,10 +22,10 @@ const localCrawlerProfile = {
   concurrency: 60,
 
   // Subdomain discovery & verification limits
-  dnsLookupConcurrency: 100,
+  dnsLookupConcurrency: 150,
   candidateTimeout: 1500,
-  subdomainValidationTimeout: 35000,
-  subdomainCandidateLimit: 3500,
+  subdomainValidationTimeout: 45000,
+  subdomainCandidateLimit: 5000,
   activeDnsPrefixes: 600,
 
   // Passive reconnaissance timeouts (concurrent parallel execution)
@@ -33,15 +33,15 @@ const localCrawlerProfile = {
   alienVaultTimeout: 12000,
   certSpotterPages: 10,
   certSpotterTimeout: 10000,
-  crtShTimeout: 15000,
+  crtShTimeout: 25000,
   hackerTargetTimeout: 4000,
   rapidDnsTimeout: 10000,
 
   // Stage budget calculators
   canRunPhase2: (elapsed) => true,
   canRunGatewayProbes: (elapsed) => true,
-  maxLegalWaitMs: (elapsed) => 15000,
-  maxSubdomainBudgetMs: (elapsed) => Math.max(40000, 90000 - elapsed)
+  maxLegalWaitMs: (elapsed) => 30000,
+  maxSubdomainBudgetMs: (elapsed) => Math.max(50000, 90000 - elapsed)
 };
 
 module.exports = localCrawlerProfile;

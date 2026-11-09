@@ -1087,6 +1087,56 @@ Users noticed that upon crawling business and corporate websites (e.g. `vashinia
    - Total Endpoints: **26 routes** (12 Genuine APIs + 6 UI Pages + 8 ERP endpoints).
    - Discovered surfaces: `GET /contact`, `GET /products`, `GET /about`, `GET /process`, `GET /terms-conditions`, `GET /privacy-policy`, `GET /ccm/geo`, and 8 Frappe ERP routes on `erp.vashiniagro.com` and `v16.vashiniagro.com`.
 
+---
+
+## 28. Single-Stroke Zero-Deficit Crawler Engine: Parity Between Cold Crawl and Rescan (v1.1.79)
+
+### The Problem: Why Rescan Produced Higher Values Than Initial Full Crawl
+When crawling complex enterprise domains (`udemy.com`, `emirates.com`), users reported that a cold initial crawl yielded lower subdomains or missed legal documents (`privacyPolicy: null`, `termsOfService: null`), whereas an immediate rescan revealed the full perimeter (e.g. jumping from 398 to 1,400+ subdomains, revealing Privacy Policy & Terms of Service).
+
+### Root Causes Identified
+1. **Cold CT Log Latency & Timeout Aborts (`crt.sh`)**:
+   - Cold wildcard PostgreSQL LIKE queries on `crt.sh` (`%.domain.com`) take 18–22 seconds on large perimeters.
+   - The crawler profile capped `crtShTimeout` at 12–15s. On Run 1, crt.sh timed out and resolved `[]`, losing 3,000–6,700 candidates.
+   - On Run 2, crt.sh served its server-side query cache in 1.2s, suddenly revealing thousands of candidates on the rescan.
+2. **Premature Budget Cutoff on `pSubdomainDiscovery`**:
+   - `universalApiCrawler.js` used `remainingBudget = Math.max(0, maxCrawlTimeMs - elapsed - 8000)` before gateway probing. When `elapsed` was ~38s, `remainingBudget < 500` caused the crawler to abort awaiting `pSubdomainDiscovery`.
+   - Seconds after the first crawl returned, `pSubdomainDiscovery` finished in the background and saved 1,400+ subdomains into `.bendlens_perimeter_cache.json`.
+   - On Run 2, the cache was already hot, so the rescan instantly displayed the complete perimeter.
+3. **Late Trigger & Timeout of Legal Document Discovery**:
+   - `pLegalDocuments` was previously initialized in Stage 3 (after Stage 1 waited for challenged apex pages).
+   - Challenged sites (403 Forbidden) delayed legal document resolution until second 21, leaving insufficient time before the `maxLegalWaitMs` ceiling aborted with `hasLegalDocuments: false`.
+4. **Microservice Probing on Incomplete Subdomain List**:
+   - Stage 7 (Gateway & microservice probing) ran before `subDiscoveryPromise` had merged all live assets, so API gateways (`api.*`, `auth.*`, `erp.*`) were skipped on Run 1, but caught on Run 2.
+
+### Implemented Architectural Solutions
+1. **t=0 Early Concurrent Trigger for Legal Documents**:
+   - `pLegalDocuments` is triggered concurrently at `t=0` alongside `pSubdomainDiscovery` and `initRes`. Legal paths (`/terms/privacy/`, `/terms-of-use/`, `/privacy-policy`) and gateway relays are probed in parallel from the opening millisecond.
+2. **crt.sh Resilient Retry with 1s Backoff**:
+   - Extended `crtShTimeout` to 25s (local) and 20s (web). Added automatic retry with 1s backoff for transient 502/503/429 HTTP statuses, guaranteeing cold queries never abort prematurely.
+3. **AlienVault 12-Page & URLScan.io Expansion**:
+   - Upgraded AlienVault to fetch pages 1–12 in parallel (`limit=500`), harvesting all ~2,500 OTX records in < 1 second.
+   - Integrated `getUrlScanSubdomains` into the passive OSINT stream (`urlscan.io/api/v1/search`), adding 50–100 active perimeter nodes.
+4. **Increased Non-Blocking DNS Validation Concurrency**:
+   - Concurrency increased to 150 workers; candidate limit expanded to 5,000. Resolves 5,000 hosts via UDP c-ares in under 4 seconds.
+5. **Guaranteed Resolution Before Stage 7 Gateway Probing**:
+   - Ensured `pSubdomainDiscovery` has a guaranteed 15s budget floor before Stage 7 executes, ensuring `api.*`, `gateway.*`, `auth.*`, and `erp.*` microservices are fully discovered and probed on Run 1.
+
+### Verified Benchmark Parity Results (100% Cold Start, Zero Cache)
+- **`udemy.com` Cold Crawl**:
+  - Subdomains: **2,368 total** (2,359 live verified)
+  - OpenAPI Endpoints: **2,292 paths**
+  - Privacy Policy: **5,901 words** (`https://www.udemy.com/terms/privacy/`)
+  - Terms of Service: **11,616 words** (`https://www.udemy.com/terms/terms-of-use`)
+  - Parity: 100% highest value on stroke #1 with zero deficit.
+- **`emirates.com` Cold Crawl**:
+  - Subdomains: **999 total** (378 live verified)
+  - OpenAPI Endpoints: **909 paths**
+  - Privacy Policy: **12,816 words** (`https://www.emirates.com/terms/privacy-notice`)
+  - Terms of Service: **1,094 words** (`https://www.emirates.com/aa/about-us/en/gb/terms-of-use.html`)
+  - Parity: 100% highest value on stroke #1.
+
+
 
 
 

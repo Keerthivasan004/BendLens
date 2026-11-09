@@ -283,6 +283,19 @@ class UniversalApiCrawler {
       });
     } catch (_subEarlyErr) { }
 
+    // Early trigger for legal compliance documents (Privacy Policy, Terms of Service) to run concurrently
+    let pLegalDocuments = null;
+    try {
+      pLegalDocuments = this.discoverLegalDocuments({
+        origin,
+        targetUrl: href,
+        projectName,
+        customHeaders,
+        html: options.preloadedHtml || null,
+        discoveredSubdomains: backendDomains
+      });
+    } catch (_legalEarlyErr) { }
+
     let preloadedInitRes = null;
     if (options.preloadedHtml && typeof options.preloadedHtml === 'string' && options.preloadedHtml.trim().length > 50) {
       preloadedInitRes = {
@@ -938,10 +951,9 @@ class UniversalApiCrawler {
         }
       }
 
-      // Early parallel trigger for authentic legal document extraction (Privacy Policy & Terms of Service)
-      let pLegalDocuments = null;
+      // Parallel trigger for authentic legal document extraction (Privacy Policy & Terms of Service)
       try {
-        pLegalDocuments = this.discoverLegalDocuments({
+        pLegalDocuments = pLegalDocuments || this.discoverLegalDocuments({
           html,
           origin,
           targetUrl: initRes?.finalUrl || href,
@@ -1606,7 +1618,7 @@ class UniversalApiCrawler {
               } else {
                 resolve([]);
               }
-            }, Math.max(25000, maxSubdomainBudgetMs)))
+            }, Math.max(35000, maxSubdomainBudgetMs)))
           ]);
 
           if (Array.isArray(harvested)) {
@@ -1834,12 +1846,11 @@ class UniversalApiCrawler {
         if (pSubdomainDiscovery || subDiscoveryPromise) {
           try {
             const elapsed = Date.now() - startTime;
-            const remainingBudget = Math.max(0, maxCrawlTimeMs - elapsed - 8000);
-            if (remainingBudget > 500) {
-              const fullHarvest = await Promise.race([
-                (pSubdomainDiscovery || subDiscoveryPromise),
-                new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
-              ]);
+            const remainingBudget = Math.max(15000, maxCrawlTimeMs - elapsed - 3000);
+            const fullHarvest = await Promise.race([
+              (pSubdomainDiscovery || subDiscoveryPromise),
+              new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
+            ]);
               if (Array.isArray(fullHarvest) && fullHarvest.length > 0) {
                 const hStatusMap = fullHarvest.statusMap || {};
                 for (const sub of fullHarvest) {
@@ -1858,7 +1869,6 @@ class UniversalApiCrawler {
                   }
                 }
               }
-            }
           } catch (_syncErr) { }
         }
 
@@ -2378,7 +2388,7 @@ class UniversalApiCrawler {
         try {
           if (pLegalDocuments) {
             const elapsed = Date.now() - startTime;
-            const maxLegalWaitMs = Math.max(12000, profile.maxLegalWaitMs(elapsed));
+            const maxLegalWaitMs = Math.max(25000, profile.maxLegalWaitMs(elapsed));
             legalDocuments = await Promise.race([
               pLegalDocuments,
               new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
@@ -2394,29 +2404,27 @@ class UniversalApiCrawler {
           // run a targeted supplemental pass utilizing all discovered pages, subdomains, and script state
           if ((!legalDocuments.privacyPolicy || !legalDocuments.termsOfService) && (discoveredPages.size > 0 || discoveredSubdomainsList.length > 0)) {
             try {
-              const remainingBudget = Math.max(0, maxCrawlTimeMs - (Date.now() - startTime) - 4000);
-              if (remainingBudget > 2000) {
-                const supplemental = await Promise.race([
-                  this.discoverLegalDocuments({
-                    html,
-                    origin,
-                    targetUrl: initRes?.finalUrl || href,
-                    projectName,
-                    customHeaders,
-                    discoveredPages,
-                    discoveredSubdomains: discoveredSubdomainsList
-                  }),
-                  new Promise(r => setTimeout(() => r(null), Math.min(8000, remainingBudget)))
-                ]);
-                if (supplemental) {
-                  if (!legalDocuments.privacyPolicy && supplemental.privacyPolicy) {
-                    legalDocuments.privacyPolicy = supplemental.privacyPolicy;
-                  }
-                  if (!legalDocuments.termsOfService && supplemental.termsOfService) {
-                    legalDocuments.termsOfService = supplemental.termsOfService;
-                  }
-                  legalDocuments.hasLegalDocuments = Boolean(legalDocuments.privacyPolicy || legalDocuments.termsOfService);
+              const remainingBudget = Math.max(10000, maxCrawlTimeMs - (Date.now() - startTime) - 2000);
+              const supplemental = await Promise.race([
+                this.discoverLegalDocuments({
+                  html,
+                  origin,
+                  targetUrl: initRes?.finalUrl || href,
+                  projectName,
+                  customHeaders,
+                  discoveredPages,
+                  discoveredSubdomains: discoveredSubdomainsList
+                }),
+                new Promise(r => setTimeout(() => r(null), Math.min(10000, remainingBudget)))
+              ]);
+              if (supplemental) {
+                if (!legalDocuments.privacyPolicy && supplemental.privacyPolicy) {
+                  legalDocuments.privacyPolicy = supplemental.privacyPolicy;
                 }
+                if (!legalDocuments.termsOfService && supplemental.termsOfService) {
+                  legalDocuments.termsOfService = supplemental.termsOfService;
+                }
+                legalDocuments.hasLegalDocuments = Boolean(legalDocuments.privacyPolicy || legalDocuments.termsOfService);
               }
             } catch { }
           }
@@ -2433,12 +2441,11 @@ class UniversalApiCrawler {
         // Safety Net: If background subdomain discovery is still resolving, grant remaining budget to complete
         if (pSubdomainDiscovery) {
           try {
-            const remainingBudget = Math.max(0, maxCrawlTimeMs - (Date.now() - startTime));
-            if (remainingBudget > 500) {
-              const lateHarvest = await Promise.race([
-                pSubdomainDiscovery,
-                new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
-              ]);
+            const remainingBudget = Math.max(10000, maxCrawlTimeMs - (Date.now() - startTime));
+            const lateHarvest = await Promise.race([
+              pSubdomainDiscovery,
+              new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
+            ]);
               if (Array.isArray(lateHarvest)) {
                 const lateStatusMap = lateHarvest.statusMap || {};
                 for (const s of lateHarvest) {
@@ -2456,7 +2463,6 @@ class UniversalApiCrawler {
                   }
                 }
               }
-            }
           } catch (_lateErr) { }
         }
 

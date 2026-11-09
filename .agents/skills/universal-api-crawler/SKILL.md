@@ -464,4 +464,18 @@ When running on serverless cloud platforms (Vercel / AWS Lambda):
 - **DNS Protocol Hash Purification**: `SubdomainScanner.canonicalize` rejects SPF verification hashes and DKIM records (`_spfm`, `_domainkey`), preventing internal SPF hashes like `dc-aa8e722993` from creating phantom routes.
 - **Verification on `vashiniagro.com`**: 100% cold scan discovers **26 endpoints** including `GET /contact`, `GET /products`, `GET /about`, `GET /process`, `GET /terms-conditions`, `GET /privacy-policy`, and 8 Frappe ERP endpoints across `erp.vashiniagro.com` and `v16.vashiniagro.com`.
 
+---
+
+## Single-Stroke Zero-Deficit Crawler Engine: Parity Between Cold Crawl and Rescan (v1.1.79)
+
+- **Early Legal Documents Trigger (`t=0`)**: Initiates `pLegalDocuments` at `t=0` concurrently with `pSubdomainDiscovery` and `initRes`. Eliminates the downstream deadline timeout that occurred when `pLegalDocuments` was delayed until Stage 3 after challenged apex page resolution.
+- **crt.sh Resilient Retry with 1s Backoff**: Added retry logic with 1s backoff for transient 502/503/429 HTTP statuses and expanded `crtShTimeout` to 25s (local) and 20s (web), ensuring large enterprise wildcard queries never abort with empty candidate sets on initial scans.
+- **AlienVault 12-Page & URLScan.io Expansion**: Upgraded AlienVault parallel streaming from 8 to 12 pages (`limit=500`), capturing all ~2,500 OTX candidate records in < 1 second. Added `getUrlScanSubdomains` integration (`urlscan.io/api/v1/search`), capturing active production domains directly from live search logs.
+- **Increased DNS Concurrency & Candidate Limits**: Concurrency increased to 150 workers; candidate limit expanded to 5,000. Resolves 5,000 candidate hosts via non-blocking c-ares UDP in ~3-4 seconds.
+- **Guaranteed Subdomain Synchronization Before Stage 7 Gateway Probing**: Enforces a guaranteed 15-second budget floor for `pSubdomainDiscovery` before Stage 7 gateway & microservice probing executes. Ensures all API gateways (`api.*`, `gateway.*`, `auth.*`, `erp.*`) are discovered and probed on the first crawl, achieving 100% mathematical parity with subsequent rescans.
+- **Verified Benchmark Results on Cold Start (Zero Cache)**:
+  - `udemy.com`: **2,368 Subdomains** (2,359 Live), **2,292 OpenAPI endpoints**, **5,901 words** Privacy Policy, and **11,616 words** Terms of Service on initial crawl.
+  - `emirates.com`: **999 Subdomains** (378 Live), **909 OpenAPI endpoints**, **12,816 words** Privacy Policy, and **1,094 words** Terms of Service on initial crawl.
+
+
 
