@@ -1071,8 +1071,17 @@ class SubdomainScanner {
     const profile = getCrawlerProfile(options);
     const concurrency = profile.dnsLookupConcurrency || 200;
     const candidateLimit = profile.subdomainCandidateLimit || maxCandidates;
+    const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || profile.isServerless);
+
+    const priorityPrefixes = ['www.', 'api.', 'app.', 'portal.', 'admin.', 'auth.', 'stage.', 'dev.', 'gateway.', 'backend.', 'mail.', 'm.', 'secure.', 'cloud.'];
     const candidates = Array.from(candidateSet)
       .filter((h) => h && h !== apexDomain && !h.includes('*'))
+      .sort((a, b) => {
+        const aPri = priorityPrefixes.some(p => a.startsWith(p)) ? 0 : 1;
+        const bPri = priorityPrefixes.some(p => b.startsWith(p)) ? 0 : 1;
+        if (aPri !== bPri) return aPri - bPri;
+        return a.localeCompare(b);
+      })
       .slice(0, candidateLimit);
 
     const startTime = Date.now();

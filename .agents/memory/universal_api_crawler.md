@@ -1317,22 +1317,44 @@ Furthermore, in post-crawl subdomain merging (`universalApiCrawler.js`), linear 
   - Endpoints: **524 endpoints**.
   - Legal Documents: Complete Privacy Policy & Terms of Service verified.
 
+---
 
+## 14. Production HTTPS Stability & Deterministic Rescan Parity (v1.1.85)
 
+### Problem Analysis & Diagnosis
+In production HTTPS environments, users encountered three severe interconnected issues:
+1. **Incomplete Results on First Crawl**: The first crawl omitted lazy-loaded routes and role modules, only returning Phase 1 entry endpoints.
+2. **Incomplete Results on Second Crawl**: The second crawl discovered more endpoints but still failed to finish traversing all code chunks.
+3. **Rescan Fluctuation (Different Values on Every Scan)**: Repeated scans of the exact same target domain produced drifting endpoint and subdomain numbers.
 
+### Root Causes
+1. **Premature Phase 2 Stage Gate Cutoff (`canRunPhase2: elapsed < 16000`)**:
+   - On a cold-start HTTPS scan, TLS handshake, apex-to-www canonical domain racing, initial HTML fetching, and concurrent subdomain passive recon take ~16–18 seconds.
+   - Because `canRunPhase2` required `elapsed < 16000`, the condition failed on Scan 1, causing Phase 2 (Deep Crawl of all dynamic and role chunks) to be completely skipped!
+2. **Aggressive Crawl Duration Ceiling (`maxCrawlDurationMs: 25000`) & Chunk Cap (`maxChunks: 350`)**:
+   - When a rescan started with warm DNS cache, Phase 2 ran, but `maxCrawlDurationMs` terminated the queue traversal after only 25 seconds total.
+   - Enterprise SPAs (e.g. `futrsec.in` with 565 chunks) were cut off mid-flight, and network jitter determined which chunk stopped first, producing a different endpoint count on every scan.
+3. **Non-Deterministic DNS Candidate Validation Ordering**:
+   - `validateCandidates` iterated `Array.from(candidateSet)` in non-deterministic async promise completion order.
+   - During candidate resolution, workers processed a different random subset of hosts on each run, causing monotonic accumulator drift in `perimeterCache`.
+4. **Arbitrary Gateway Probe Clamp (`allEndpoints.size < 40 || !isServerless`)**:
+   - If a scan found 38 endpoints, gateway probes ran and added API routes. If it found 41 endpoints, gateway probes were skipped and those routes vanished, creating count divergence.
+5. **Syntax & Variable Scope Regression in `universalApiCrawler.js`**:
+   - A corrupt duplicate code block caused a syntax error and omitted `techStack`, triggering `emergencyFallback` with zero endpoints.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+### Applied Solutions & Fixes
+1. **Calibrated Serverless Execution Profile (`webCrawlerProfile.js`)**:
+   - `maxCrawlDurationMs`: Elevated from **25,000ms** to **48,000ms** (giving 48s for deep chunk traversal while remaining comfortably within Vercel's 60s `maxDuration`).
+   - `maxChunks`: Elevated from **350** to **650** (ensuring all 565+ chunks of complex enterprise applications are fully scraped).
+   - `concurrency`: Elevated from **50** to **60** for high-throughput cloud datacenter chunk fetching.
+   - `canRunPhase2`: Elevated from `elapsed < 16000` to `elapsed < 45000`, guaranteeing that Phase 2 (Deep Crawl) **ALWAYS** runs on Scan 1, Scan 2, and all rescans.
+   - `canRunGatewayProbes`: Elevated to `elapsed < 48000`.
+   - `subdomainValidationTimeout`: Elevated from **10,000ms** to **20,000ms** with `activeDnsPrefixes: 200`.
+2. **Deterministic Canonical Subdomain Validation (`subdomainScanner.js`)**:
+   - Implemented deterministic sorting with high-priority prefix promotion (`www.`, `api.`, `app.`, `portal.`, `admin.`, `auth.`, `gateway.`, `backend.`, `stage.`, `dev.`) before DNS verification.
+   - High-value API endpoints and microservices are guaranteed to be verified first, and candidate validation order is 100% deterministic on every scan.
+3. **Deterministic OpenAPI Generation & Gateway Probing (`universalApiCrawler.js`)**:
+   - Removed the arbitrary `allEndpoints.size < 40` threshold so gateway probing runs deterministically.
+   - Added alphabetical tie-breakers for external gateway scoring.
+   - Alphabetically sorted all endpoint entries prior to OpenAPI path materialization (`openApiSpec.paths`).
+   - Restored `techStack` detection and verified zero syntax errors via `node -c`.
