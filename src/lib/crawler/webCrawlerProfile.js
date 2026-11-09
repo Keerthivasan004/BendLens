@@ -18,32 +18,32 @@ const webCrawlerProfile = {
   name: 'web_production_serverless',
   isServerless: true,
 
-  // Chunk crawling budget - Unbounded by default; dynamic concurrency and queue drain
-  maxChunks: Infinity,
-  maxCrawlDurationMs: 50000,
-  concurrency: 60,
+  // Chunk crawling budget - fast, targeted traversal in cloud functions
+  maxChunks: 300,
+  maxCrawlDurationMs: 12000,
+  concurrency: 50,
 
-  // Subdomain discovery & verification limits (aligned with local profile for zero divergence)
-  dnsLookupConcurrency: 150,
-  candidateTimeout: 1500,
-  subdomainValidationTimeout: 40000,
-  subdomainCandidateLimit: 5000,
-  activeDnsPrefixes: 600,
+  // Subdomain discovery & verification limits (supports 1,000 - 10,000+ candidates without truncation)
+  dnsLookupConcurrency: 200,
+  candidateTimeout: 300,
+  subdomainValidationTimeout: 3000,
+  subdomainCandidateLimit: 25000,
+  activeDnsPrefixes: 80,
 
   // Passive reconnaissance timeouts (concurrent parallel execution)
-  subdomainCenterTimeout: 15000,
-  alienVaultTimeout: 12000,
-  certSpotterPages: 10,
-  certSpotterTimeout: 10000,
-  crtShTimeout: 25000,
-  hackerTargetTimeout: 4000,
-  rapidDnsTimeout: 10000,
+  subdomainCenterTimeout: 5000,
+  alienVaultTimeout: 4000,
+  certSpotterPages: 5,
+  certSpotterTimeout: 4000,
+  crtShTimeout: 4000,
+  hackerTargetTimeout: 2500,
+  rapidDnsTimeout: 4000,
 
-  // Stage budget calculators (ensures parity while finishing safely within 45-50s, well before Vercel 60s ceiling)
-  canRunPhase2: (elapsed) => elapsed < 48000,
-  canRunGatewayProbes: (elapsed) => elapsed < 54000,
-  maxLegalWaitMs: (elapsed) => Math.max(25000, 52000 - elapsed),
-  maxSubdomainBudgetMs: (elapsed) => Math.max(40000, Math.min(48000, 54000 - elapsed))
+  // Stage budget calculators (ensures parity while finishing safely under 12s, well within Vercel ceilings)
+  canRunPhase2: (elapsed) => elapsed < 8000,
+  canRunGatewayProbes: (elapsed) => elapsed < 9500,
+  maxLegalWaitMs: (elapsed) => Math.max(1500, 11000 - elapsed),
+  maxSubdomainBudgetMs: (elapsed) => Math.max(2500, Math.min(5000, 10500 - elapsed))
 };
 
 module.exports = webCrawlerProfile;

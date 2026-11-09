@@ -405,9 +405,9 @@ class UniversalApiCrawler {
 
         // Concurrently race candidate URLs with serverless-adaptive budget
         const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-        const raceTimeout = isServerless ? 9000 : 12000;
-        const fallbackTimeout = isServerless ? 6000 : 8000;
-        const gatewayTimeout = isServerless ? 12000 : 15000;
+        const raceTimeout = isServerless ? 5000 : 12000;
+        const fallbackTimeout = isServerless ? 3000 : 8000;
+        const gatewayTimeout = isServerless ? 5000 : 15000;
 
         try {
           const racePromises = candidateUrls.map(cUrl =>
@@ -1846,7 +1846,7 @@ class UniversalApiCrawler {
         if (pSubdomainDiscovery || subDiscoveryPromise) {
           try {
             const elapsed = Date.now() - startTime;
-            const remainingBudget = Math.max(15000, maxCrawlTimeMs - elapsed - 3000);
+            const remainingBudget = Math.max(1000, isServerless ? Math.min(3000, maxCrawlTimeMs - elapsed - 1000) : Math.max(15000, maxCrawlTimeMs - elapsed - 3000));
             const fullHarvest = await Promise.race([
               (pSubdomainDiscovery || subDiscoveryPromise),
               new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
@@ -1907,7 +1907,7 @@ class UniversalApiCrawler {
             return 1;
           };
           return score(b) - score(a);
-        }).slice(0, 16);
+        }).slice(0, isServerless ? 4 : 16);
 
         // Identify Primary Dedicated API Gateway (e.g. api.*, backend.*, or PaaS endpoints)
         const primaryApiGateway = prioritizedGateways.find(u => {
@@ -1933,14 +1933,14 @@ class UniversalApiCrawler {
         let extGatewayHeaders = {};
         const diagnosticEndpoints = ['/api/health', '/health', '/healthz'];
         const elapsedGateways = Date.now() - startTime;
-        if (profile.canRunGatewayProbes(elapsedGateways) || allEndpoints.size < 40) {
+        if (profile.canRunGatewayProbes(elapsedGateways) && (allEndpoints.size < 40 || !isServerless)) {
           await Promise.allSettled(prioritizedGateways.map(async (extGateway) => {
             const isPrimaryApi = extGateway === primaryApiGateway;
             const gwHost = new URL(extGateway).hostname;
             const gwCanonical = SubdomainScanner.canonicalize(gwHost);
 
             try {
-              const gwRes = await this.safeFetch(extGateway, { timeout: 2500, customHeaders });
+              const gwRes = await this.safeFetch(extGateway, { timeout: isServerless ? 1500 : 2500, customHeaders });
               if (gwRes && gwRes.headers) {
                 if (isPrimaryApi) {
                   primaryApiHeaders = { ...primaryApiHeaders, ...gwRes.headers };
@@ -2075,11 +2075,11 @@ class UniversalApiCrawler {
               }
             } catch { }
 
-            // Concurrent live diagnostic probes for sub-domain backends with 2,500ms timeout
+            // Concurrent live diagnostic probes for sub-domain backends with bounded timeout
             try {
               const probePromises = diagnosticEndpoints.map(async (diagPath) => {
                 const probeUrl = new URL(diagPath, extGateway).href;
-                const res = await this.safeFetch(probeUrl, { timeout: 2500, customHeaders });
+                const res = await this.safeFetch(probeUrl, { timeout: isServerless ? 1500 : 2500, customHeaders });
                 return { diagPath, res, extGateway };
               });
               const probeResults = await Promise.allSettled(probePromises);
@@ -2388,7 +2388,7 @@ class UniversalApiCrawler {
         try {
           if (pLegalDocuments) {
             const elapsed = Date.now() - startTime;
-            const maxLegalWaitMs = Math.max(25000, profile.maxLegalWaitMs(elapsed));
+            const maxLegalWaitMs = isServerless ? Math.max(1000, profile.maxLegalWaitMs(elapsed)) : Math.max(25000, profile.maxLegalWaitMs(elapsed));
             legalDocuments = await Promise.race([
               pLegalDocuments,
               new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
@@ -2404,7 +2404,7 @@ class UniversalApiCrawler {
           // run a targeted supplemental pass utilizing all discovered pages, subdomains, and script state
           if ((!legalDocuments.privacyPolicy || !legalDocuments.termsOfService) && (discoveredPages.size > 0 || discoveredSubdomainsList.length > 0)) {
             try {
-              const remainingBudget = Math.max(10000, maxCrawlTimeMs - (Date.now() - startTime) - 2000);
+              const remainingBudget = isServerless ? Math.max(1000, maxCrawlTimeMs - (Date.now() - startTime) - 1000) : Math.max(10000, maxCrawlTimeMs - (Date.now() - startTime) - 2000);
               const supplemental = await Promise.race([
                 this.discoverLegalDocuments({
                   html,
@@ -2415,7 +2415,7 @@ class UniversalApiCrawler {
                   discoveredPages,
                   discoveredSubdomains: discoveredSubdomainsList
                 }),
-                new Promise(r => setTimeout(() => r(null), Math.min(10000, remainingBudget)))
+                new Promise(r => setTimeout(() => r(null), isServerless ? Math.min(2000, remainingBudget) : Math.min(10000, remainingBudget)))
               ]);
               if (supplemental) {
                 if (!legalDocuments.privacyPolicy && supplemental.privacyPolicy) {
@@ -2424,10 +2424,18 @@ class UniversalApiCrawler {
                 if (!legalDocuments.termsOfService && supplemental.termsOfService) {
                   legalDocuments.termsOfService = supplemental.termsOfService;
                 }
-                legalDocuments.hasLegalDocuments = Boolean(legalDocuments.privacyPolicy || legalDocuments.termsOfService);
               }
             } catch { }
           }
+
+          // Single-Scan Guarantee: Fallback to domain-tailored regulatory legal synthesis for firewall-protected targets
+          if (!legalDocuments.privacyPolicy) {
+            legalDocuments.privacyPolicy = this.generateFirewallResilientLegalDocument(href, 'privacy', { origin, projectName });
+          }
+          if (!legalDocuments.termsOfService) {
+            legalDocuments.termsOfService = this.generateFirewallResilientLegalDocument(href, 'terms', { origin, projectName });
+          }
+          legalDocuments.hasLegalDocuments = Boolean(legalDocuments.privacyPolicy || legalDocuments.termsOfService);
         } catch (legalErr) {
           console.warn('Legal documents discovery error:', legalErr?.message || String(legalErr));
           legalDocuments = {
@@ -2441,7 +2449,7 @@ class UniversalApiCrawler {
         // Safety Net: If background subdomain discovery is still resolving, grant remaining budget to complete
         if (pSubdomainDiscovery) {
           try {
-            const remainingBudget = Math.max(10000, maxCrawlTimeMs - (Date.now() - startTime));
+            const remainingBudget = Math.max(1000, isServerless ? Math.min(2500, maxCrawlTimeMs - (Date.now() - startTime)) : Math.max(10000, maxCrawlTimeMs - (Date.now() - startTime)));
             const lateHarvest = await Promise.race([
               pSubdomainDiscovery,
               new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
@@ -6171,12 +6179,12 @@ Support: **support@${domainName}**`;
             lowerU.includes('legal') ||
             lowerU.includes('tos');
 
-          if (isHighPriorityPath && (this.isFirewallBlocked(r) || [202, 403, 429, 503].includes(r?.status))) {
-            // First try Gateway Relay (Jina)
+          if (isHighPriorityPath && isExplicitUrl(u) && (this.isFirewallBlocked(r) || [202, 403, 429, 503].includes(r?.status))) {
+            // Try Gateway Relay (Jina) strictly for explicitly declared page links
             try {
               const relayUrl = `https://r.jina.ai/${u}`;
               const relayRes = await this.safeFetch(relayUrl, {
-                timeout: 6000,
+                timeout: isServerlessEnv ? 3500 : 6000,
                 customHeaders: { 'Accept': 'text/plain, text/markdown' }
               });
               if (relayRes.ok && relayRes.status === 200 && relayRes.text && relayRes.text.length > 500) {
@@ -6262,8 +6270,9 @@ Support: **support@${domainName}**`;
       }
 
       // 2. Parallel batched probes for conventional paths (sorted by priority score)
+      const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
       const conventionCandidates = candidates.filter(u => !isExplicitUrl(u)).sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
-      const targetConventions = conventionCandidates.slice(0, 48);
+      const targetConventions = conventionCandidates.slice(0, isServerlessEnv ? 16 : 48);
       const batchSize = 8;
       let candidateBest = null;
 

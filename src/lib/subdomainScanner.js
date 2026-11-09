@@ -14,11 +14,10 @@ const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUN
 const sharedResolver = new dns.Resolver();
 try {
   const sysServers = (dns.getServers() || []).filter(s => s !== '127.0.0.1' && s !== '::1' && !s.startsWith('fe80:'));
-  if (sysServers.length > 0) {
-    sharedResolver.setServers([...sysServers, '8.8.8.8', '1.1.1.1']);
-  } else {
-    sharedResolver.setServers(['8.8.8.8', '1.1.1.1', '1.0.0.1']);
-  }
+  const workingServers = sysServers.length > 0
+    ? [...sysServers, '8.8.8.8', '1.1.1.1']
+    : ['8.8.8.8', '1.1.1.1', '1.0.0.1'];
+  sharedResolver.setServers(workingServers);
 } catch (_err) { }
 
 const PERIMETER_CACHE_FILE = path.join(os.tmpdir(), '.bendlens_perimeter_cache.json');
@@ -326,76 +325,55 @@ class SubdomainScanner {
 
   /**
    * Subdomain Center Open Intelligence API
-   * High-capacity reconnaissance returning 500-2,000+ active candidates in seconds with zero authentication.
-   * Features multi-page streaming across paginated pools and resilient backoff for busy queues.
+   * High-capacity reconnaissance returning 500-1,000+ active candidates in seconds with zero authentication.
+   * Features resilient backoff for busy queues and strict time budgeting.
    */
-  static async getSubdomainCenterSubdomains(apexDomain, timeoutMs = 18000) {
+  static async getSubdomainCenterSubdomains(apexDomain, timeoutMs = 8000) {
     if (!apexDomain) return [];
+    const maxBudget = Math.min(timeoutMs, isServerlessEnv ? 5000 : 8000);
     const startTime = Date.now();
-    const discovered = new Set();
+    const maxRetries = 2;
 
-    const fetchPage = async (page) => {
-      const url = page === 1
-        ? `https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}`
-        : `https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}&page=${page}`;
-
-      const maxRetries = 2;
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        const remaining = timeoutMs - (Date.now() - startTime);
-        if (remaining < 2000) return [];
-        try {
-          const res = await fetch(url, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-              'Accept': 'application/json, text/plain, */*'
-            },
-            signal: AbortSignal.timeout(Math.min(10000, remaining))
-          });
-          if (res.status === 503 || res.status === 429) {
-            await new Promise((r) => setTimeout(r, 800));
-            continue;
-          }
-          if (!res.ok) return [];
-          const data = await res.json();
-          if (Array.isArray(data)) return data;
-          if (data && (data.error || data.message)) {
-            await new Promise((r) => setTimeout(r, 800));
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const remaining = maxBudget - (Date.now() - startTime);
+      if (remaining < 1500) break;
+      try {
+        const res = await fetch(`https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}`, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*'
+          },
+          signal: AbortSignal.timeout(remaining)
+        });
+        if (res.status === 503 || res.status === 429) {
+          if (attempt < maxRetries - 1 && (maxBudget - (Date.now() - startTime)) > 2000) {
+            await new Promise((r) => setTimeout(r, 500));
             continue;
           }
           return [];
-        } catch (_err) {
-          if (attempt < maxRetries - 1) {
-            await new Promise((r) => setTimeout(r, 500));
+        }
+        if (!res.ok) return [];
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          const results = [];
+          for (const item of data) {
+            if (item) {
+              const clean = this.canonicalize(String(item));
+              if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
+                results.push(clean);
+              }
+            }
           }
+          if (results.length > 0) return results;
+        }
+        return [];
+      } catch (_err) {
+        if (attempt < maxRetries - 1 && (maxBudget - (Date.now() - startTime)) > 2000) {
+          await new Promise((r) => setTimeout(r, 400));
         }
       }
-      return [];
-    };
-
-    // 1. Initial Page 1 / Base query
-    const page1Items = await fetchPage(1);
-    for (const item of page1Items) {
-      const clean = this.canonicalize(String(item));
-      if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) discovered.add(clean);
     }
-
-    // 2. If page 1 returned full capacity (>= 450 items), stream subsequent pages
-    if (page1Items.length >= 450) {
-      for (let page = 2; page <= 4; page++) {
-        const remaining = timeoutMs - (Date.now() - startTime);
-        if (remaining < 3000) break;
-        await new Promise((r) => setTimeout(r, 400));
-        const items = await fetchPage(page);
-        if (!items || items.length === 0) break;
-        for (const item of items) {
-          const clean = this.canonicalize(String(item));
-          if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) discovered.add(clean);
-        }
-        if (items.length < 450) break;
-      }
-    }
-
-    return Array.from(discovered);
+    return [];
   }
 
   /**
@@ -419,7 +397,7 @@ class SubdomainScanner {
       return null;
     };
 
-    const pages = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    const pages = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
     const [passiveDnsData, ...urlListResults] = await Promise.all([
       fetchJson(`https://otx.alienvault.com/api/v1/indicators/domain/${encodeURIComponent(apexDomain)}/passive_dns`),
       ...pages.map((p) => fetchJson(`https://otx.alienvault.com/api/v1/indicators/domain/${encodeURIComponent(apexDomain)}/url_list?limit=500&page=${p}`))
@@ -812,13 +790,14 @@ class SubdomainScanner {
   static async resolveHostMultiTier(host, timeoutMs = 1500) {
     if (!host) return false;
 
-    // Tier 0: High-speed non-blocking c-ares UDP resolver (parallel 20-30ms resolution in local & serverless)
+    // Tier 0: High-speed non-blocking c-ares UDP resolver (parallel 20-30ms resolution)
     try {
       const live = await new Promise((resolve) => {
         let done = false;
+        const tier0Timeout = isServerlessEnv ? Math.min(250, timeoutMs) : Math.min(1000, timeoutMs);
         const timer = setTimeout(() => {
           if (!done) { done = true; resolve(null); }
-        }, Math.min(1000, timeoutMs));
+        }, tier0Timeout);
 
         sharedResolver.resolve4(host, (err, addrs) => {
           if (done) return;
@@ -843,6 +822,12 @@ class SubdomainScanner {
       });
       if (typeof live === 'boolean') return live;
     } catch (_e) { }
+
+    // In Serverless (Vercel / AWS Lambda), avoid blocking libuv 4-thread pool with getaddrinfo;
+    // candidates unresolving via c-ares within the bounded budget are safely classified as historical.
+    if (isServerlessEnv) {
+      return false;
+    }
 
     // Tier 1: Google DoH (global anycast HTTPS 443)
     try {
@@ -1060,11 +1045,11 @@ class SubdomainScanner {
    * Concurrently verifies candidate subdomains via high-speed non-blocking UDP c-ares worker pool
    * with bounded time budget and multi-tier DNS resolution (A -> CNAME -> AAAA -> OS lookup).
    */
-  static async validateCandidates(candidateSet, apexDomain, maxCandidates = 5000, totalTimeoutMs = 45000, options = {}) {
+  static async validateCandidates(candidateSet, apexDomain, maxCandidates = 25000, totalTimeoutMs = 45000, options = {}) {
     if (!apexDomain) return [];
     const verified = new Set([apexDomain]);
     const profile = getCrawlerProfile(options);
-    const concurrency = profile.dnsLookupConcurrency || 150;
+    const concurrency = profile.dnsLookupConcurrency || 200;
     const candidateLimit = profile.subdomainCandidateLimit || maxCandidates;
     const candidates = Array.from(candidateSet)
       .filter((h) => h && h !== apexDomain && !h.includes('*'))
@@ -1072,7 +1057,7 @@ class SubdomainScanner {
 
     const startTime = Date.now();
     let index = 0;
-    const candidateTimeout = profile.candidateTimeout || 1500;
+    const candidateTimeout = profile.candidateTimeout || (isServerlessEnv ? 300 : 1500);
 
     async function worker() {
       while (index < candidates.length) {

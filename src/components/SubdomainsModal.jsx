@@ -16,6 +16,11 @@ export default function SubdomainsModal({ isOpen, onClose, analysisData }) {
   const [sortBy, setSortBy] = useState('default'); // 'default' | 'name_asc' | 'name_desc' | 'endpoints_desc'
   const [copiedKey, setCopiedKey] = useState(null);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(180);
+
+  useEffect(() => {
+    setVisibleCount(180);
+  }, [searchQuery, statusTab, sortBy]);
 
   useEffect(() => {
     setMounted(true);
@@ -332,7 +337,7 @@ export default function SubdomainsModal({ isOpen, onClose, analysisData }) {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
-              {filteredSubdomains.map((sub, idx) => {
+              {filteredSubdomains.slice(0, visibleCount).map((sub, idx) => {
                 const isApex = sub === inventory.apexDomain || idx === 0 && !inventory.apexDomain;
                 const isLive = inventory.statusMap[sub] === 'live';
                 const epCount = inventory.endpointCounts[sub] || 0;
@@ -429,6 +434,31 @@ export default function SubdomainsModal({ isOpen, onClose, analysisData }) {
                   </div>
                 );
               })}
+
+              {/* Load More Trigger for Large Subdomain Inventories (1,000 - 10,000+ items) */}
+              {filteredSubdomains.length > visibleCount && (
+                <div className="col-span-full py-4 text-center flex flex-col sm:flex-row items-center justify-center gap-3 bg-surface-raised/20 rounded-xl border border-border/60 p-3">
+                  <span className="text-xs text-muted">
+                    Showing {visibleCount} of {filteredSubdomains.length} subdomains
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setVisibleCount((prev) => prev + 180)}
+                      className="btn-secondary text-xs py-1.5 px-4 cursor-pointer font-semibold shadow-xs hover:border-indigo-500/50"
+                    >
+                      Load More (+{Math.min(180, filteredSubdomains.length - visibleCount)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisibleCount(filteredSubdomains.length)}
+                      className="text-xs text-indigo-400 hover:underline cursor-pointer font-medium px-2 py-1"
+                    >
+                      Show All ({filteredSubdomains.length})
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

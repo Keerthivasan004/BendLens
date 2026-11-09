@@ -441,36 +441,32 @@ CREATE TABLE orders (
       } catch {
         json = {
           success: false,
-          error: res.status === 504 ? 'Connection timed out after 15000ms' : (rawText?.slice(0, 200) || `Server error (${res.status})`)
+          error: res.status === 504
+            ? 'Crawl execution timed out on cloud serverless function. Please rescan or use the BendLens Desktop App for unrestricted crawl depth.'
+            : (rawText?.slice(0, 200) || `Server error (${res.status})`)
         };
       }
 
-      // If server crawl timed out or was challenged on the website deployment, attempt client-side gateway recovery
-      if (!json.success && !signal?.aborted) {
+      // If server crawl was challenged (Cloudflare WAF / 403 Bot protection), attempt quick client-side gateway recovery
+      const isWafChallenged = res.status === 403 || (json?.error && /bot|firewall|challenge|cloudflare|turnstile|captcha|waf/i.test(json.error));
+      if (!json.success && isWafChallenged && !signal?.aborted) {
         try {
-          const clientGateways = [
-            { url: `https://r.jina.ai/${normalizedUrl}`, headers: { 'X-Return-Format': 'html' } },
-            { url: `https://api.allorigins.win/raw?url=${encodeURIComponent(normalizedUrl)}`, headers: {} }
-          ];
-          for (const gw of clientGateways) {
-            try {
-              const gwRes = await fetch(gw.url, { headers: gw.headers, signal: AbortSignal.timeout(9000) });
-              if (gwRes.ok) {
-                const htmlText = await gwRes.text();
-                // Ensure the relayed text contains authentic HTML/scripts or content for AST chunk traversal
-                if (htmlText && htmlText.length > 200 && (htmlText.includes('<script') || htmlText.includes('<html') || htmlText.includes('<!DOCTYPE') || htmlText.includes('Title:') || htmlText.includes('Markdown Content:'))) {
-                  const retryRes = await runCrawlRequest(signal, htmlText);
-                  let retryJson = null;
-                  try {
-                    const rt = await retryRes.text();
-                    retryJson = JSON.parse(rt);
-                  } catch {}
-                  if (retryJson && retryJson.success) {
-                    return new Response(JSON.stringify(retryJson), { status: 200, headers: { 'Content-Type': 'application/json' } });
-                  }
+          const gwRes = await fetch(`https://r.jina.ai/${normalizedUrl}`, {
+            headers: { 'X-Return-Format': 'html' },
+            signal: AbortSignal.timeout(4000)
+          });
+          if (gwRes.ok) {
+            const htmlText = await gwRes.text();
+            if (htmlText && htmlText.length > 200 && (htmlText.includes('<script') || htmlText.includes('<html') || htmlText.includes('<!DOCTYPE') || htmlText.includes('Title:') || htmlText.includes('Markdown Content:'))) {
+              const retryRes = await runCrawlRequest(signal, htmlText);
+              try {
+                const rt = await retryRes.text();
+                const retryJson = JSON.parse(rt);
+                if (retryJson && retryJson.success) {
+                  return new Response(JSON.stringify(retryJson), { status: 200, headers: { 'Content-Type': 'application/json' } });
                 }
-              }
-            } catch {}
+              } catch {}
+            }
           }
         } catch {}
       }

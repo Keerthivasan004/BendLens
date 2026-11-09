@@ -18,14 +18,14 @@ const localCrawlerProfile = {
 
   // Chunk crawling budget - Unbounded by default; dynamic concurrency and queue drain
   maxChunks: Infinity,
-  maxCrawlDurationMs: 90000,
+  maxCrawlDurationMs: 120000,
   concurrency: 60,
 
-  // Subdomain discovery & verification limits
-  dnsLookupConcurrency: 150,
+  // Subdomain discovery & verification limits (supports 1,000 - 10,000+ subdomains with zero truncation)
+  dnsLookupConcurrency: 200,
   candidateTimeout: 1500,
-  subdomainValidationTimeout: 45000,
-  subdomainCandidateLimit: 5000,
+  subdomainValidationTimeout: 90000,
+  subdomainCandidateLimit: 25000,
   activeDnsPrefixes: 600,
 
   // Passive reconnaissance timeouts (concurrent parallel execution)
