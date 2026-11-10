@@ -22,7 +22,7 @@ const webCrawlerProfile = {
   // Chunk crawling budget - deep, exhaustive traversal in cloud functions
   maxChunks: 650,
   maxCrawlDurationMs: 48000,
-  concurrency: 60,
+  concurrency: 36,
 
   // Subdomain discovery & verification limits (supports 1,000 - 25,000+ candidates without truncation)
   dnsLookupConcurrency: 200,

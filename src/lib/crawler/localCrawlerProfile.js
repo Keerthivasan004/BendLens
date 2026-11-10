@@ -18,13 +18,13 @@ const localCrawlerProfile = {
 
   // Chunk crawling budget - Unbounded by default; dynamic concurrency and queue drain
   maxChunks: Infinity,
-  maxCrawlDurationMs: 120000,
-  concurrency: 60,
+  maxCrawlDurationMs: 180000,
+  concurrency: 32,
 
   // Subdomain discovery & verification limits (supports 1,000 - 10,000+ subdomains with zero truncation)
   dnsLookupConcurrency: 200,
   candidateTimeout: 1500,
-  subdomainValidationTimeout: 90000,
+  subdomainValidationTimeout: 30000,
   subdomainCandidateLimit: 25000,
   activeDnsPrefixes: 600,
 
@@ -41,7 +41,7 @@ const localCrawlerProfile = {
   canRunPhase2: (elapsed) => true,
   canRunGatewayProbes: (elapsed) => true,
   maxLegalWaitMs: (elapsed) => 30000,
-  maxSubdomainBudgetMs: (elapsed) => Math.max(50000, 90000 - elapsed)
+  maxSubdomainBudgetMs: (elapsed) => Math.max(15000, Math.min(25000, 60000 - elapsed))
 };
 
 module.exports = localCrawlerProfile;

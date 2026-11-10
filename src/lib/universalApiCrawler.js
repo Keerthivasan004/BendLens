@@ -405,9 +405,9 @@ class UniversalApiCrawler {
 
         // Concurrently race candidate URLs with serverless-adaptive budget
         const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-        const raceTimeout = isServerless ? 7000 : 12000;
-        const fallbackTimeout = isServerless ? 5000 : 8000;
-        const gatewayTimeout = isServerless ? 7000 : 15000;
+        const raceTimeout = isServerless ? 14000 : 18000;
+        const fallbackTimeout = isServerless ? 8000 : 12000;
+        const gatewayTimeout = isServerless ? 10000 : 15000;
 
         try {
           const racePromises = candidateUrls.map(cUrl =>
@@ -1434,7 +1434,7 @@ class UniversalApiCrawler {
         // -----------------------------------------------------------------------
         const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
         const maxNormalChunks = maxChunks;
-        const chunkTimeout = isServerless ? 2000 : 5000;
+        const chunkTimeout = isServerless ? 6000 : 8000;
 
         // Helper: Priority sort for high-yield code modules (roles, pages, stores, apis)
         const isPriorityChunkUrl = (u) => {
@@ -1457,8 +1457,13 @@ class UniversalApiCrawler {
             visitedUrls.add(url);
 
             let scriptRes = await this.safeFetch(url, { timeout: chunkTimeout, customHeaders, context: 'script', origin });
-            if (!scriptRes.ok && (scriptRes.status === 0 || scriptRes.status === 429 || scriptRes.status >= 500)) {
-              scriptRes = await this.safeFetch(url, { timeout: Math.min(3000, chunkTimeout + 800), customHeaders, context: 'script', origin });
+            if (!scriptRes.ok) {
+              await new Promise(r => setTimeout(r, 200));
+              scriptRes = await this.safeFetch(url, { timeout: isServerless ? 9000 : 12000, customHeaders, context: 'script', origin });
+            }
+            if (!scriptRes.ok) {
+              await new Promise(r => setTimeout(r, 400));
+              scriptRes = await this.safeFetch(url, { timeout: isServerless ? 12000 : 16000, customHeaders, context: 'script', origin });
             }
             if (!scriptRes.ok) return;
             const code = scriptRes.text;
@@ -1618,7 +1623,7 @@ class UniversalApiCrawler {
               } else {
                 resolve([]);
               }
-            }, isServerless ? maxSubdomainBudgetMs : Math.max(35000, maxSubdomainBudgetMs)))
+            }, isServerless ? maxSubdomainBudgetMs : Math.min(30000, Math.max(15000, maxSubdomainBudgetMs))))
           ]);
 
           if (Array.isArray(harvested)) {
@@ -1729,7 +1734,7 @@ class UniversalApiCrawler {
 
           // Exhaustively process all dynamic code-split chunks up to chunk limit or queue exhaustion
           const maxDeepChunks = maxChunks;
-          const deepChunkTimeout = isServerless ? 2000 : 5000;
+          const deepChunkTimeout = isServerless ? 6000 : 8000;
           while (deepQueue.length > 0 && visitedUrls.size < maxDeepChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
             const batch = deepQueue.splice(0, concurrency);
 
@@ -1738,8 +1743,13 @@ class UniversalApiCrawler {
               visitedUrls.add(url);
 
               let scriptRes = await this.safeFetch(url, { timeout: deepChunkTimeout, customHeaders, context: 'script', origin });
-              if (!scriptRes.ok && (scriptRes.status === 0 || scriptRes.status === 429 || scriptRes.status >= 500)) {
-                scriptRes = await this.safeFetch(url, { timeout: Math.min(3000, deepChunkTimeout + 800), customHeaders, context: 'script', origin });
+              if (!scriptRes.ok) {
+                await new Promise(r => setTimeout(r, 200));
+                scriptRes = await this.safeFetch(url, { timeout: isServerless ? 9000 : 12000, customHeaders, context: 'script', origin });
+              }
+              if (!scriptRes.ok) {
+                await new Promise(r => setTimeout(r, 400));
+                scriptRes = await this.safeFetch(url, { timeout: isServerless ? 12000 : 16000, customHeaders, context: 'script', origin });
               }
               if (!scriptRes.ok) return;
               const code = scriptRes.text;
@@ -1882,10 +1892,13 @@ class UniversalApiCrawler {
             candidateGateways.add(`https://${sub}`);
           }
         }
+        const infraPrefixes = ['autoconfig', 'autodiscover', 'ftp', 'mail', 'webmail', 'cpanel', 'whm', 'ns', 'dns', 'mx', 'smtp', 'pop', 'imap', 'sip', 'lyncdiscover'];
         const extGateways = Array.from(candidateGateways).filter(d => {
           try {
             const gwHost = new URL(d).hostname;
             if (gwHost === hostname) return false;
+            const prefix = gwHost.split('.')[0].toLowerCase();
+            if (infraPrefixes.includes(prefix)) return false;
             const gwApex = this.getApexDomain(gwHost);
             const isSameApex = gwApex && originApex && gwApex === originApex;
             const isPaaS = gwHost.includes('.supabase.co') || gwHost.includes('.onrender.com') ||
@@ -1944,7 +1957,7 @@ class UniversalApiCrawler {
             const gwCanonical = SubdomainScanner.canonicalize(gwHost);
 
             try {
-              const gwRes = await this.safeFetch(extGateway, { timeout: isServerless ? 1500 : 2500, customHeaders });
+              const gwRes = await this.safeFetch(extGateway, { timeout: isServerless ? 3500 : 5000, customHeaders });
               if (gwRes && gwRes.headers) {
                 if (isPrimaryApi) {
                   primaryApiHeaders = { ...primaryApiHeaders, ...gwRes.headers };
@@ -2009,8 +2022,8 @@ class UniversalApiCrawler {
                   normalEndpoints.get(aRoute).add('GET');
                   normalEndpoints.get(aRoute).add('POST');
                 }
-              } else if (gwHost.startsWith('erp.') || gwHost.startsWith('v16.') || gwHost.startsWith('crm.') || gwHost.startsWith('portal.') || gwHost.startsWith('app.')) {
-                // Register standard Enterprise ERP, CRM & Business microservice endpoints
+              } else if ((gwHost.startsWith('erp.') || gwHost.startsWith('v16.') || gwHost.startsWith('crm.')) && (gwRes?.text?.includes('frappe') || gwRes?.headers?.['server']?.includes('frappe'))) {
+                // Register standard Enterprise ERP & CRM microservice endpoints only when confirmed
                 const erpEndpoints = ['/api/method/ping', '/api/method/login', '/api/method/frappe.auth.get_logged_user', '/login'];
                 for (const ep of erpEndpoints) {
                   const eRoute = `//${gwHost}${ep}`;
@@ -2083,7 +2096,7 @@ class UniversalApiCrawler {
             try {
               const probePromises = diagnosticEndpoints.map(async (diagPath) => {
                 const probeUrl = new URL(diagPath, extGateway).href;
-                const res = await this.safeFetch(probeUrl, { timeout: isServerless ? 1500 : 2500, customHeaders });
+                const res = await this.safeFetch(probeUrl, { timeout: isServerless ? 4000 : 6000, customHeaders });
                 return { diagPath, res, extGateway };
               });
               const probeResults = await Promise.allSettled(probePromises);
@@ -2189,20 +2202,21 @@ class UniversalApiCrawler {
         const genuineScrapedEndpoints = Array.from(allEndpoints.keys()).filter(ep => ep !== '/' && !ep.startsWith('/api/health') && !ep.startsWith('/health'));
         // Enterprise federated perimeter detection: If a domain has verified subdomains,
         // synthesize the authentic distributed service mesh and ensure all AI, API, Auth, and Cloud gateways are mapped
-        const isMultiSubdomainArchitecture = discoveredSubdomainsList.length >= 2;
-        if (discoveredSubdomainsList.length > 1) {
+        const isMultiSubdomainArchitecture = discoveredSubdomainsList.length >= 3 && (genuineScrapedApis.length < 50 || genuineScrapedEndpoints.length < discoveredSubdomainsList.length * 0.5);
+        if ((isMultiSubdomainArchitecture || isWafChallenge || genuineScrapedApis.length === 0 || visitedUrls.size <= 3) && discoveredSubdomainsList.length > 1) {
           for (const sub of discoveredSubdomainsList) {
             const s = sub.toLowerCase();
             if (s === hostname.toLowerCase() || s === `www.${hostname.toLowerCase()}` || s === apexDomain.toLowerCase() || s === `www.${apexDomain.toLowerCase()}`) continue;
             const prefix = s.split('.')[0];
-            if (/^\d+[-_.]/.test(prefix) || prefix.length < 2 || prefix.includes('spfm') || prefix.includes('domainkey') || /^[a-f0-9]{8,}/i.test(prefix) || s.includes('._')) continue;
+            const infraPrefixes = ['autoconfig', 'autodiscover', 'ftp', 'mail', 'webmail', 'cpanel', 'whm', 'ns', 'dns', 'mx', 'smtp', 'pop', 'imap', 'sip', 'lyncdiscover', 'kp'];
+            if (infraPrefixes.includes(prefix) || /^\d+[-_.]/.test(prefix) || prefix.length < 2 || prefix.includes('spfm') || prefix.includes('domainkey') || /^[a-f0-9]{8,}/i.test(prefix) || s.includes('._')) continue;
             const serviceRoute = `/${prefix}`;
 
             const isAiPrefix = prefix === 'ai' || prefix.startsWith('ai') || prefix.includes('copilot') || prefix.includes('llm') || prefix.includes('genai') || prefix.includes('agent') || prefix.includes('bot') || prefix.includes('chat') || prefix.includes('gpt') || prefix.includes('assistant');
-            const isApiPrefix = isAiPrefix || prefix.includes('api') || prefix.includes('auth') || prefix.includes('account') || prefix.includes('mobile') || prefix.includes('service') || prefix.includes('app') || prefix.includes('booking') || prefix.includes('pay') || prefix.includes('fly') || prefix.includes('aws') || prefix.includes('prime') || prefix.includes('music') || prefix.includes('seller') || prefix.includes('advertising') || prefix.includes('shop') || prefix.includes('cloud') || prefix.includes('business') || prefix.includes('developer') || prefix.includes('gateway') || prefix.includes('portal') || prefix.includes('data');
+            const isApiPrefix = isAiPrefix || prefix.includes('api') || prefix.includes('auth') || prefix.includes('account') || prefix.includes('mobile') || prefix.includes('service') || prefix.includes('booking') || prefix.includes('pay') || prefix.includes('fly') || prefix.includes('aws') || prefix.includes('prime') || prefix.includes('music') || prefix.includes('seller') || prefix.includes('advertising') || prefix.includes('shop') || prefix.includes('cloud') || prefix.includes('business') || prefix.includes('developer') || prefix.includes('gateway') || prefix.includes('data');
 
             // Register service route if it's an API/AI service or if multi-subdomain mesh is synthesized
-            const shouldRegister = isApiPrefix || genuineScrapedApis.length === 0 || genuineScrapedEndpoints.length <= 30 || isWafChallenge || visitedUrls.size <= 3 || isMultiSubdomainArchitecture;
+            const shouldRegister = isAiPrefix || isMultiSubdomainArchitecture || genuineScrapedApis.length === 0 || visitedUrls.size <= 3;
 
             if (shouldRegister && !allEndpoints.has(serviceRoute)) {
               allEndpoints.set(serviceRoute, new Set(['GET']));
