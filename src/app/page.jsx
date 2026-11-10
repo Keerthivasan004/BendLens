@@ -89,14 +89,22 @@ CREATE TABLE orders (
       if (s.startsWith('http://') && !s.includes('localhost')) return s.replace(/^http:\/\//i, 'https://');
       return s;
     }
+    if (s.startsWith('//')) return `https:${s}`;
     if (s.startsWith('/')) {
-      const root = analysisResult?.targetUrl || analysisResult?.crawlerTelemetry?.targetUrl || gitUrl;
-      if (root && (root.startsWith('http://') || root.startsWith('https://'))) {
-        try {
-          return `${new URL(root).origin}${s}`;
-        } catch { }
+      const root = analysisResult?.targetUrl || analysisResult?.crawlerTelemetry?.targetUrl || analysisResult?.projectPath || gitUrl || folderPath;
+      if (root) {
+        if (root.startsWith('http://') || root.startsWith('https://')) {
+          try {
+            return `${new URL(root).origin}${s}`;
+          } catch { }
+        } else if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(root)) {
+          return `https://${root.split('/')[0]}${s}`;
+        }
       }
       return s;
+    }
+    if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(s)) {
+      return `https://${s}`;
     }
     return null;
   };
@@ -1865,8 +1873,8 @@ CREATE TABLE audit_logs (
                         const docs = analysisResult?.legalDocuments || analysisResult?.crawlerTelemetry?.legalDocuments;
                         const isUrlScan = analysisResult?.isUrlCrawl || !!analysisResult?.crawlerTelemetry || (analysisResult?.projectPath && (analysisResult.projectPath.startsWith('http://') || analysisResult.projectPath.startsWith('https://')));
                         if (!docs && !isUrlScan) return null;
-                        const privacy = docs?.privacyPolicy;
-                        const terms = docs?.termsOfService;
+                        const privacy = docs?.privacyPolicy || docs?.privacy || docs?.privacy_policy;
+                        const terms = docs?.termsOfService || docs?.termsOfUse || docs?.terms || docs?.termsAndConditions || docs?.terms_of_service;
 
                         return (
                           <div className={`p-3.5 rounded-xl bg-surface border ${privacy || terms ? 'border-emerald-500/30' : 'border-rose-500/30'} space-y-3 text-xs text-left`}>

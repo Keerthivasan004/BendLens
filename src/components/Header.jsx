@@ -389,7 +389,13 @@ export default function Header({
 
               {(() => {
                 const legalDocs = analysisData?.legalDocuments || analysisData?.crawlerTelemetry?.legalDocuments;
-                const hasAny = !!(legalDocs?.privacyPolicy || legalDocs?.termsOfService);
+                const hasAny = !!(
+                  legalDocs?.privacyPolicy ||
+                  legalDocs?.privacy ||
+                  legalDocs?.termsOfService ||
+                  legalDocs?.termsOfUse ||
+                  legalDocs?.terms
+                );
                 return (
                   <button
                     type="button"
@@ -466,7 +472,15 @@ export default function Header({
       isOpen={showLegalModal}
       onClose={() => setShowLegalModal(false)}
       legalDocuments={analysisData?.legalDocuments || analysisData?.crawlerTelemetry?.legalDocuments}
-      targetUrl={currentPath || analysisData?.projectPath || analysisData?.projectName}
+      targetUrl={
+        analysisData?.targetUrl ||
+        analysisData?.crawlerTelemetry?.targetUrl ||
+        (currentPath && currentPath.startsWith('http') ? currentPath : null) ||
+        (analysisData?.projectPath && analysisData?.projectPath.startsWith('http') ? analysisData?.projectPath : null) ||
+        currentPath ||
+        analysisData?.projectPath ||
+        analysisData?.projectName
+      }
       initialTab={legalModalTab}
     />
 

@@ -81,6 +81,7 @@ export async function POST(request) {
         const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
         result.projectName = crawlResult.projectName;
         result.projectPath = targetPath;
+        result.targetUrl = targetPath;
         result.openApiSpec = crawlResult.openApiSpec;
         result.crawlerTelemetry = crawlResult.telemetry;
         result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];

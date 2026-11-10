@@ -525,32 +525,58 @@ export default function LegalDocumentsModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Derive authentic target URL from props, documents, or active crawl telemetry
+  const normalizedTargetUrl = useMemo(() => {
+    let raw = (targetUrl || '').trim();
+    if (!raw || raw.toLowerCase() === 'bendlens' || raw.toLowerCase() === 'bendlens platform') {
+      const docUrl = liveDocs?.privacyPolicy?.url || liveDocs?.termsOfService?.url || legalDocuments?.privacyPolicy?.url || legalDocuments?.termsOfService?.url;
+      if (docUrl && (docUrl.startsWith('http://') || docUrl.startsWith('https://'))) {
+        try {
+          return new URL(docUrl).origin;
+        } catch { }
+      }
+      return raw || 'BendLens Platform';
+    }
+    if (!raw.includes('.') && !raw.includes('/') && (liveDocs?.privacyPolicy?.url || legalDocuments?.privacyPolicy?.url || liveDocs?.termsOfService?.url || legalDocuments?.termsOfService?.url)) {
+      const docUrl = liveDocs?.privacyPolicy?.url || legalDocuments?.privacyPolicy?.url || liveDocs?.termsOfService?.url || legalDocuments?.termsOfService?.url;
+      if (docUrl && (docUrl.startsWith('http://') || docUrl.startsWith('https://'))) {
+        try {
+          return new URL(docUrl).origin;
+        } catch { }
+      }
+    }
+    return raw;
+  }, [targetUrl, liveDocs, legalDocuments]);
+
   const cleanHost = useMemo(() => {
     try {
-      if (!targetUrl) return 'BendLens Platform';
-      const clean = targetUrl.trim();
+      const u = normalizedTargetUrl || targetUrl;
+      if (!u) return 'BendLens Platform';
+      const clean = u.trim();
       if (!clean.includes('.') || clean.includes(' ') || clean.toLowerCase() === 'bendlens') {
         return clean || 'BendLens Platform';
       }
       return new URL(clean.startsWith('http') ? clean : `https://${clean}`).hostname;
     } catch {
-      return targetUrl || 'BendLens Platform';
+      return normalizedTargetUrl || targetUrl || 'BendLens Platform';
     }
-  }, [targetUrl]);
+  }, [normalizedTargetUrl, targetUrl]);
 
   const isBendLensTarget = useMemo(() => {
-    if (!targetUrl) return true;
-    const lower = String(targetUrl).toLowerCase().trim();
+    const u = normalizedTargetUrl || targetUrl;
+    if (!u) return true;
+    const lower = String(u).toLowerCase().trim();
     return lower === 'bendlens' || lower === 'bendlens platform' || lower === 'this website' || cleanHost === 'BendLens Platform';
-  }, [targetUrl, cleanHost]);
+  }, [normalizedTargetUrl, targetUrl, cleanHost]);
 
-  // Optional on-demand fetch if legalDocuments is missing but targetUrl is present
+  // Optional on-demand fetch if legalDocuments is missing or synthetic, but targetUrl is present
   const fetchOnDemand = async () => {
-    if (!targetUrl || isBendLensTarget) return;
+    const effectiveUrl = normalizedTargetUrl || targetUrl;
+    if (!effectiveUrl || isBendLensTarget) return;
     setIsLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(`/api/legal?url=${encodeURIComponent(targetUrl)}`);
+      const res = await fetch(`/api/legal?url=${encodeURIComponent(effectiveUrl)}`);
       if (!res.ok) {
         throw new Error(`Server returned HTTP ${res.status}`);
       }
@@ -562,22 +588,22 @@ export default function LegalDocumentsModal({
       if (data.success && data.legalDocuments) {
         setLiveDocs({
           hasLegalDocuments: true,
-          privacyPolicy: data.legalDocuments.privacyPolicy || generateClientLegalDocument(targetUrl, 'privacy'),
-          termsOfService: data.legalDocuments.termsOfService || generateClientLegalDocument(targetUrl, 'terms')
+          privacyPolicy: data.legalDocuments.privacyPolicy || generateClientLegalDocument(effectiveUrl, 'privacy'),
+          termsOfService: data.legalDocuments.termsOfService || generateClientLegalDocument(effectiveUrl, 'terms')
         });
       } else {
         setLiveDocs({
           hasLegalDocuments: true,
-          privacyPolicy: generateClientLegalDocument(targetUrl, 'privacy'),
-          termsOfService: generateClientLegalDocument(targetUrl, 'terms')
+          privacyPolicy: generateClientLegalDocument(effectiveUrl, 'privacy'),
+          termsOfService: generateClientLegalDocument(effectiveUrl, 'terms')
         });
       }
     } catch (err) {
       console.warn('Legal fetch on-demand fallback:', err?.message || String(err));
       setLiveDocs({
         hasLegalDocuments: true,
-        privacyPolicy: generateClientLegalDocument(targetUrl, 'privacy'),
-        termsOfService: generateClientLegalDocument(targetUrl, 'terms')
+        privacyPolicy: generateClientLegalDocument(effectiveUrl, 'privacy'),
+        termsOfService: generateClientLegalDocument(effectiveUrl, 'terms')
       });
     } finally {
       setIsLoading(false);
@@ -585,7 +611,8 @@ export default function LegalDocumentsModal({
   };
 
   const privacyDoc = useMemo(() => {
-    let candidate = liveDocs?.privacyPolicy || legalDocuments?.privacyPolicy;
+    let candidate = liveDocs?.privacyPolicy || liveDocs?.privacy || liveDocs?.privacy_policy ||
+      legalDocuments?.privacyPolicy || legalDocuments?.privacy || legalDocuments?.privacy_policy;
     const isAmazon = (cleanHost || targetUrl || '').toLowerCase().includes('amazon');
     if (isAmazon && candidate) {
       const cTitle = (candidate.title || '').toLowerCase();
@@ -600,11 +627,12 @@ export default function LegalDocumentsModal({
     if (isBendLensTarget || !targetUrl) {
       return BENDLENS_PRIVACY_POLICY;
     }
-    return generateClientLegalDocument(targetUrl, 'privacy');
-  }, [cleanHost, isBendLensTarget, liveDocs, legalDocuments, targetUrl]);
+    return generateClientLegalDocument(normalizedTargetUrl || targetUrl, 'privacy');
+  }, [cleanHost, isBendLensTarget, liveDocs, legalDocuments, targetUrl, normalizedTargetUrl]);
 
   const termsDoc = useMemo(() => {
-    let candidate = liveDocs?.termsOfService || legalDocuments?.termsOfService;
+    let candidate = liveDocs?.termsOfService || liveDocs?.termsOfUse || liveDocs?.terms || liveDocs?.termsAndConditions || liveDocs?.terms_of_service ||
+      legalDocuments?.termsOfService || legalDocuments?.termsOfUse || legalDocuments?.terms || legalDocuments?.termsAndConditions || legalDocuments?.terms_of_service;
     const isAmazon = (cleanHost || targetUrl || '').toLowerCase().includes('amazon');
     if (isAmazon && candidate) {
       const cTitle = (candidate.title || '').toLowerCase();
@@ -619,8 +647,8 @@ export default function LegalDocumentsModal({
     if (isBendLensTarget || !targetUrl) {
       return BENDLENS_TERMS_OF_SERVICE;
     }
-    return generateClientLegalDocument(targetUrl, 'terms');
-  }, [cleanHost, isBendLensTarget, liveDocs, legalDocuments, targetUrl]);
+    return generateClientLegalDocument(normalizedTargetUrl || targetUrl, 'terms');
+  }, [cleanHost, isBendLensTarget, liveDocs, legalDocuments, targetUrl, normalizedTargetUrl]);
 
   // Selected document based on active tab (null if origin does not publish document)
   const currentDoc = useMemo(() => {
@@ -641,15 +669,26 @@ export default function LegalDocumentsModal({
     return false;
   }, [currentDoc]);
 
-  // If modal opened without documents prop at all or with corrupted CSS, auto-trigger on-demand fetch
+  // If modal opened without documents prop at all, or with corrupted CSS, or with synthetic firewall-resilient doc, auto-trigger on-demand fetch
   useEffect(() => {
+    const isSynthetic = Boolean(
+      (liveDocs?.privacyPolicy?.isFirewallResilient && !liveDocs?.privacyPolicy?.source?.includes('origin')) ||
+      (liveDocs?.termsOfService?.isFirewallResilient && !liveDocs?.termsOfService?.source?.includes('origin')) ||
+      (legalDocuments?.privacyPolicy?.isFirewallResilient && !legalDocuments?.privacyPolicy?.source?.includes('origin')) ||
+      (legalDocuments?.termsOfService?.isFirewallResilient && !legalDocuments?.termsOfService?.source?.includes('origin'))
+    );
+    const hasAuthentic = Boolean(
+      (liveDocs?.privacyPolicy && !liveDocs?.privacyPolicy?.isFirewallResilient) &&
+      (liveDocs?.termsOfService && !liveDocs?.termsOfService?.isFirewallResilient)
+    );
     const wasExplicitlyProvided = legalDocuments !== undefined && legalDocuments !== null;
     const hasExisting = Boolean(liveDocs?.privacyPolicy || liveDocs?.termsOfService || legalDocuments?.privacyPolicy || legalDocuments?.termsOfService);
-    const isValidUrl = targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://') || /^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(targetUrl)) && !targetUrl.includes(' ');
-    if (isOpen && (!wasExplicitlyProvided && !hasExisting || isDocCss) && isValidUrl && !isLoading && !loadError) {
+    const effectiveUrl = normalizedTargetUrl || targetUrl;
+    const isValidUrl = effectiveUrl && (effectiveUrl.startsWith('http://') || effectiveUrl.startsWith('https://') || /^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(effectiveUrl)) && !effectiveUrl.includes(' ');
+    if (isOpen && (!wasExplicitlyProvided || !hasExisting || isDocCss || (isSynthetic && !hasAuthentic)) && isValidUrl && !isLoading && !loadError) {
       fetchOnDemand();
     }
-  }, [isOpen, liveDocs, legalDocuments, targetUrl, isLoading, loadError, isDocCss]);
+  }, [isOpen, liveDocs, legalDocuments, targetUrl, normalizedTargetUrl, isLoading, loadError, isDocCss]);
 
   // Handle copy text
   const handleCopy = () => {
@@ -1226,7 +1265,8 @@ export default function LegalDocumentsModal({
                       searchQuery={searchQuery}
                       currentDoc={currentDoc}
                       cleanHost={cleanHost}
-                      targetUrl={targetUrl}
+                      targetUrl={normalizedTargetUrl || targetUrl}
+                      activeTab={activeTab}
                     />
                   ) : (
                     <div className="p-6 sm:p-10 rounded-2xl bg-surface border border-border/80 shadow-xs font-mono text-foreground/90 leading-relaxed text-xs sm:text-sm whitespace-pre-wrap selection:bg-brand/20">
@@ -1436,7 +1476,7 @@ function renderInlineWithHighlights(text, searchQuery = '') {
  * Rich authentic website document renderer.
  * Formats headings, paragraphs, lists, tables, and blockquotes exactly like a live web publication.
  */
-function AuthenticWebsiteRenderer({ content, searchQuery, currentDoc, cleanHost, targetUrl }) {
+function AuthenticWebsiteRenderer({ content, searchQuery, currentDoc, cleanHost, targetUrl, activeTab = 'privacy' }) {
   const sanitizedContent = useMemo(() => {
     if (!content) return '';
     let text = content;
@@ -1587,9 +1627,9 @@ function AuthenticWebsiteRenderer({ content, searchQuery, currentDoc, cleanHost,
           </div>
         </div>
 
-        {safeHttpsUrl(currentDoc?.url, targetUrl, cleanHost, 'privacy') && (
+        {safeHttpsUrl(currentDoc?.url, targetUrl, cleanHost, activeTab) && (
           <a
-            href={safeHttpsUrl(currentDoc.url, targetUrl, cleanHost, 'privacy')}
+            href={safeHttpsUrl(currentDoc.url, targetUrl, cleanHost, activeTab)}
             target="_blank"
             rel="noopener noreferrer"
             className="px-3 py-1.5 rounded-xl text-xs font-medium text-emerald-300 hover:text-emerald-200 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 flex items-center gap-1.5 transition-all shadow-xs"

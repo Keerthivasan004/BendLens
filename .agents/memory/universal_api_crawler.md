@@ -1401,3 +1401,27 @@ When scanning `https://futrsec.in` in production HTTPS, the endpoint count infla
     - Parameterized Entity Routes: `/{apiUrl}`, `/{es}`, `/{id}`, `/{ne}`, `/course`, `/courseId`, `/lessonId`, `/module`, `/moduleId`, `/unitId` = **10 endpoints**.
     - Subdomain Collision Route: `//kp.futrsec.in/api/health` = **1 endpoint**.
     - Total: **619 + 56 + 7 + 10 + 1 = EXACTLY 693 ENDPOINTS**.
+
+## Canonical Legal Discovery & Multi-Tier UI Synchronization (Phase 2 & Modals)
+
+1. **Canonical Legal Conventions Prioritized**:
+   - `primaryPrivacyPaths`: `['/privacy-policy/', '/privacy-policy', '/privacy/', '/privacy', ...]`
+   - `primaryTermsPaths`: `['/terms', '/terms/', '/terms-of-service', '/terms-of-service/', '/terms-of-use', '/terms-of-use/', ...]`
+   - Canonical candidate paths receive top priority scores (26 / 25 in `scoreCandidate`), guaranteeing placement in Batch 1.
+
+2. **Immediate Substantive Return Guarantee**:
+   - In `tryFetchCandidates`, canonical legal URLs with legal title and >= 200 words return immediately in Batch 1 in under 500ms.
+   - Eliminates batch starvation and probe timeouts for authentic, concise policies (e.g. `https://futrsec.in/terms` with 270 words).
+
+3. **Composite Quality Scoring**:
+   - Replaced naive wordCount comparison with composite scoring: `relevanceScore + titleRelevanceScore + wordCountScore`.
+   - Prevents authentic concise policies from being displaced by longer incidental pages.
+
+4. **Extended Serverless Legal Floor**:
+   - Elevated `maxLegalWaitMs` in `crawl()` to a 4,000ms minimum floor under `VERCEL=1`, ensuring Phase 2 legal resolution completes without premature abortion.
+
+5. **Full Consumer & UI Parity**:
+   - `LegalDocumentsModal.jsx`: Normalizes target URLs from document origins (`normalizedTargetUrl`), propagates `activeTab` to `AuthenticWebsiteRenderer` and `safeHttpsUrl`, auto-triggers on-demand upgrade via `/api/legal` if initial document is synthetic firewall-resilient, and supports all aliases (`termsOfService`, `termsOfUse`, `terms`, `termsAndConditions`, `privacyPolicy`, `privacy`).
+   - `Header.jsx` & `DeveloperView.jsx`: Recognize all legal document property aliases, eliminating false "None" badges.
+   - `page.jsx`: `getSafeLiveLegalUrl` normalizes raw domain targets and relative URLs to valid HTTPS links.
+   - `git-clone` & `analyze` route handlers: Explicitly propagate `result.targetUrl`.

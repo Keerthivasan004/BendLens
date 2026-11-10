@@ -740,7 +740,9 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       return null;
     };
     return sanitize(rawAnalysisData?.crawlerTelemetry?.targetUrl) ||
+      sanitize(data?.crawlerTelemetry?.targetUrl) ||
       sanitize(rawAnalysisData?.targetUrl) ||
+      sanitize(data?.targetUrl) ||
       sanitize(rawAnalysisData?.projectPath) ||
       sanitize(data?.projectPath) ||
       (typeof window !== 'undefined' ? sanitize(new URLSearchParams(window.location.search).get('path')) : null) ||
@@ -1716,7 +1718,13 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                   </button>
 
                   {(() => {
-                    const hasAny = !!(effectiveLegalDocuments?.privacyPolicy || effectiveLegalDocuments?.termsOfService);
+                    const hasAny = !!(
+                      effectiveLegalDocuments?.privacyPolicy ||
+                      effectiveLegalDocuments?.privacy ||
+                      effectiveLegalDocuments?.termsOfService ||
+                      effectiveLegalDocuments?.termsOfUse ||
+                      effectiveLegalDocuments?.terms
+                    );
                     return (
                       <button
                         type="button"

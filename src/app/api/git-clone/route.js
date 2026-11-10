@@ -276,6 +276,7 @@ export async function POST(request) {
                     const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
                     result.projectName = crawlResult.projectName;
                     result.projectPath = targetFetchUrl;
+                    result.targetUrl = targetFetchUrl;
                     result.openApiSpec = crawlResult.openApiSpec;
                     result.crawlerTelemetry = crawlResult.telemetry;
                     result.subdomains = crawlResult.telemetry?.subdomains || crawlResult.subdomains || result.subdomains || [];
@@ -638,6 +639,7 @@ export async function POST(request) {
         const result = await ProjectAnalyzer.analyzeAsync(cloneDir);
         result.projectName = crawlResult.projectName;
         result.projectPath = repoUrl;
+        result.targetUrl = repoUrl;
         result.isUrlCrawl = true;
         result.openApiSpec = crawlResult.openApiSpec;
         result.legalDocuments = crawlResult.legalDocuments || crawlResult.telemetry?.legalDocuments || null;

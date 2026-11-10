@@ -2408,7 +2408,7 @@ class UniversalApiCrawler {
           if (pLegalDocuments) {
             const elapsed = Date.now() - startTime;
             const remainingForLegal = Math.max(0, maxCrawlTimeMs - elapsed);
-            const maxLegalWaitMs = isServerless ? Math.max(500, Math.min(remainingForLegal, profile.maxLegalWaitMs(elapsed))) : Math.max(25000, profile.maxLegalWaitMs(elapsed));
+            const maxLegalWaitMs = isServerless ? Math.max(4000, Math.min(remainingForLegal, profile.maxLegalWaitMs(elapsed))) : Math.max(25000, profile.maxLegalWaitMs(elapsed));
             legalDocuments = await Promise.race([
               pLegalDocuments,
               new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
@@ -5713,33 +5713,33 @@ Support: **support@${domainName}**`;
 
     // Prioritized candidate lists (universal conventions first, followed by enterprise, subdomains, and multi-lingual conventions)
     const primaryPrivacyPaths = [
+      '/privacy-policy/',
+      '/privacy-policy',
+      '/privacy/',
+      '/privacy',
       '/terms/privacy/',
       '/terms/privacy',
       '/terms/privacy-policy/',
       '/terms/privacy-policy',
-      '/privacy-policy/',
-      '/privacy-policy',
       '/privacy_policy/',
       '/privacy_policy',
       '/terms/privacy-notice/',
       '/terms/privacy-notice',
-      '/policies/privacy-notice/',
-      '/policies/privacy-notice',
       '/policies/privacy-policy/',
       '/policies/privacy-policy',
+      '/policies/privacy/',
+      '/policies/privacy',
       '/legal/privacy-policy/',
       '/legal/privacy-policy',
+      '/legal/privacy/',
+      '/legal/privacy',
+      '/policies/privacy-notice/',
+      '/policies/privacy-notice',
       '/privacy/policy/',
       '/privacy/policy',
       '/privacy.html',
-      '/privacy/',
-      '/privacy',
       '/legal/privacy.html',
       '/legal/privacy-policy.html',
-      '/legal/privacy-policy',
-      '/legal/privacy-policy/',
-      '/legal/privacy',
-      '/legal/privacy/',
       '/legal/privacy_policy',
       '/legal/privacy_policy/',
       '/privacypolicy',
@@ -5752,10 +5752,6 @@ Support: **support@${domainName}**`;
       '/about-us/privacy-statement',
       '/about-us/privacy-statement.html',
       '/about/privacy-statement',
-      '/policies/privacy-policy',
-      '/policies/privacy-policy/',
-      '/policies/privacy',
-      '/policies/privacy/',
       '/about/privacy-policy',
       '/about/privacy-policy/',
       '/gp/help/customer/display.html?nodeId=468496',
@@ -5821,26 +5817,26 @@ Support: **support@${domainName}**`;
     ]));
 
     const primaryTermsPaths = [
-      '/terms/terms-of-use/',
-      '/terms/terms-of-use',
+      '/terms',
+      '/terms/',
+      '/terms-of-service',
+      '/terms-of-service/',
+      '/terms-of-use',
+      '/terms-of-use/',
+      '/terms-and-conditions',
+      '/terms-and-conditions/',
       '/terms/terms-of-service/',
       '/terms/terms-of-service',
+      '/terms/terms-of-use/',
+      '/terms/terms-of-use',
       '/terms/terms-and-conditions/',
       '/terms/terms-and-conditions',
-      '/terms-of-use/',
-      '/terms-of-use',
-      '/terms-of-service/',
-      '/terms-of-service',
-      '/terms-and-conditions/',
-      '/terms-and-conditions',
-      '/policies/terms-of-use/',
-      '/policies/terms-of-use',
       '/policies/terms-of-service/',
       '/policies/terms-of-service',
+      '/policies/terms-of-use/',
+      '/policies/terms-of-use',
       '/policies/terms/',
       '/policies/terms',
-      '/terms/',
-      '/terms',
       '/terms_of_service',
       '/terms_of_service/',
       '/terms_of_use',
@@ -6280,15 +6276,17 @@ Support: **support@${domainName}**`;
       // 1. Prioritized URL scoring (specific agreement paths take top priority over generic hubs)
       const scoreCandidate = (url) => {
         const l = url.toLowerCase();
-        if (l.includes('terms-of-use') || l.includes('terms_of_use')) return 24;
-        if (l.includes('terms-of-service') || l.includes('terms_of_service')) return 24;
+        if (l.endsWith('/terms') || l.endsWith('/terms/')) return 26;
+        if (l.endsWith('/privacy') || l.endsWith('/privacy/')) return 26;
+        if (l.includes('privacy-policy') || l.includes('privacy_policy')) return 25;
+        if (l.includes('terms-of-use') || l.includes('terms_of_use')) return 25;
+        if (l.includes('terms-of-service') || l.includes('terms_of_service')) return 25;
         if (l.includes('terms-and-conditions') || l.includes('terms_and_conditions')) return 22;
         if (l.includes('terms/privacy') || l.includes('terms/privacy-policy')) return 22;
-        if (l.includes('privacy-policy') || l.includes('privacy_policy')) return 20;
         if (l.includes('privacy-notice') || l.includes('privacy_notice')) return 18;
         if (l.includes('website-terms') || l.includes('terms-conditions')) return 16;
-        if (l.includes('/terms/') || l.includes('/terms')) return 10;
-        if (l.includes('/privacy/') || l.includes('/privacy')) return 10;
+        if (l.includes('/terms/') || l.includes('/terms')) return 14;
+        if (l.includes('/privacy/') || l.includes('/privacy')) return 14;
         if (l.includes('condition') && !l.includes('carriage')) return 8;
         if (l.includes('carriage')) return 2; // Regional/flight sub-document, lowest priority
         return 1;
@@ -6325,12 +6323,34 @@ Support: **support@${domainName}**`;
           });
 
           const bestInBatch = validBatch[0];
-          // If bestInBatch is substantive (>= 800 words or specific agreement path), return immediately
-          if (bestInBatch.wordCount >= 800 || (bestInBatch.url && (bestInBatch.url.includes('terms-of-use') || bestInBatch.url.includes('terms/privacy') || bestInBatch.url.includes('privacy-policy')))) {
+          // If bestInBatch is substantive (>= 200 words and matches canonical legal path/title) or heavy agreement (>= 800 words), return immediately
+          const bUrl = (bestInBatch.url || '').toLowerCase();
+          const bTitle = (bestInBatch.title || '').toLowerCase();
+          const isCanonicalLegalPath = bUrl.includes('privacy-policy') || bUrl.includes('terms-of-use') || bUrl.includes('terms-of-service') || bUrl.includes('terms-and-conditions') || bUrl.endsWith('/privacy') || bUrl.endsWith('/privacy/') || bUrl.endsWith('/terms') || bUrl.endsWith('/terms/') || bUrl.includes('terms/privacy');
+          const isLegalTitle = bTitle.includes('privacy') || bTitle.includes('terms') || bTitle.includes('policy') || bTitle.includes('agreement') || bTitle.includes('condition');
+
+          if ((bestInBatch.wordCount >= 200 && isCanonicalLegalPath && isLegalTitle) || bestInBatch.wordCount >= 800) {
             return bestInBatch;
           }
-          if (!candidateBest || bestInBatch.wordCount > candidateBest.wordCount) {
+          if (!candidateBest) {
             candidateBest = bestInBatch;
+          } else {
+            const currScore = scoreCandidate(candidateBest.url || '');
+            const newScore = scoreCandidate(bestInBatch.url || '');
+            const currTitleGood = candidateBest.title && (candidateBest.title.toLowerCase().includes('privacy') || candidateBest.title.toLowerCase().includes('terms') || candidateBest.title.toLowerCase().includes('policy') || candidateBest.title.toLowerCase().includes('use'));
+            const newTitleGood = bestInBatch.title && (bestInBatch.title.toLowerCase().includes('privacy') || bestInBatch.title.toLowerCase().includes('terms') || bestInBatch.title.toLowerCase().includes('policy') || bestInBatch.title.toLowerCase().includes('use'));
+
+            if (!currTitleGood && newTitleGood) {
+              candidateBest = bestInBatch;
+            } else if (currTitleGood === newTitleGood) {
+              if (newScore > currScore + 4) {
+                candidateBest = bestInBatch;
+              } else if (newScore === currScore && bestInBatch.wordCount > candidateBest.wordCount) {
+                candidateBest = bestInBatch;
+              } else if (newScore >= currScore && candidateBest.wordCount < 500 && bestInBatch.wordCount >= 500) {
+                candidateBest = bestInBatch;
+              }
+            }
           }
         }
       }
