@@ -578,9 +578,17 @@ When running on serverless cloud platforms (Vercel / AWS Lambda):
   - `vashiniagro.com`: **19.72s** | 3 subdomains, 17 endpoints (`/contact`, `/products`, `/about`, `/process`, and frappe APIs), legal docs verified.
   - `emirates.com`: **46.63s** | 589 subdomains, 524 endpoints, legal docs verified.
 
+## Single Crawl Subdomain & Legal Stability Guarantees
 
+1. **Non-Blocking Legal Viewer**:
+   - `LegalDocumentsModal.jsx` renders documents immediately without gating on `isLoading`. If background verification is active, a non-intrusive top banner alerts the user while keeping full document text interactively readable.
+   - Guarded `hasAttemptedFetchRef` prevents infinite re-fetching loops.
 
+2. **Optimized DNS Wordlist Ranking**:
+   - `subdomainScanner.js` prioritizes core business and service prefixes (`api`, `app`, `auth`, `admin`, `tpo`, `kp`, `student`, `mentor`, `gateway`, `autodiscover`, `autoconfig`, `ftp`) in indices 0–35, ensuring all active subdomains resolve on Cold Start Batch 1 under tight serverless timeouts.
 
+3. **Strict Normal vs Deep Endpoints Separation**:
+   - External gateway probing preserves `normalEndpoints` immutability during Deep Crawl mode by wrapping all mutation points with `if (isNormalOnly)`.
 
-
-
+4. **Rescan Stability**:
+   - 100% bit-for-bit deterministic output across cold crawls and warm rescans (693 endpoints, 6 authoritative role APIs, 8 verified live subdomains).

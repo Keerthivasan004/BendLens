@@ -1983,8 +1983,10 @@ class UniversalApiCrawler {
                 verifiedApiRoutes.add(ep);
                 if (!allEndpoints.has(ep)) allEndpoints.set(ep, new Set());
                 methods.forEach(m => allEndpoints.get(ep).add(m));
-                if (!normalEndpoints.has(ep)) normalEndpoints.set(ep, new Set());
-                methods.forEach(m => normalEndpoints.get(ep).add(m));
+                if (isNormalOnly) {
+                  if (!normalEndpoints.has(ep)) normalEndpoints.set(ep, new Set());
+                  methods.forEach(m => normalEndpoints.get(ep).add(m));
+                }
 
                 // Speculatively probe OpenAPI / Swagger on this detected API Gateway
                 const specPaths = ['/openapi.json', '/swagger.json', '/v2/api-docs', '/api-docs', '/v1', '/v2'];
@@ -2002,8 +2004,10 @@ class UniversalApiCrawler {
                             (pMethods.length ? pMethods : ['GET']).forEach(m => allEndpoints.get(subEp).add(m.toUpperCase()));
                             endpointSubdomainMap.set(subEp, gwCanonical);
                             verifiedApiRoutes.add(subEp);
-                            if (!normalEndpoints.has(subEp)) normalEndpoints.set(subEp, new Set());
-                            (pMethods.length ? pMethods : ['GET']).forEach(m => normalEndpoints.get(subEp).add(m.toUpperCase()));
+                            if (isNormalOnly) {
+                              if (!normalEndpoints.has(subEp)) normalEndpoints.set(subEp, new Set());
+                              (pMethods.length ? pMethods : ['GET']).forEach(m => normalEndpoints.get(subEp).add(m.toUpperCase()));
+                            }
                           }
                         }
                       } catch {}
@@ -2018,9 +2022,11 @@ class UniversalApiCrawler {
                   if (!allEndpoints.has(aRoute)) allEndpoints.set(aRoute, new Set(['GET', 'POST']));
                   endpointSubdomainMap.set(aRoute, gwCanonical);
                   verifiedApiRoutes.add(aRoute);
-                  if (!normalEndpoints.has(aRoute)) normalEndpoints.set(aRoute, new Set(['GET', 'POST']));
-                  normalEndpoints.get(aRoute).add('GET');
-                  normalEndpoints.get(aRoute).add('POST');
+                  if (isNormalOnly) {
+                    if (!normalEndpoints.has(aRoute)) normalEndpoints.set(aRoute, new Set(['GET', 'POST']));
+                    normalEndpoints.get(aRoute).add('GET');
+                    normalEndpoints.get(aRoute).add('POST');
+                  }
                 }
               } else if ((gwHost.startsWith('erp.') || gwHost.startsWith('v16.') || gwHost.startsWith('crm.')) && (gwRes?.text?.includes('frappe') || gwRes?.headers?.['server']?.includes('frappe'))) {
                 // Register standard Enterprise ERP & CRM microservice endpoints only when confirmed
@@ -2030,9 +2036,11 @@ class UniversalApiCrawler {
                   if (!allEndpoints.has(eRoute)) allEndpoints.set(eRoute, new Set(['GET', 'POST']));
                   endpointSubdomainMap.set(eRoute, gwCanonical);
                   verifiedApiRoutes.add(eRoute);
-                  if (!normalEndpoints.has(eRoute)) normalEndpoints.set(eRoute, new Set(['GET', 'POST']));
-                  normalEndpoints.get(eRoute).add('GET');
-                  normalEndpoints.get(eRoute).add('POST');
+                  if (isNormalOnly) {
+                    if (!normalEndpoints.has(eRoute)) normalEndpoints.set(eRoute, new Set(['GET', 'POST']));
+                    normalEndpoints.get(eRoute).add('GET');
+                    normalEndpoints.get(eRoute).add('POST');
+                  }
                 }
               }
 
@@ -2049,8 +2057,10 @@ class UniversalApiCrawler {
                     if (!allEndpoints.has(route)) allEndpoints.set(route, new Set(['GET']));
                     endpointSubdomainMap.set(route, gwCanonical);
                     verifiedApiRoutes.add(route);
-                    if (!normalEndpoints.has(route)) normalEndpoints.set(route, new Set(['GET']));
-                    normalEndpoints.get(route).add('GET');
+                    if (isNormalOnly) {
+                      if (!normalEndpoints.has(route)) normalEndpoints.set(route, new Set(['GET']));
+                      normalEndpoints.get(route).add('GET');
+                    }
                   }
                 }
               }
@@ -2082,9 +2092,11 @@ class UniversalApiCrawler {
                       for (const m of methods) {
                         allEndpoints.get(targetPath).add(String(m).toUpperCase());
                       }
-                      if (!normalEndpoints.has(targetPath)) normalEndpoints.set(targetPath, new Set());
-                      for (const m of methods) {
-                        normalEndpoints.get(targetPath).add(String(m).toUpperCase());
+                      if (isNormalOnly) {
+                        if (!normalEndpoints.has(targetPath)) normalEndpoints.set(targetPath, new Set());
+                        for (const m of methods) {
+                          normalEndpoints.get(targetPath).add(String(m).toUpperCase());
+                        }
                       }
                     }
                   }
@@ -2126,10 +2138,12 @@ class UniversalApiCrawler {
                       } else {
                         allEndpoints.get(targetPath).add('GET');
                       }
-                      if (!normalEndpoints.has(targetPath)) {
-                        normalEndpoints.set(targetPath, new Set(['GET']));
-                      } else {
-                        normalEndpoints.get(targetPath).add('GET');
+                      if (isNormalOnly) {
+                        if (!normalEndpoints.has(targetPath)) {
+                          normalEndpoints.set(targetPath, new Set(['GET']));
+                        } else {
+                          normalEndpoints.get(targetPath).add('GET');
+                        }
                       }
                       verifiedApiRoutes.add(targetPath);
                     }
@@ -2516,8 +2530,46 @@ class UniversalApiCrawler {
           }
         }
 
-        liveSubdomainsSet.add(hostname);
-        if (apexDomain) liveSubdomainsSet.add(apexDomain);
+        // Guaranteed Preservation: Deterministically merge with backend domains and endpoint subdomains
+        for (const d of backendDomains) {
+          const cs = SubdomainScanner.canonicalize(d);
+          if (cs && (cs === apexDomain || cs.endsWith('.' + apexDomain))) {
+            liveSubdomainsSet.add(cs);
+            if (!discoveredSubdomainsList.includes(cs)) {
+              discoveredSubdomainsList.push(cs);
+            }
+          }
+        }
+        for (const sub of endpointSubdomainMap.values()) {
+          const cs = SubdomainScanner.canonicalize(sub);
+          if (cs && (cs === apexDomain || cs.endsWith('.' + apexDomain))) {
+            liveSubdomainsSet.add(cs);
+            if (!discoveredSubdomainsList.includes(cs)) {
+              discoveredSubdomainsList.push(cs);
+            }
+          }
+        }
+
+        const cleanHostname = SubdomainScanner.canonicalize(hostname);
+        if (cleanHostname) {
+          liveSubdomainsSet.add(cleanHostname);
+          if (!discoveredSubdomainsList.includes(cleanHostname)) {
+            discoveredSubdomainsList.unshift(cleanHostname);
+          }
+        }
+        if (apexDomain) {
+          liveSubdomainsSet.add(apexDomain);
+          if (!discoveredSubdomainsList.includes(apexDomain)) {
+            discoveredSubdomainsList.push(apexDomain);
+          }
+        }
+
+        // Ensure every verified live subdomain is represented in discoveredSubdomainsList
+        for (const ls of liveSubdomainsSet) {
+          if (ls && !discoveredSubdomainsList.includes(ls)) {
+            discoveredSubdomainsList.push(ls);
+          }
+        }
 
         const statusMap = {};
         const liveSet = new Set();
@@ -2536,7 +2588,7 @@ class UniversalApiCrawler {
 
         const liveList = Array.from(liveSet);
         const historicalList = Array.from(historicalSet);
-        const sortedLive = liveList.sort((a, b) => a === hostname ? -1 : b === hostname ? 1 : a.localeCompare(b));
+        const sortedLive = liveList.sort((a, b) => a === cleanHostname ? -1 : b === cleanHostname ? 1 : a === apexDomain ? -1 : b === apexDomain ? 1 : a.localeCompare(b));
         const sortedHistorical = historicalList.sort((a, b) => a.localeCompare(b));
         const deterministicSubdomains = [...sortedLive, ...sortedHistorical];
 

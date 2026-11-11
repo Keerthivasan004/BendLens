@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X, ShieldCheck, FileText, Scale, Search, Copy, Check,
@@ -489,6 +489,13 @@ export default function LegalDocumentsModal({
   const [isEditing, setIsEditing] = useState(false);
   const [customContent, setCustomContent] = useState('');
 
+  const hasAttemptedFetchRef = useRef(false);
+  const lastTargetRef = useRef(targetUrl);
+  if (lastTargetRef.current !== targetUrl) {
+    lastTargetRef.current = targetUrl;
+    hasAttemptedFetchRef.current = false;
+  }
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -497,6 +504,9 @@ export default function LegalDocumentsModal({
   useEffect(() => {
     if (legalDocuments) {
       setLiveDocs(legalDocuments);
+      if (legalDocuments.privacyPolicy && !legalDocuments.privacyPolicy.isFirewallResilient) {
+        hasAttemptedFetchRef.current = true;
+      }
     }
   }, [legalDocuments]);
 
@@ -570,9 +580,11 @@ export default function LegalDocumentsModal({
   }, [normalizedTargetUrl, targetUrl, cleanHost]);
 
   // Optional on-demand fetch if legalDocuments is missing or synthetic, but targetUrl is present
-  const fetchOnDemand = async () => {
+  const fetchOnDemand = async (force = false) => {
     const effectiveUrl = normalizedTargetUrl || targetUrl;
     if (!effectiveUrl || isBendLensTarget) return;
+    if (!force && hasAttemptedFetchRef.current) return;
+    hasAttemptedFetchRef.current = true;
     setIsLoading(true);
     setLoadError(null);
     try {
@@ -591,20 +603,10 @@ export default function LegalDocumentsModal({
           privacyPolicy: data.legalDocuments.privacyPolicy || generateClientLegalDocument(effectiveUrl, 'privacy'),
           termsOfService: data.legalDocuments.termsOfService || generateClientLegalDocument(effectiveUrl, 'terms')
         });
-      } else {
-        setLiveDocs({
-          hasLegalDocuments: true,
-          privacyPolicy: generateClientLegalDocument(effectiveUrl, 'privacy'),
-          termsOfService: generateClientLegalDocument(effectiveUrl, 'terms')
-        });
       }
     } catch (err) {
       console.warn('Legal fetch on-demand fallback:', err?.message || String(err));
-      setLiveDocs({
-        hasLegalDocuments: true,
-        privacyPolicy: generateClientLegalDocument(effectiveUrl, 'privacy'),
-        termsOfService: generateClientLegalDocument(effectiveUrl, 'terms')
-      });
+      setLoadError(err?.message || 'Failed to fetch live legal documents');
     } finally {
       setIsLoading(false);
     }
@@ -671,24 +673,25 @@ export default function LegalDocumentsModal({
 
   // If modal opened without documents prop at all, or with corrupted CSS, or with synthetic firewall-resilient doc, auto-trigger on-demand fetch
   useEffect(() => {
-    const isSynthetic = Boolean(
-      (liveDocs?.privacyPolicy?.isFirewallResilient && !liveDocs?.privacyPolicy?.source?.includes('origin')) ||
-      (liveDocs?.termsOfService?.isFirewallResilient && !liveDocs?.termsOfService?.source?.includes('origin')) ||
-      (legalDocuments?.privacyPolicy?.isFirewallResilient && !legalDocuments?.privacyPolicy?.source?.includes('origin')) ||
-      (legalDocuments?.termsOfService?.isFirewallResilient && !legalDocuments?.termsOfService?.source?.includes('origin'))
-    );
-    const hasAuthentic = Boolean(
-      (liveDocs?.privacyPolicy && !liveDocs?.privacyPolicy?.isFirewallResilient) &&
-      (liveDocs?.termsOfService && !liveDocs?.termsOfService?.isFirewallResilient)
-    );
-    const wasExplicitlyProvided = legalDocuments !== undefined && legalDocuments !== null;
-    const hasExisting = Boolean(liveDocs?.privacyPolicy || liveDocs?.termsOfService || legalDocuments?.privacyPolicy || legalDocuments?.termsOfService);
+    if (!isOpen || isLoading || hasAttemptedFetchRef.current) return;
+
     const effectiveUrl = normalizedTargetUrl || targetUrl;
     const isValidUrl = effectiveUrl && (effectiveUrl.startsWith('http://') || effectiveUrl.startsWith('https://') || /^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(effectiveUrl)) && !effectiveUrl.includes(' ');
-    if (isOpen && (!wasExplicitlyProvided || !hasExisting || isDocCss || (isSynthetic && !hasAuthentic)) && isValidUrl && !isLoading && !loadError) {
-      fetchOnDemand();
+    if (!isValidUrl || isBendLensTarget) return;
+
+    const hasAuthenticPrivacy = Boolean(
+      (legalDocuments?.privacyPolicy && !legalDocuments.privacyPolicy.isFirewallResilient) ||
+      (liveDocs?.privacyPolicy && !liveDocs.privacyPolicy.isFirewallResilient)
+    );
+    const hasAuthenticTerms = Boolean(
+      (legalDocuments?.termsOfService && !legalDocuments.termsOfService.isFirewallResilient) ||
+      (liveDocs?.termsOfService && !liveDocs.termsOfService.isFirewallResilient)
+    );
+
+    if (!hasAuthenticPrivacy || !hasAuthenticTerms || isDocCss) {
+      fetchOnDemand(false);
     }
-  }, [isOpen, liveDocs, legalDocuments, targetUrl, normalizedTargetUrl, isLoading, loadError, isDocCss]);
+  }, [isOpen, normalizedTargetUrl, targetUrl, isBendLensTarget, isDocCss]);
 
   // Handle copy text
   const handleCopy = () => {
@@ -828,7 +831,7 @@ export default function LegalDocumentsModal({
           <div className="flex items-center gap-2 shrink-0">
             {targetUrl && (
               <button
-                onClick={fetchOnDemand}
+                onClick={() => fetchOnDemand(true)}
                 disabled={isLoading}
                 className="p-2 rounded-lg text-muted hover:text-foreground hover:bg-surface border border-transparent hover:border-border transition-colors cursor-pointer"
                 title="Refresh Legal Documents"
@@ -1057,7 +1060,7 @@ export default function LegalDocumentsModal({
         {/* MAIN BODY / CONTENT VIEWER                                            */}
         {/* ===================================================================== */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-surface/40">
-          {isLoading ? (
+          {isLoading && !currentDoc ? (
             <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-3">
               <RefreshCw className="h-8 w-8 text-brand animate-spin" />
               <div className="font-bold text-sm text-foreground">Fetching authentic legal documents...</div>
@@ -1222,6 +1225,20 @@ export default function LegalDocumentsModal({
                 </div>
               ) : (
                 <>
+                  {/* Background Live Document Sync Indicator */}
+                  {isLoading && (
+                    <div className="p-3 rounded-xl bg-brand/10 border border-brand/25 text-xs flex items-center justify-between gap-3 text-brand">
+                      <div className="flex items-center gap-2">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-brand" />
+                        <span className="font-semibold text-foreground">Live Document Verification Active:</span>
+                        <span className="text-muted">Probing target origin for live updates in background...</span>
+                      </div>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-brand/15 text-brand border border-brand/30 shrink-0">
+                        Displaying Active Policy
+                      </span>
+                    </div>
+                  )}
+
                   {/* Firewall-Resilient Mode Banner if active */}
                   {currentDoc.isFirewallResilient && (
                     <div className="p-3.5 rounded-xl bg-emerald-950/25 border border-emerald-500/30 text-xs flex items-start gap-3 text-emerald-200">
@@ -1320,7 +1337,7 @@ export default function LegalDocumentsModal({
               <div className="flex items-center gap-2 pt-1 flex-wrap justify-center">
                 {targetUrl && (
                   <button
-                    onClick={fetchOnDemand}
+                    onClick={() => fetchOnDemand(true)}
                     disabled={isLoading}
                     className="px-3 py-1.5 rounded-lg text-xs font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
