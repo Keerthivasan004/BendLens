@@ -333,53 +333,47 @@ class SubdomainScanner {
     const maxBudget = Math.min(timeoutMs, 35000);
     const startTime = Date.now();
     const discovered = new Set();
-    const maxPages = 8;
 
-    for (let page = 1; page <= maxPages; page++) {
+    const fetchPage = async (page) => {
       const remainingTime = maxBudget - (Date.now() - startTime);
-      if (remainingTime < 1500) break;
-
+      if (remainingTime < 1000) return [];
       const url = page === 1
         ? `https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}`
         : `https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}&page=${page}`;
 
-      let pageItems = null;
-      const maxRetries = 3;
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
+      for (let attempt = 0; attempt < 2; attempt++) {
         const attemptRemaining = maxBudget - (Date.now() - startTime);
-        if (attemptRemaining < 1200) break;
-
+        if (attemptRemaining < 800) return [];
         try {
           const res = await fetch(url, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
               'Accept': 'application/json, text/plain, */*'
             },
-            signal: AbortSignal.timeout(Math.min(7000, attemptRemaining))
+            signal: AbortSignal.timeout(Math.min(6000, attemptRemaining))
           });
 
           if (res.status === 503 || res.status === 429) {
-            await new Promise((r) => setTimeout(r, 1000));
+            await new Promise((r) => setTimeout(r, 400));
             continue;
           }
-
-          if (!res.ok) break;
+          if (!res.ok) return [];
           const text = await res.text();
           if (text.trim().startsWith('[')) {
-            pageItems = JSON.parse(text);
-            break;
-          } else {
-            // Busy queue JSON { error: 'server busy (64 queries in flight)' }
-            await new Promise((r) => setTimeout(r, 1000));
+            return JSON.parse(text);
           }
+          await new Promise((r) => setTimeout(r, 300));
         } catch (_err) {
-          await new Promise((r) => setTimeout(r, 800));
+          await new Promise((r) => setTimeout(r, 200));
         }
       }
+      return [];
+    };
 
-      if (!pageItems || !Array.isArray(pageItems) || pageItems.length === 0) break;
-
-      for (const item of pageItems) {
+    // 1. Fetch Page 1 first
+    const page1Items = await fetchPage(1);
+    if (Array.isArray(page1Items)) {
+      for (const item of page1Items) {
         if (item) {
           const clean = this.canonicalize(String(item));
           if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
@@ -387,10 +381,24 @@ class SubdomainScanner {
           }
         }
       }
+    }
 
-      // If page returned less than full capacity, end of pagination reached
-      if (pageItems.length < 450) break;
-      await new Promise((r) => setTimeout(r, 300));
+    // 2. If page 1 returned a full batch (>= 450 items), fetch pages 2..8 concurrently in parallel
+    if (page1Items && page1Items.length >= 450) {
+      const remainingPages = [2, 3, 4, 5, 6, 7, 8];
+      const pageResults = await Promise.allSettled(remainingPages.map(fetchPage));
+      for (const res of pageResults) {
+        if (res.status === 'fulfilled' && Array.isArray(res.value)) {
+          for (const item of res.value) {
+            if (item) {
+              const clean = this.canonicalize(String(item));
+              if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
+                discovered.add(clean);
+              }
+            }
+          }
+        }
+      }
     }
 
     return Array.from(discovered);
@@ -469,7 +477,7 @@ class SubdomainScanner {
 
       try {
         const req = https.get(
-          `https://crt.sh/?q=${queryStr}&output=json`,
+          `https://crt.sh/?q=${queryStr}&output=json&exclude=expired`,
           {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -801,22 +809,18 @@ class SubdomainScanner {
   }
 
   /**
-   * High-Speed Multi-Tier Non-Blocking DNS Verification
-   * Tier 0: Direct c-ares UDP resolver (blazing fast 10-30ms in local Node.js environments)
-   * Tier 1: Google DNS-over-HTTPS (DoH) via port 443 (sub-50ms, unblocked by AWS/VPC/ISPs)
-   * Tier 2: Cloudflare DNS-over-HTTPS (DoH) via port 443 (fallback DoH provider)
-   * Tier 3: Native OS dns.lookup (Winsock / getaddrinfo / local VPC resolver)
+   * High-Speed Non-Blocking UDP c-ares DNS Verification (15-40ms per query)
+   * Resolves IPv4, CNAME, and IPv6 records concurrently with zero external DoH HTTP overhead.
    */
-  static async resolveHostMultiTier(host, timeoutMs = 1500) {
+  static async resolveHostMultiTier(host, timeoutMs = 600) {
     if (!host) return false;
 
-    // Tier 0: High-speed non-blocking c-ares UDP resolver (parallel 20-30ms resolution)
     try {
       const live = await new Promise((resolve) => {
         let done = false;
-        const tier0Timeout = isServerlessEnv ? Math.min(400, timeoutMs) : Math.min(1000, timeoutMs);
+        const tier0Timeout = Math.min(450, timeoutMs);
         const timer = setTimeout(() => {
-          if (!done) { done = true; resolve(null); }
+          if (!done) { done = true; resolve(false); }
         }, tier0Timeout);
 
         sharedResolver.resolve4(host, (err, addrs) => {
@@ -826,64 +830,27 @@ class SubdomainScanner {
             clearTimeout(timer);
             return resolve(true);
           }
+          // Check CNAME or IPv6 if A record did not answer
           sharedResolver.resolveCname(host, (cErr, cnames) => {
             if (done) return;
-            done = true;
-            clearTimeout(timer);
             if (!cErr && Array.isArray(cnames) && cnames.length > 0) {
+              done = true;
+              clearTimeout(timer);
               return resolve(true);
             }
-            if (err && (err.code === 'ENOTFOUND' || err.code === 'NODATA')) {
-              return resolve(false);
-            }
-            resolve(null);
+            sharedResolver.resolve6(host, (err6, addrs6) => {
+              if (done) return;
+              done = true;
+              clearTimeout(timer);
+              return resolve(!err6 && Array.isArray(addrs6) && addrs6.length > 0);
+            });
           });
         });
       });
-      if (typeof live === 'boolean') return live;
-    } catch (_e) { }
-
-    // In Serverless (Vercel / AWS Lambda), avoid blocking libuv 4-thread pool with getaddrinfo;
-    // candidates unresolving via c-ares within the bounded budget are safely classified as historical.
-    if (isServerlessEnv) {
+      return Boolean(live);
+    } catch (_e) {
       return false;
     }
-
-    // Tier 1: Google DoH (global anycast HTTPS 443)
-    try {
-      const res = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(host)}`, {
-        signal: AbortSignal.timeout(timeoutMs),
-        headers: { 'Accept': 'application/json' }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.Status === 0 && Array.isArray(data.Answer) && data.Answer.length > 0) return true;
-        // If Google answered with any valid DNS status code (NXDOMAIN 3, NODATA 0 without Answer, REFUSED 5), it is authoritatively not live
-        if (typeof data.Status === 'number') return false;
-      }
-    } catch (_e) { }
-
-    // Tier 2: Cloudflare DoH (fallback if Google fetch threw network error)
-    try {
-      const res = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}`, {
-        signal: AbortSignal.timeout(timeoutMs),
-        headers: { 'Accept': 'application/dns-json' }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.Status === 0 && Array.isArray(data.Answer) && data.Answer.length > 0) return true;
-        if (typeof data.Status === 'number') return false;
-      }
-    } catch (_e) { }
-
-    // Tier 3: Native OS Winsock/getaddrinfo fallback (only if both DoH network-failed)
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(false), Math.min(800, timeoutMs));
-      dns.lookup(host, (err, addr) => {
-        clearTimeout(timer);
-        resolve(!err && Boolean(addr));
-      });
-    });
   }
 
   /**
@@ -1071,7 +1038,7 @@ class SubdomainScanner {
     if (!apexDomain) return [];
     const verified = new Set([apexDomain]);
     const profile = getCrawlerProfile(options);
-    const concurrency = profile.dnsLookupConcurrency || 200;
+    const concurrency = profile.dnsLookupConcurrency || 250;
     const candidateLimit = profile.subdomainCandidateLimit || maxCandidates;
     const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || profile.isServerless);
 
@@ -1088,7 +1055,7 @@ class SubdomainScanner {
 
     const startTime = Date.now();
     let index = 0;
-    const candidateTimeout = profile.candidateTimeout || (isServerlessEnv ? 500 : 1500);
+    const candidateTimeout = profile.candidateTimeout || 450;
 
     async function worker() {
       while (index < candidates.length) {

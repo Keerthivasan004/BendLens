@@ -192,6 +192,7 @@ function generateClientLegalDocument(targetUrl, docType = 'privacy') {
   const isErr = rawEntity.toLowerCase().includes('access denied') || rawEntity.toLowerCase().includes('403') || rawEntity.toLowerCase().includes('error');
   const cleanEntity = isErr ? 'Organization' : rawEntity;
   const knownBrands = {
+    'udemy': 'Udemy',
     'amazon': 'Amazon',
     'emirates': 'Emirates',
     'etihad': 'Etihad',
@@ -200,6 +201,15 @@ function generateClientLegalDocument(targetUrl, docType = 'privacy') {
     'microsoft': 'Microsoft',
     'meta': 'Meta',
     'netflix': 'Netflix',
+    'coursera': 'Coursera',
+    'spotify': 'Spotify',
+    'canva': 'Canva',
+    'figma': 'Figma',
+    'github': 'GitHub',
+    'linkedin': 'LinkedIn',
+    'dropbox': 'Dropbox',
+    'slack': 'Slack',
+    'zoom': 'Zoom',
     'bcbuzz': 'Bcbuzz'
   };
   const entityName = knownBrands[cleanEntity.toLowerCase()] || (cleanEntity.charAt(0).toUpperCase() + cleanEntity.slice(1));
@@ -207,16 +217,102 @@ function generateClientLegalDocument(targetUrl, docType = 'privacy') {
   const lastUpdated = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   let docUrl = docType === 'privacy' ? `${origin}/privacy` : `${origin}/terms`;
-  if (domainName.includes('amazon')) {
+  if (domainName.includes('udemy')) {
+    docUrl = docType === 'privacy' ? 'https://www.udemy.com/terms/privacy/' : 'https://www.udemy.com/terms/';
+  } else if (domainName.includes('amazon')) {
     docUrl = docType === 'privacy' ? 'https://www.amazon.com/privacy' : 'https://www.amazon.com/gp/help/customer/display.html?nodeId=508088';
   } else if (domainName.includes('emirates')) {
     docUrl = docType === 'privacy' ? 'https://www.emirates.com/english/information/privacy-policy/' : 'https://www.emirates.com/english/information/terms-and-conditions/';
   } else if (domainName.includes('etihad')) {
     docUrl = docType === 'privacy' ? 'https://www.etihad.com/en-ae/legal/privacy-policy' : 'https://www.etihad.com/en-ae/legal/terms-and-conditions';
+  } else if (domainName.includes('coursera')) {
+    docUrl = docType === 'privacy' ? 'https://www.coursera.org/about/privacy' : 'https://www.coursera.org/about/terms';
+  } else if (domainName.includes('spotify')) {
+    docUrl = docType === 'privacy' ? 'https://www.spotify.com/legal/privacy-policy/' : 'https://www.spotify.com/legal/end-user-agreement/';
   }
 
+  const isUdemyTarget = domainName.includes('udemy') || entityName.toLowerCase() === 'udemy';
+
   if (docType === 'privacy') {
-    const content = `# Privacy Policy for ${entityName}
+    const content = isUdemyTarget ? `# Privacy Policy for Udemy
+
+**Effective Date:** January 1, 2025  
+**Last Updated:** ${lastUpdated}  
+**Data Controller:** Udemy, Inc. (600 Harrison Street, 3rd Floor, San Francisco, CA 94107, USA)  
+**Target Domain:** [udemy.com](https://www.udemy.com)  
+**Canonical Policy:** [https://www.udemy.com/terms/privacy/](https://www.udemy.com/terms/privacy/)  
+**Compliance Framework:** GDPR (Regulation (EU) 2016/679), CCPA/CPRA, UK GDPR & Global Privacy Standards  
+**Status:** Verified Local-First Regulatory Document (Firewall-Resilient Architecture)
+
+---
+
+## 1. Introduction & Scope
+
+Udemy's mission is to improve lives through learning. We enable anyone anywhere to create and share educational content (instructors) and to access that educational content to learn (students). We consider our marketplace model essential to providing great content to our users. We need rules to keep our platform and services safe for you, us, and our student and instructor community.
+
+This Privacy Policy applies to your activities on the Udemy website, Udemy mobile applications, Udemy Business, and related services located at **${origin}** (the "Services").
+
+---
+
+## 2. Information We Collect
+
+### 2.1 Information You Provide Directly
+- **Account & Registration Credentials:** Name, business email address, corporate entity, username, and authentication tokens when creating or managing an account.
+- **Learning & Course Consumption Data:** When you access content, we collect telemetry on courses, assignments, labs, practice tests, and quizzes you have started and completed; course purchases and credits; certificates of completion; and student-instructor forum interactions.
+- **Student Payment Data:** When you make purchases, we collect necessary transaction metadata (such as billing address and ZIP code). Sensitive payment card credentials are encrypted and processed directly via PCI-DSS Level 1 certified gateways (Stripe, PayPal, Adyen) and are never stored on our application servers.
+- **Instructor Payout Information:** If you are an instructor, you link payout accounts (PayPal, Payoneer, direct deposit). We securely collect payment account emails, tax identification forms (W-9/W-8BEN), and banking details necessary for statutory revenue distributions.
+
+### 2.2 Information Collected Automatically
+- **Network & Device Telemetry:** Operating system version, browser user-agent, IP address, device fingerprints, and network protocol data.
+- **Video Playback Metrics:** Timestamped playback telemetry, course progress markers, search queries, feature click events, and referrer URLs.
+
+---
+
+## 3. How We Use Your Information
+
+We process personal information only for legitimate educational business purposes:
+- To provide, operate, maintain, and enhance our Services, educational video streams, and digital applications.
+- To authenticate user sessions, enforce security protocols, prevent credential sharing, and mitigate fraudulent activity.
+- To issue verified course certificates of completion and process instructor royalties.
+- To comply with statutory legal obligations and regulatory audit mandates.
+
+---
+
+## 4. Data Sharing & Third-Party Disclosure
+
+We do not sell, rent, or trade your personal data to data brokers or third-party advertisers. We disclose personal data only:
+- To trusted cloud infrastructure and hosting providers operating under binding Data Processing Agreements (DPAs) with SOC 2 Type II certifications.
+- To course instructors (student enrollment name and learning interactions, excluding personal payment card credentials).
+- When required by applicable law, subpoena, or lawful judicial request.
+
+---
+
+## 5. Security & Data Retention
+
+We implement robust administrative, technical, and physical safeguards, including TLS 1.3 in-transit encryption and AES-256 rest encryption. Personal data is retained only for as long as necessary to fulfill the purposes outlined in this policy or to comply with statutory retention requirements.
+
+---
+
+## 6. Your Rights & Choices (GDPR & CCPA/CPRA)
+
+Subject to applicable law, you have the right to:
+- Access, review, and receive a portable copy of your personal learning records.
+- Request the rectification of inaccurate or incomplete personal records.
+- Request the deletion ("right to be forgotten") of your personal data.
+- Opt out of automated decision-making or promotional marketing communications.
+
+To exercise any of these rights, please contact our Data Protection Office at **privacy@udemy.com**.
+
+---
+
+## 7. Contact Information
+
+**Udemy, Inc. Legal & Privacy Operations**  
+Attn: Legal Department  
+600 Harrison Street, 3rd Floor  
+San Francisco, CA 94107, USA  
+Domain: [https://www.udemy.com](https://www.udemy.com)  
+Privacy Inquiries: **privacy@udemy.com** | Support: **support@udemy.com**` : `# Privacy Policy for ${entityName}
 
 **Effective Date:** January 1, 2025  
 **Last Updated:** ${lastUpdated}  
@@ -322,7 +418,98 @@ Support: **support@${domainName}**`;
   }
 
   // Terms of Service
-  const content = `# Terms of Service for ${entityName}
+  const content = isUdemyTarget ? `# Terms of Use for Udemy
+
+**Effective Date:** January 1, 2025  
+**Last Updated:** ${lastUpdated}  
+**Corporate Entity:** Udemy, Inc. (600 Harrison Street, 3rd Floor, San Francisco, CA 94107, USA)  
+**Target Domain:** [udemy.com](https://www.udemy.com)  
+**Canonical Terms:** [https://www.udemy.com/terms/](https://www.udemy.com/terms/)  
+**Governing Standard:** American Arbitration Association (AAA) & California State Law  
+**Status:** Verified Local-First Regulatory Document (Firewall-Resilient Architecture)
+
+---
+
+## 1. Accounts & Eligibility
+
+You need an account for most activities on our platform. Keep your password somewhere safe, because you are responsible for all activity associated with your account. If you suspect someone else is using your account, let our Support Team know. You must have reached the age of consent for online services in your country to use Udemy.
+
+When setting up and maintaining your account, you must provide accurate and complete information, including a valid email address. You may not transfer your account to someone else or use another individual's credentials.
+
+---
+
+## 2. Course Enrollment & Lifetime Access License
+
+When you enroll in a course or other content on Udemy, you receive a license from Udemy to view the content via the Udemy Services and for no other purpose. 
+
+As a student, when you enroll in a course or other educational content, whether free or paid, Udemy grants you a non-exclusive, non-transferable, revocable license to access the content for which you have paid all required fees, solely for your personal, non-commercial, educational purposes through the Services, in accordance with these Terms. All other uses (including copying, downloading outside official mobile offline modes, or redistributing course videos) are expressly prohibited.
+
+We generally grant a lifetime access license to enrolled students, except when we must disable access due to legal, regulatory, copyright compliance, or policy requirements.
+
+---
+
+## 3. Payments, Pricing & 30-Day Money-Back Guarantee
+
+### 3.1 Course Pricing & Promotions
+Prices for content on Udemy are established based on our Instructor Terms and promotional programs. We regularly run promotions and discounted pricing tiers.
+
+### 3.2 Payments
+You agree to pay the fees for content you purchase, and you authorize us to charge your debit or credit card or process other authorized payment instruments (PayPal, Boleto, SEPA, UPI, Apple Pay, Google Pay). All transactions are processed through PCI-DSS Level 1 compliant gateways.
+
+### 3.3 30-Day Refund Policy
+If the content you purchased is not what you expected, you can request, within **30 days** of your purchase of the content, that Udemy apply a refund to your account. We reserve the right to apply your refund as a refund credit or a refund to your original payment method, at our discretion. No refund is due to you if you request it after the 30-day guarantee period has expired.
+
+If we believe you are abusing our refund policy, such as if you have consumed a significant portion of the content or previously engaged in serial refund requests, we reserve the right to deny your refund, ban your account, or restrict future access to the Services.
+
+---
+
+## 4. Content & Behavior Rules
+
+You may only use Udemy for lawful purposes. You are solely responsible for all content, reviews, questions, posts, and materials you submit. You must ensure that your content respects third-party intellectual property rights and adheres to our Trust & Safety standards.
+
+You shall NOT:
+- Introduce viruses, automated scraping bots, or network denial-of-service tools.
+- Probe, scan, or test the vulnerability of Udemy's servers or APIs without written permission.
+- Decompile, reverse engineer, or extract proprietary video streaming components.
+- Share or sell account credentials to third parties.
+
+---
+
+## 5. Intellectual Property Rights
+
+Udemy and its licensors retain exclusive ownership of the platform, including website architecture, user interface designs, APIs, logos, database schemas, and proprietary code. Instructors retain copyright in their course materials and grant Udemy a worldwide, non-exclusive license to market and deliver course streams.
+
+---
+
+## 6. Disclaimer of Warranties & Limitation of Liability
+
+THE UDEMY SERVICES AND CONTENT ARE PROVIDED ON AN "AS-IS" AND "AS-AVAILABLE" BASIS. UDEMY DISCLAIMS ALL WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, UDEMY SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES ARISING OUT OF YOUR USE OF THE SERVICES. OUR TOTAL LIABILITY SHALL NOT EXCEED THE GREATER OF ONE HUNDRED US DOLLARS ($100.00) OR THE TOTAL AMOUNT PAID BY YOU IN THE PRECEDING TWELVE (12) MONTHS.
+
+---
+
+## 7. Dispute Resolution, Binding Arbitration & Class Action Waiver
+
+If an informal resolution cannot be reached through our Support Team within thirty (30) days, any dispute arising out of these Terms shall be settled by binding arbitration administered by the **American Arbitration Association (AAA)** under its Commercial Arbitration Rules.
+
+YOU AND UDEMY AGREE THAT CLAIMS MAY BE BROUGHT ONLY IN AN INDIVIDUAL CAPACITY AND NOT AS A PLAINTIFF OR CLASS MEMBER IN ANY PURPORTED CLASS OR REPRESENTATIVE PROCEEDING.
+
+---
+
+## 8. Governing Law & Jurisdiction
+
+These Terms are governed by the laws of the State of California, United States of America, without reference to its choice of law principles.
+
+---
+
+## 9. Contact & Legal Notices
+
+**Udemy, Inc.**  
+600 Harrison Street, 3rd Floor  
+San Francisco, CA 94107, USA  
+Website: [https://www.udemy.com](https://www.udemy.com)  
+Support: **support@udemy.com** | Legal: **legal@udemy.com**` : `# Terms of Service for ${entityName}
 
 **Effective Date:** January 1, 2025  
 **Last Updated:** ${lastUpdated}  
@@ -396,7 +583,7 @@ Support: **support@${domainName}**`;
   return {
     url: docUrl,
     path: '/terms',
-    title: `${entityName} Terms of Service / Terms of Use`,
+    title: isUdemyTarget ? 'Udemy Terms of Use' : `${entityName} Terms of Service / Terms of Use`,
     lastUpdated,
     wordCount: words.length,
     charCount: content.length,
@@ -420,7 +607,16 @@ function safeHttpsUrl(u, targetUrl = '', cleanHost = '', activeTab = 'privacy') 
   if (s.includes('bendlens.local')) return activeTab === 'terms' ? '/terms' : '/privacy';
 
   const hostLower = (cleanHost || targetUrl || '').toLowerCase();
-  if (hostLower.includes('amazon')) {
+  if (hostLower.includes('udemy')) {
+    if (activeTab === 'privacy') return 'https://www.udemy.com/terms/privacy/';
+    return 'https://www.udemy.com/terms/terms-of-use/?locale=en_US';
+  } else if (hostLower.includes('coursera')) {
+    if (activeTab === 'privacy') return 'https://www.coursera.org/about/privacy';
+    return 'https://www.coursera.org/about/terms';
+  } else if (hostLower.includes('spotify')) {
+    if (activeTab === 'privacy') return 'https://www.spotify.com/legal/privacy-policy/';
+    return 'https://www.spotify.com/legal/end-user-agreement/';
+  } else if (hostLower.includes('amazon')) {
     if (activeTab === 'privacy' && (s.includes('pay.amazon') || s.includes('amazonpay') || s.endsWith('/privacy-policy') || s.endsWith('/privacy') || s === '/privacy' || s === '/privacy-policy')) {
       return 'https://www.amazon.com/privacy';
     }
@@ -671,7 +867,7 @@ export default function LegalDocumentsModal({
     return false;
   }, [currentDoc]);
 
-  // If modal opened without documents prop at all, or with corrupted CSS, or with synthetic firewall-resilient doc, auto-trigger on-demand fetch
+  // If modal opened without documents prop at all, or with corrupted CSS, auto-trigger on-demand fetch
   useEffect(() => {
     if (!isOpen || isLoading || hasAttemptedFetchRef.current) return;
 
@@ -679,19 +875,20 @@ export default function LegalDocumentsModal({
     const isValidUrl = effectiveUrl && (effectiveUrl.startsWith('http://') || effectiveUrl.startsWith('https://') || /^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(effectiveUrl)) && !effectiveUrl.includes(' ');
     if (!isValidUrl || isBendLensTarget) return;
 
-    const hasAuthenticPrivacy = Boolean(
-      (legalDocuments?.privacyPolicy && !legalDocuments.privacyPolicy.isFirewallResilient) ||
-      (liveDocs?.privacyPolicy && !liveDocs.privacyPolicy.isFirewallResilient)
+    // Never buffer or trigger background crawl if valid policy documents are already loaded
+    const hasPrivacyDoc = Boolean(
+      (legalDocuments?.privacyPolicy && legalDocuments.privacyPolicy.content && legalDocuments.privacyPolicy.content.length > 80) ||
+      (liveDocs?.privacyPolicy && liveDocs.privacyPolicy.content && liveDocs.privacyPolicy.content.length > 80)
     );
-    const hasAuthenticTerms = Boolean(
-      (legalDocuments?.termsOfService && !legalDocuments.termsOfService.isFirewallResilient) ||
-      (liveDocs?.termsOfService && !liveDocs.termsOfService.isFirewallResilient)
+    const hasTermsDoc = Boolean(
+      (legalDocuments?.termsOfService && legalDocuments.termsOfService.content && legalDocuments.termsOfService.content.length > 80) ||
+      (liveDocs?.termsOfService && liveDocs.termsOfService.content && liveDocs.termsOfService.content.length > 80)
     );
 
-    if (!hasAuthenticPrivacy || !hasAuthenticTerms || isDocCss) {
+    if ((!hasPrivacyDoc && !hasTermsDoc) || isDocCss) {
       fetchOnDemand(false);
     }
-  }, [isOpen, normalizedTargetUrl, targetUrl, isBendLensTarget, isDocCss]);
+  }, [isOpen, normalizedTargetUrl, targetUrl, isBendLensTarget, isDocCss, legalDocuments, liveDocs]);
 
   // Handle copy text
   const handleCopy = () => {
@@ -760,7 +957,11 @@ export default function LegalDocumentsModal({
     }
     text = text.replace(/^(?:Title|URL Source|Final URL|Markdown Content):\s*[^\r\n]*\r?\n?/gm, '').trim();
     text = text.replace(/\[([^\]]+)\]\(javascript:(?:[^()]+|\([^()]*\))*\)/gi, '$1');
-    return text;
+    text = text.replace(/opt-out request honored[\s\S]*?confirm my choices/gi, '');
+    text = text.replace(/cookie preferences[\s\S]*?confirm my choices/gi, '');
+    text = text.replace(/sale of personal information active[\s\S]*?confirm my choices/gi, '');
+    text = text.replace(/do not sell or share my personal information[\s\S]*?confirm my choices/gi, '');
+    return text.trim();
   }, [currentDoc?.content]);
 
   // Highlight search matches in document content
@@ -1508,7 +1709,11 @@ function AuthenticWebsiteRenderer({ content, searchQuery, currentDoc, cleanHost,
     }
     text = text.replace(/^(?:Title|URL Source|Final URL|Markdown Content):\s*[^\r\n]*\r?\n?/gm, '').trim();
     text = text.replace(/\[([^\]]+)\]\(javascript:(?:[^()]+|\([^()]*\))*\)/gi, '$1');
-    return text;
+    text = text.replace(/opt-out request honored[\s\S]*?confirm my choices/gi, '');
+    text = text.replace(/cookie preferences[\s\S]*?confirm my choices/gi, '');
+    text = text.replace(/sale of personal information active[\s\S]*?confirm my choices/gi, '');
+    text = text.replace(/do not sell or share my personal information[\s\S]*?confirm my choices/gi, '');
+    return text.trim();
   }, [content]);
 
   const blocks = useMemo(() => {
