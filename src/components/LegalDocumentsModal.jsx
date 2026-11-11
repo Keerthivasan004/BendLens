@@ -1066,8 +1066,8 @@ export default function LegalDocumentsModal({
               type="button"
               onClick={() => { setActiveTab('privacy'); setSearchQuery(''); }}
               className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-2 ${activeTab === 'privacy'
-                  ? 'bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/30 shadow-xs'
-                  : 'text-muted hover:text-foreground'
+                ? 'bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/30 shadow-xs'
+                : 'text-muted hover:text-foreground'
                 }`}
             >
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
@@ -1087,8 +1087,8 @@ export default function LegalDocumentsModal({
               type="button"
               onClick={() => { setActiveTab('terms'); setSearchQuery(''); }}
               className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-2 ${activeTab === 'terms'
-                  ? 'bg-cyan-500/15 text-cyan-400 font-bold border border-cyan-500/30 shadow-xs'
-                  : 'text-muted hover:text-foreground'
+                ? 'bg-cyan-500/15 text-cyan-400 font-bold border border-cyan-500/30 shadow-xs'
+                : 'text-muted hover:text-foreground'
                 }`}
             >
               <FileText className="h-3.5 w-3.5 text-cyan-400" />
@@ -1108,8 +1108,8 @@ export default function LegalDocumentsModal({
               type="button"
               onClick={() => { setActiveTab('compliance'); setSearchQuery(''); }}
               className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-2 ${activeTab === 'compliance'
-                  ? 'bg-violet-500/15 text-violet-400 font-bold border border-violet-500/30 shadow-xs'
-                  : 'text-muted hover:text-foreground'
+                ? 'bg-violet-500/15 text-violet-400 font-bold border border-violet-500/30 shadow-xs'
+                : 'text-muted hover:text-foreground'
                 }`}
             >
               <Scale className="h-3.5 w-3.5 text-violet-400" />
@@ -1126,8 +1126,8 @@ export default function LegalDocumentsModal({
                   type="button"
                   onClick={() => setViewMode('formatted')}
                   className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 cursor-pointer font-medium ${viewMode === 'formatted'
-                      ? 'bg-brand/15 text-brand font-bold shadow-xs'
-                      : 'text-muted hover:text-foreground'
+                    ? 'bg-brand/15 text-brand font-bold shadow-xs'
+                    : 'text-muted hover:text-foreground'
                     }`}
                   title="Website Layout View (Authentic website typography and formatting)"
                 >
@@ -1138,8 +1138,8 @@ export default function LegalDocumentsModal({
                   type="button"
                   onClick={() => setViewMode('raw')}
                   className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 cursor-pointer font-medium ${viewMode === 'raw'
-                      ? 'bg-brand/15 text-brand font-bold shadow-xs'
-                      : 'text-muted hover:text-foreground'
+                    ? 'bg-brand/15 text-brand font-bold shadow-xs'
+                    : 'text-muted hover:text-foreground'
                     }`}
                   title="Raw Markdown / Source View"
                 >
@@ -1167,8 +1167,8 @@ export default function LegalDocumentsModal({
                   setIsEditing(!isEditing);
                 }}
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${isEditing
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                    : 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/25'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/25'
                   }`}
                 title="Edit document or paste custom internal corporate policy"
               >

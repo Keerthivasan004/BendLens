@@ -25,26 +25,26 @@ const webCrawlerProfile = {
   concurrency: 36,
 
   // Subdomain discovery & verification limits (supports 1,000 - 25,000+ candidates without truncation)
-  dnsLookupConcurrency: 250,
-  candidateTimeout: 450,
-  subdomainValidationTimeout: 20000,
-  subdomainCandidateLimit: 25000,
+  dnsLookupConcurrency: 80,
+  candidateTimeout: 550,
+  subdomainValidationTimeout: 18000,
+  subdomainCandidateLimit: 5000,
   activeDnsPrefixes: 350,
 
   // Passive reconnaissance timeouts (concurrent parallel execution)
-  subdomainCenterTimeout: 12000,
-  alienVaultTimeout: 10000,
-  certSpotterPages: 12,
-  certSpotterTimeout: 10000,
-  crtShTimeout: 15000,
-  hackerTargetTimeout: 3500,
-  rapidDnsTimeout: 8000,
+  subdomainCenterTimeout: 7000,
+  alienVaultTimeout: 6000,
+  certSpotterPages: 8,
+  certSpotterTimeout: 6000,
+  crtShTimeout: 8000,
+  hackerTargetTimeout: 3000,
+  rapidDnsTimeout: 5000,
 
   // Stage budget calculators (ensures parity while finishing safely under 50s total, well within Vercel's 60s maxDuration)
   canRunPhase2: (elapsed) => elapsed < 45000,
   canRunGatewayProbes: (elapsed) => elapsed < 48000,
   maxLegalWaitMs: (elapsed) => Math.max(5000, 48000 - elapsed),
-  maxSubdomainBudgetMs: (elapsed) => Math.max(16000, Math.min(28000, 48000 - elapsed))
+  maxSubdomainBudgetMs: (elapsed) => Math.max(20000, Math.min(32000, 48000 - elapsed))
 };
 
 module.exports = webCrawlerProfile;
