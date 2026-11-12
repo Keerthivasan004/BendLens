@@ -20,6 +20,7 @@ import ApiFlowModal from '@/components/ApiFlowModal';
 import LegalDocumentsModal from '@/components/LegalDocumentsModal';
 import CrawlerAccuracyProofModal from '@/components/CrawlerAccuracyProofModal';
 import { getApiEndpointsBreakdown } from '@/lib/apiBreakdownHelper';
+import { saveAnalysisData } from '@/lib/storageHelper';
 
 export default function LandingPage() {
   const router = useRouter();
@@ -315,9 +316,9 @@ CREATE TABLE orders (
         setScanProgress(100);
         try {
           if (result.data) {
-            sessionStorage.setItem('bendlens-current-data', JSON.stringify(result.data));
-            if (result.data.projectPath) {
-              localStorage.setItem('bendlens-path', result.data.projectPath);
+            await saveAnalysisData(result.data);
+            if (result.data.projectPath || result.data.targetUrl) {
+              localStorage.setItem('bendlens-path', result.data.projectPath || result.data.targetUrl);
             }
           }
         } catch {}
@@ -455,8 +456,8 @@ CREATE TABLE orders (
         };
       }
 
-      // If server crawl was challenged (Cloudflare WAF / 403 Bot protection), attempt quick client-side gateway recovery
-      const isWafChallenged = res.status === 403 || (json?.error && /bot|firewall|challenge|cloudflare|turnstile|captcha|waf/i.test(json.error));
+      // If server crawl was challenged (Cloudflare WAF / 403 Bot protection), attempt quick client-side gateway recovery (never on 504 timeouts)
+      const isWafChallenged = res.status === 403 || (json?.error && res.status !== 504 && !json.error.includes('timed out') && /bot|firewall|challenge|cloudflare|turnstile|captcha|waf/i.test(json.error));
       if (!json.success && isWafChallenged && !signal?.aborted) {
         try {
           const gwRes = await fetch(`https://r.jina.ai/${normalizedUrl}`, {
@@ -885,7 +886,7 @@ CREATE TABLE orders (
                       <div className="text-[10px] text-muted font-sans">Tables</div>
                     </div>
                     <div>
-                      <div className="font-bold text-rose-400">{analysisResult.code?.endpoints?.length || 0}</div>
+                      <div className="font-bold text-rose-400">{analysisResult.code?.endpoints?.length || analysisResult.endpoints?.length || landingEndpointsList.length || 0}</div>
                       <div className="text-[10px] text-muted font-sans">Endpoints</div>
                     </div>
                   </div>
@@ -1787,7 +1788,7 @@ CREATE TABLE audit_logs (
                                   )}
 
                                   <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                                    {(showAllSubdomains ? filteredList : filteredList.slice(0, 24)).map((sub, sIdx) => {
+                                    {(showAllSubdomains ? filteredList.slice(0, 72) : filteredList.slice(0, 24)).map((sub, sIdx) => {
                                       const isMain = sub === landingMainDomain;
                                       const isLive = liveSet.has(sub) || statusMap[sub] === 'live' || isMain;
                                       return (
@@ -1820,15 +1821,25 @@ CREATE TABLE audit_logs (
                                       );
                                     })}
                                     {filteredList.length > 24 && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setShowAllSubdomains(!showAllSubdomains)}
-                                        className="text-xs font-mono font-semibold px-2.5 py-1 rounded-lg border border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all cursor-pointer"
-                                      >
-                                        {showAllSubdomains
-                                          ? 'Show Less'
-                                          : `+${filteredList.length - 24} more subdomains`}
-                                      </button>
+                                      <div className="flex items-center gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => setShowAllSubdomains(!showAllSubdomains)}
+                                          className="text-xs font-mono font-semibold px-2.5 py-1 rounded-lg border border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all cursor-pointer"
+                                        >
+                                          {showAllSubdomains
+                                            ? (filteredList.length > 72 ? 'Show Top 24' : 'Show Less')
+                                            : (filteredList.length > 72 ? 'Show Top 72 (+48)' : `+${filteredList.length - 24} more subdomains`)}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setShowSubdomainsModal(true)}
+                                          className="text-xs font-mono font-semibold px-2.5 py-1 rounded-lg border border-indigo-500/40 bg-indigo-600 text-white hover:bg-indigo-700 transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+                                        >
+                                          <Globe className="h-3 w-3" />
+                                          <span>View All in Modal</span>
+                                        </button>
+                                      </div>
                                     )}
                                   </div>
                                 </div>
@@ -1837,13 +1848,11 @@ CREATE TABLE audit_logs (
 
                             {/* Discovered External Microservice Gateways if present */}
                             {(() => {
+                              const subSet = new Set((analysisResult.subdomains || []).map(s => String(s).toLowerCase().replace(/^www\./, '')));
                               const externalGateways = (ts?.backend?.discoveredGateways || []).filter(g => {
                                 try {
                                   const h = new URL(g).hostname.toLowerCase().replace(/^www\./, '');
-                                  return (
-                                    !Array.isArray(analysisResult.subdomains) ||
-                                    !analysisResult.subdomains.map(s => s.toLowerCase().replace(/^www\./, '')).includes(h)
-                                  );
+                                  return !subSet.has(h);
                                 } catch {
                                   return true;
                                 }
@@ -2270,13 +2279,24 @@ CREATE TABLE audit_logs (
                             <div className="flex items-center justify-between pt-1 text-[11px] font-mono text-muted">
                               <span>Showing {Math.min(landingEndpointsLimit, landingFilteredEndpoints.length)} of {landingFilteredEndpoints.length}</span>
                               {landingEndpointsLimit < landingFilteredEndpoints.length ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setLandingEndpointsLimit(landingFilteredEndpoints.length)}
-                                  className="text-brand hover:underline font-bold cursor-pointer"
-                                >
-                                  View All {landingFilteredEndpoints.length} Endpoints
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setLandingEndpointsLimit((prev) => Math.min(prev + 50, landingFilteredEndpoints.length))}
+                                    className="text-brand hover:underline font-bold cursor-pointer"
+                                  >
+                                    Show 50 More (+{Math.min(50, landingFilteredEndpoints.length - landingEndpointsLimit)})
+                                  </button>
+                                  {landingFilteredEndpoints.length <= 100 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setLandingEndpointsLimit(landingFilteredEndpoints.length)}
+                                      className="text-muted hover:text-foreground cursor-pointer"
+                                    >
+                                      View All
+                                    </button>
+                                  )}
+                                </div>
                               ) : (
                                 <button
                                   type="button"
@@ -2302,7 +2322,7 @@ CREATE TABLE audit_logs (
                         <div className="text-[10px] text-muted font-sans">Tables</div>
                       </div>
                       <div>
-                        <div className="font-bold text-rose-400">{analysisResult.code?.endpoints?.length || 0}</div>
+                        <div className="font-bold text-rose-400">{analysisResult.code?.endpoints?.length || analysisResult.endpoints?.length || landingEndpointsList.length || 0}</div>
                         <div className="text-[10px] text-muted font-sans">Endpoints</div>
                       </div>
                     </div>
@@ -2595,7 +2615,7 @@ CREATE TABLE audit_logs (
 
               <div className="py-2 sm:py-0 px-4 text-center">
                 <div className="text-2xl font-bold text-foreground font-mono">
-                  {analysisResult.code?.endpoints?.length || 0}
+                  {analysisResult.code?.endpoints?.length || analysisResult.endpoints?.length || landingEndpointsList.length || 0}
                 </div>
                 <div className="text-[11px] font-medium text-muted mt-0.5 flex items-center justify-center gap-1">
                   <Cpu className="h-3 w-3 text-rose-500" />
@@ -2997,29 +3017,30 @@ CREATE TABLE audit_logs (
       />
 
       {/* Discovered APIs & Endpoints Breakdown Modal */}
-      {analysisResult && (
-        <>
-          <ApiBreakdownModal
-            isOpen={showApiBreakdownModal}
-            onClose={() => setShowApiBreakdownModal(false)}
-            analysisData={analysisResult}
-            onOpenApiFlow={(ep) => {
-              setShowApiBreakdownModal(false);
-              setApiFlowFocusedEndpoint(ep || null);
-              setShowApiFlowModal(true);
-            }}
-          />
+      {analysisResult && showApiBreakdownModal && (
+        <ApiBreakdownModal
+          isOpen={showApiBreakdownModal}
+          onClose={() => setShowApiBreakdownModal(false)}
+          analysisData={analysisResult}
+          onOpenApiFlow={(ep) => {
+            setShowApiBreakdownModal(false);
+            setApiFlowFocusedEndpoint(ep || null);
+            setShowApiFlowModal(true);
+          }}
+        />
+      )}
 
-          <SubdomainsModal
-            isOpen={showSubdomainsModal}
-            onClose={() => setShowSubdomainsModal(false)}
-            analysisData={analysisResult}
-          />
-        </>
+      {/* Subdomains Perimeter Modal */}
+      {analysisResult && showSubdomainsModal && (
+        <SubdomainsModal
+          isOpen={showSubdomainsModal}
+          onClose={() => setShowSubdomainsModal(false)}
+          analysisData={analysisResult}
+        />
       )}
 
       {/* Visual Interactive API Flow Graph Modal */}
-      {analysisResult && (
+      {analysisResult && showApiFlowModal && (
         <ApiFlowModal
           isOpen={showApiFlowModal}
           onClose={() => {

@@ -11,6 +11,7 @@ import BusinessView from '@/components/views/BusinessView';
 import BlastRadiusSimulator from '@/components/BlastRadiusSimulator';
 import ExportModal from '@/components/ExportModal';
 import ApiFlowModal from '@/components/ApiFlowModal';
+import { getAnalysisData, saveAnalysisData } from '@/lib/storageHelper';
 import { ArrowLeft, RefreshCw, AlertCircle, Layers, FolderSearch, Clock, Timer } from 'lucide-react';
 
 export default function LensDashboard() {
@@ -71,24 +72,23 @@ export default function LensDashboard() {
       }
     } catch {}
 
-    // Check if fresh analysis data was handed off from the ingestion portal
-    let restoredFromSession = false;
-    try {
-      const sessionDataRaw = sessionStorage.getItem('bendlens-current-data');
-      if (sessionDataRaw) {
-        const sessionData = JSON.parse(sessionDataRaw);
+    // Check if fresh analysis data was handed off from the ingestion portal via in-memory bridge or storage
+    let isMounted = true;
+    (async () => {
+      try {
+        const sessionData = await getAnalysisData();
+        if (!isMounted) return;
         if (sessionData) {
           setAnalysisData(sessionData);
-          setCurrentPath(sessionData.projectPath || sessionData.projectName || '');
+          setCurrentPath(sessionData.projectPath || sessionData.targetUrl || sessionData.projectName || '');
           if (sessionData.isUrlCrawl || sessionData.crawlerTelemetry || sessionData.schema?.tables?.length === 0) {
             setActiveDiagramTab('apiFlow');
           }
-          restoredFromSession = true;
+          return;
         }
-      }
-    } catch {}
+      } catch {}
 
-    if (!restoredFromSession) {
+      if (!isMounted) return;
       const savedPath = localStorage.getItem('bendlens-path');
       if (savedPath) {
         handleAnalyze(savedPath);
@@ -96,7 +96,11 @@ export default function LensDashboard() {
         // Fallback: load the built-in sample project so the studio never hangs on a blank spinner
         loadSampleProject();
       }
-    }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const isUrlScan = !!(
@@ -215,7 +219,7 @@ export default function LensDashboard() {
           setActiveDiagramTab('sequence');
         }
         try {
-          sessionStorage.setItem('bendlens-current-data', JSON.stringify(result.data));
+          await saveAnalysisData(result.data);
           localStorage.setItem('bendlens-path', resolvedPath);
         } catch {}
       } else {
@@ -522,20 +526,22 @@ export default function LensDashboard() {
       />
 
       {/* Visual Interactive API Flow Graph Modal */}
-      <ApiFlowModal
-        isOpen={showApiFlowModal}
-        onClose={() => {
-          setShowApiFlowModal(false);
-          setInitialFlowEndpoint(null);
-        }}
-        endpoints={resolvedEndpoints}
-        tables={analysisData?.schema?.tables || []}
-        diagrams={analysisData?.diagrams}
-        analysisData={analysisData}
-        initialFocusedEndpoint={initialFlowEndpoint}
-        theme={theme}
-        onSelectForImpact={handleSelectForImpact}
-      />
+      {showApiFlowModal && (
+        <ApiFlowModal
+          isOpen={showApiFlowModal}
+          onClose={() => {
+            setShowApiFlowModal(false);
+            setInitialFlowEndpoint(null);
+          }}
+          endpoints={resolvedEndpoints}
+          tables={analysisData?.schema?.tables || []}
+          diagrams={analysisData?.diagrams}
+          analysisData={analysisData}
+          initialFocusedEndpoint={initialFlowEndpoint}
+          theme={theme}
+          onSelectForImpact={handleSelectForImpact}
+        />
+      )}
     </main>
   );
 }

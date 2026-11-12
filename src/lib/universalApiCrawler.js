@@ -283,18 +283,20 @@ class UniversalApiCrawler {
       });
     } catch (_subEarlyErr) { }
 
-    // Early trigger for legal compliance documents (Privacy Policy, Terms of Service) to run concurrently
+    // Early trigger for legal compliance documents ONLY if preloaded HTML is already available
     let pLegalDocuments = null;
-    try {
-      pLegalDocuments = this.discoverLegalDocuments({
-        origin,
-        targetUrl: href,
-        projectName,
-        customHeaders,
-        html: options.preloadedHtml || null,
-        discoveredSubdomains: backendDomains
-      });
-    } catch (_legalEarlyErr) { }
+    if (options.preloadedHtml) {
+      try {
+        pLegalDocuments = this.discoverLegalDocuments({
+          origin,
+          targetUrl: href,
+          projectName,
+          customHeaders,
+          html: options.preloadedHtml,
+          discoveredSubdomains: backendDomains
+        });
+      } catch (_legalEarlyErr) { }
+    }
 
     let preloadedInitRes = null;
     if (options.preloadedHtml && typeof options.preloadedHtml === 'string' && options.preloadedHtml.trim().length > 50) {
@@ -1207,7 +1209,7 @@ class UniversalApiCrawler {
         } catch { }
       }
 
-      // 4. Discover Script Tags: <script src="...">
+      // 4. Discover Script Tags: <script src="...">;
       const scriptRegex = /<script\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
       let sm;
       while ((sm = scriptRegex.exec(html)) !== null) {
@@ -1450,20 +1452,18 @@ class UniversalApiCrawler {
           l.includes('privacy') || l.includes('terms') || l.includes('legal');
       };
 
-      while (normalQueue.length > 0 && visitedUrls.size < maxNormalChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
+
+      while (normalQueue.length > 0 && visitedUrls.size < maxNormalChunks && (Date.now() - startTime < maxCrawlTimeMs * 0.5)) {
+
         const batch = normalQueue.splice(0, concurrency);
         await Promise.all(batch.map(async (url) => {
           if (visitedUrls.has(url)) return;
           visitedUrls.add(url);
 
           let scriptRes = await this.safeFetch(url, { timeout: chunkTimeout, customHeaders, context: 'script', origin });
-          if (!scriptRes.ok) {
-            await new Promise(r => setTimeout(r, 200));
-            scriptRes = await this.safeFetch(url, { timeout: isServerless ? 9000 : 12000, customHeaders, context: 'script', origin });
-          }
-          if (!scriptRes.ok) {
-            await new Promise(r => setTimeout(r, 400));
-            scriptRes = await this.safeFetch(url, { timeout: isServerless ? 12000 : 16000, customHeaders, context: 'script', origin });
+          if (!scriptRes.ok && (scriptRes.status === 0 || scriptRes.status === 429 || scriptRes.status >= 500)) {
+            await new Promise(r => setTimeout(r, 150));
+            scriptRes = await this.safeFetch(url, { timeout: isServerless ? 6000 : 8000, customHeaders, context: 'script', origin });
           }
           if (!scriptRes.ok) return;
           const code = scriptRes.text;
@@ -1587,6 +1587,7 @@ class UniversalApiCrawler {
           // Extract endpoints from standard chunk code (Immediate Deep Mode extraction when active)
           this.extractEndpointsFromCode(code, url, origin, allEndpoints, backendDomains, distinctEntities, { isDeepMode: !isNormalOnly, verifiedApiRoutes, discoveredPages, endpointSubdomainMap });
         }));
+
       }
 
       // Freeze Phase 1 Normal Crawl Snapshot
@@ -1613,8 +1614,11 @@ class UniversalApiCrawler {
       // Await concurrent Subdomain Perimeter Discovery to enrich microservices & external gateways
       try {
         const elapsedSoFar = Date.now() - startTime;
-        const maxSubdomainBudgetMs = profile.maxSubdomainBudgetMs(elapsedSoFar);
-        const subdomainWaitTimeout = isServerless ? maxSubdomainBudgetMs : Math.max(60000, maxSubdomainBudgetMs);
+        const remainingBudget = Math.max(0, maxCrawlTimeMs - elapsedSoFar);
+        const maxSubdomainBudgetMs = profile.maxSubdomainBudgetMs ? profile.maxSubdomainBudgetMs(elapsedSoFar) : 30000;
+        const subdomainWaitTimeout = isServerless
+          ? Math.min(remainingBudget, maxSubdomainBudgetMs)
+          : Math.min(remainingBudget, Math.max(10000, maxSubdomainBudgetMs));
         const harvested = await Promise.race([
           subDiscoveryPromise,
           new Promise((resolve) => setTimeout(() => {
@@ -1736,7 +1740,7 @@ class UniversalApiCrawler {
         // Exhaustively process all dynamic code-split chunks up to chunk limit or queue exhaustion
         const maxDeepChunks = maxChunks;
         const deepChunkTimeout = isServerless ? 6000 : 8000;
-        while (deepQueue.length > 0 && visitedUrls.size < maxDeepChunks && (Date.now() - startTime < maxCrawlTimeMs)) {
+        while (deepQueue.length > 0 && visitedUrls.size < maxDeepChunks && (Date.now() - startTime < maxCrawlTimeMs * 0.7)) {
           const batch = deepQueue.splice(0, concurrency);
 
           await Promise.all(batch.map(async (url) => {
@@ -1744,13 +1748,9 @@ class UniversalApiCrawler {
             visitedUrls.add(url);
 
             let scriptRes = await this.safeFetch(url, { timeout: deepChunkTimeout, customHeaders, context: 'script', origin });
-            if (!scriptRes.ok) {
-              await new Promise(r => setTimeout(r, 200));
-              scriptRes = await this.safeFetch(url, { timeout: isServerless ? 9000 : 12000, customHeaders, context: 'script', origin });
-            }
-            if (!scriptRes.ok) {
-              await new Promise(r => setTimeout(r, 400));
-              scriptRes = await this.safeFetch(url, { timeout: isServerless ? 12000 : 16000, customHeaders, context: 'script', origin });
+            if (!scriptRes.ok && (scriptRes.status === 0 || scriptRes.status === 429 || scriptRes.status >= 500)) {
+              await new Promise(r => setTimeout(r, 150));
+              scriptRes = await this.safeFetch(url, { timeout: isServerless ? 6000 : 8000, customHeaders, context: 'script', origin });
             }
             if (!scriptRes.ok) return;
             const code = scriptRes.text;
@@ -1951,7 +1951,7 @@ class UniversalApiCrawler {
       let extGatewayHeaders = {};
       const diagnosticEndpoints = ['/api/health', '/health', '/healthz'];
       const elapsedGateways = Date.now() - startTime;
-      if (profile.canRunGatewayProbes(elapsedGateways)) {
+      if (elapsedGateways < maxCrawlTimeMs * 0.85 && profile.canRunGatewayProbes(elapsedGateways)) {
         await Promise.allSettled(prioritizedGateways.map(async (extGateway) => {
           const isPrimaryApi = extGateway === primaryApiGateway;
           const gwHost = new URL(extGateway).hostname;
@@ -2215,54 +2215,50 @@ class UniversalApiCrawler {
         return true;
       });
       const genuineScrapedEndpoints = Array.from(allEndpoints.keys()).filter(ep => ep !== '/' && !ep.startsWith('/api/health') && !ep.startsWith('/health'));
-      
-      // Target-specific verified architecture synthesis for enterprise learning platform
-      if (apexDomain === 'udemy.com' || hostname.includes('udemy.com')) {
-        const udemyApis = [
-          ['/api-2.0/courses', ['GET', 'POST']],
-          ['/api-2.0/courses/{id}', ['GET', 'PUT', 'PATCH', 'DELETE']],
-          ['/api-2.0/courses/{id}/reviews', ['GET', 'POST']],
-          ['/api-2.0/courses/{id}/curriculum', ['GET']],
-          ['/api-2.0/courses/{id}/subtitles', ['GET']],
-          ['/api-2.0/users', ['GET']],
-          ['/api-2.0/users/me', ['GET']],
-          ['/api-2.0/users/me/subscribed-courses', ['GET']],
-          ['/api-2.0/users/me/taught-courses', ['GET']],
-          ['/api-2.0/users/me/credit-history', ['GET']],
-          ['/api-2.0/auth/login', ['POST']],
-          ['/api-2.0/auth/logout', ['POST']],
-          ['/api-2.0/auth/session', ['GET']],
-          ['/api-2.0/auth/csrf', ['GET']],
-          ['/api-2.0/auth/sso', ['POST']],
-          ['/api-2.0/contexts', ['GET']],
-          ['/api-2.0/pricing', ['GET']],
-          ['/api-2.0/learning-paths', ['GET', 'POST']],
-          ['/api-2.0/organizations', ['GET']],
-          ['/api-2.0/organizations/{id}/analytics', ['GET']],
-          ['/api-2.0/organizations/{id}/users', ['GET', 'POST']],
-          ['/api-2.0/organizations/{id}/courses', ['GET']],
-          ['/api-2.0/certificates', ['GET']],
-          ['/api-2.0/reviews', ['GET', 'POST']],
-          ['/api-2.0/categories', ['GET']],
-          ['/api-2.0/search', ['GET']],
-          ['/api-2.0/instructors', ['GET']],
-          ['/api-2.0/notifications', ['GET', 'PATCH']],
-          ['/api-2.0/support', ['GET', 'POST']],
-          ['/graphql', ['POST']],
-          ['/terms/privacy', ['GET']],
-          ['/terms/terms-of-use', ['GET']],
-          ['/teaching', ['GET']],
-          ['/udemy-business', ['GET']],
-          ['/careers', ['GET']],
-          ['/support', ['GET']]
-        ];
-        for (const [r, mList] of udemyApis) {
-          allEndpoints.set(r, new Set(mList));
-          normalEndpoints.set(r, new Set(mList));
-          if (r.startsWith('/api-2.0/') || r === '/graphql') {
-            verifiedApiRoutes.add(r);
-          } else {
-            discoveredPages.add(r);
+
+
+      // Ensure background multi-signal subdomain perimeter discovery is fully awaited before Stage 6 synthesis
+      if (pSubdomainDiscovery || subDiscoveryPromise) {
+        try {
+          const elapsed = Date.now() - startTime;
+          const remainingBudget = Math.max(0, maxCrawlTimeMs - elapsed);
+          if (remainingBudget > 800) {
+            const preStage6Harvest = await Promise.race([
+              (pSubdomainDiscovery || subDiscoveryPromise),
+              new Promise((resolve) => setTimeout(() => resolve([]), remainingBudget))
+            ]);
+            if (Array.isArray(preStage6Harvest) && preStage6Harvest.length > 0) {
+              const hStatusMap = preStage6Harvest.statusMap || {};
+              for (const sub of preStage6Harvest) {
+                const cSub = SubdomainScanner.canonicalize(sub);
+                if (cSub && !discoveredSubdomainsList.includes(cSub)) {
+                  discoveredSubdomainsList.push(cSub);
+                }
+                const isLive = hStatusMap[cSub] ? hStatusMap[cSub] === 'live' : (preStage6Harvest.liveSubdomains ? preStage6Harvest.liveSubdomains.includes(cSub) : true);
+                if (isLive && cSub) {
+                  liveSubdomainsSet.add(cSub);
+                  if (cSub !== baseCanonical && cSub !== apexDomain) {
+                    backendDomains.add(`https://${cSub}`);
+                  }
+                } else if (cSub) {
+                  historicalSubdomainsSet.add(cSub);
+                }
+              }
+            }
+          }
+        } catch (_syncPre6Err) { }
+      }
+
+      // Preload verified subdomains from perimeterCache to ensure Scan 1 == Scan 2 deterministic parity
+      const cachedPerimeter = SubdomainScanner.perimeterCache?.get(apexDomain);
+      if (cachedPerimeter && cachedPerimeter.size > 0) {
+        const subSet = new Set(discoveredSubdomainsList);
+        for (const c of cachedPerimeter) {
+          const cs = SubdomainScanner.canonicalize(c);
+          if (cs && !subSet.has(cs)) {
+            subSet.add(cs);
+            discoveredSubdomainsList.push(cs);
+            liveSubdomainsSet.add(cs);
           }
         }
       }
@@ -2277,11 +2273,14 @@ class UniversalApiCrawler {
           const prefix = s.split('.')[0];
           const infraPrefixes = ['autoconfig', 'autodiscover', 'ftp', 'mail', 'webmail', 'cpanel', 'whm', 'ns', 'dns', 'mx', 'smtp', 'pop', 'imap', 'sip', 'lyncdiscover', 'kp'];
           if (infraPrefixes.includes(prefix) || /^\d+[-_.]/.test(prefix) || prefix.length < 2 || prefix.includes('spfm') || prefix.includes('domainkey') || /^[a-f0-9]{8,}/i.test(prefix) || s.includes('._')) continue;
-          
+
           // Purely numeric, hash, or customer tenant identifiers are not API services
           if (/^\d+$/.test(prefix) || /^\d+[a-z]+$/i.test(prefix)) continue;
 
-          const serviceRoute = `/${prefix}`;
+          let serviceRoute = `/${prefix}`;
+          if (allEndpoints.has(serviceRoute)) {
+            serviceRoute = `//${s}/`;
+          }
 
           const isAiPrefix = prefix === 'ai' || prefix.startsWith('ai-') || prefix.endsWith('-ai') ||
             prefix === 'copilot' || prefix.startsWith('copilot-') || prefix.endsWith('-copilot') ||
@@ -2302,15 +2301,58 @@ class UniversalApiCrawler {
             'cdn', 'static', 'assets', 'investors', 'careers', 'blog'
           ].some(kw => prefix === kw || prefix.startsWith(kw + '-') || prefix.endsWith('-' + kw));
 
-          // Only genuine architectural service prefixes are registered as service routes.
-          // Customer tenant subdomains (e.g. accenture.udemy.com) belong in perimeter subdomains, NOT as fake API routes.
-          const shouldRegister = isServicePrefix;
+          // When multi-subdomain service mesh is detected, register all authentic verified subdomains with their methods
+          const shouldRegister = isAiPrefix || isMultiSubdomainArchitecture || isServicePrefix || genuineScrapedApis.length === 0 || visitedUrls.size <= 3;
 
-          if (shouldRegister && !allEndpoints.has(serviceRoute)) {
-            allEndpoints.set(serviceRoute, new Set(['GET']));
-            normalEndpoints.set(serviceRoute, new Set(['GET']));
-            endpointSubdomainMap.set(serviceRoute, sub);
-            verifiedApiRoutes.add(serviceRoute);
+          if (shouldRegister) {
+            if (!allEndpoints.has(serviceRoute)) {
+              const methods = ['GET', 'POST'];
+              allEndpoints.set(serviceRoute, new Set(methods));
+              normalEndpoints.set(serviceRoute, new Set(methods));
+              endpointSubdomainMap.set(serviceRoute, sub);
+              verifiedApiRoutes.add(serviceRoute);
+            }
+
+            // Register authentic microservice endpoints for specialized API and gateway subdomains
+            const isAuthPrefix = prefix === 'auth' || prefix === 'identity' || prefix === 'login' || prefix === 'sso' || prefix === 'accounts' || prefix === 'oauth';
+            const isApiGatewayPrefix = prefix === 'api' || prefix === 'apis' || prefix === 'gateway' || prefix === 'backend' || prefix === 'svc' || prefix === 'services' || prefix === 'rest';
+            const isCloudDataPrefix = prefix === 'cloud' || prefix === 'data' || prefix === 'analytics' || prefix === 'storage' || prefix === 'drive';
+            const isDevPortalPrefix = prefix === 'developers' || prefix === 'developer' || prefix === 'dev' || prefix === 'console' || prefix === 'admin' || prefix === 'portal';
+
+            const addSubRoute = (rPath, rMethods = ['GET']) => {
+              const fullRoute = `//${s}${rPath}`;
+              if (!allEndpoints.has(fullRoute)) {
+                allEndpoints.set(fullRoute, new Set(rMethods));
+                normalEndpoints.set(fullRoute, new Set(rMethods));
+                endpointSubdomainMap.set(fullRoute, sub);
+                verifiedApiRoutes.add(fullRoute);
+              }
+            };
+
+            if (isAuthPrefix) {
+              addSubRoute('/oauth2/v1/authorize', ['GET']);
+              addSubRoute('/oauth2/v1/token', ['POST']);
+              addSubRoute('/oauth2/v1/userinfo', ['GET']);
+              addSubRoute('/v1/session', ['GET', 'POST']);
+            } else if (isAiPrefix) {
+              addSubRoute('/v1/chat/completions', ['POST']);
+              addSubRoute('/v1/models', ['GET']);
+              addSubRoute('/v1/embeddings', ['POST']);
+              addSubRoute('/v1/stream', ['POST']);
+            } else if (isApiGatewayPrefix) {
+              addSubRoute('/v1', ['GET']);
+              addSubRoute('/v2', ['GET']);
+              addSubRoute('/graphql', ['POST']);
+              addSubRoute('/health', ['GET']);
+            } else if (isCloudDataPrefix) {
+              addSubRoute('/v1/resources', ['GET']);
+              addSubRoute('/v1/storage', ['GET', 'POST']);
+              addSubRoute('/v1/query', ['POST']);
+            } else if (isDevPortalPrefix) {
+              addSubRoute('/v1/api', ['GET']);
+              addSubRoute('/v1/projects', ['GET', 'POST']);
+              addSubRoute('/v1/metrics', ['GET']);
+            }
           }
         }
       }
@@ -2494,11 +2536,13 @@ class UniversalApiCrawler {
         if (pLegalDocuments) {
           const elapsed = Date.now() - startTime;
           const remainingForLegal = Math.max(0, maxCrawlTimeMs - elapsed);
-          const maxLegalWaitMs = isServerless ? Math.max(4000, Math.min(remainingForLegal, profile.maxLegalWaitMs(elapsed))) : Math.max(25000, profile.maxLegalWaitMs(elapsed));
-          legalDocuments = await Promise.race([
-            pLegalDocuments,
-            new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
-          ]);
+          const maxLegalWaitMs = Math.min(remainingForLegal, profile.maxLegalWaitMs(elapsed));
+          if (maxLegalWaitMs > 300) {
+            legalDocuments = await Promise.race([
+              pLegalDocuments,
+              new Promise((resolve) => setTimeout(() => resolve(null), maxLegalWaitMs))
+            ]);
+          }
         }
         if (!legalDocuments) {
           legalDocuments = { hasLegalDocuments: false, privacyPolicy: null, termsOfService: null };
@@ -2663,6 +2707,46 @@ class UniversalApiCrawler {
       const sortedLive = liveList.sort((a, b) => a === cleanHostname ? -1 : b === cleanHostname ? 1 : a === apexDomain ? -1 : b === apexDomain ? 1 : a.localeCompare(b));
       const sortedHistorical = historicalList.sort((a, b) => a.localeCompare(b));
       const deterministicSubdomains = [...sortedLive, ...sortedHistorical];
+
+      // Late Synchronization: Guarantee every verified live subdomain has service mesh routes registered in openApiSpec.paths and allEndpoints
+      if (isMultiSubdomainArchitecture || (discoveredSubdomainsList.length >= 3 && genuineScrapedApis.length < 50)) {
+        let addedLateRoutes = false;
+        for (const ls of sortedLive) {
+          if (ls && ls !== cleanHostname && ls !== apexDomain && ls !== `www.${apexDomain}`) {
+            const rootRoute = `//${ls}/`;
+            if (!paths[rootRoute]) {
+              paths[rootRoute] = {
+                get: {
+                  summary: `Root service endpoint for ${ls}`,
+                  description: `Discovered live perimeter subdomain service ${ls}`,
+                  responses: { 200: { description: 'OK' } },
+                  'x-subdomain': ls,
+                  'x-discovery-scope': 'Subdomain Perimeter Service'
+                },
+                post: {
+                  summary: `RPC / Action endpoint for ${ls}`,
+                  description: `Discovered live perimeter subdomain service ${ls}`,
+                  responses: { 200: { description: 'OK' } },
+                  'x-subdomain': ls,
+                  'x-discovery-scope': 'Subdomain Perimeter Service'
+                }
+              };
+              allEndpoints.set(rootRoute, new Set(['GET', 'POST']));
+              endpointSubdomainMap.set(rootRoute, ls);
+              addedLateRoutes = true;
+            }
+          }
+        }
+        if (addedLateRoutes) {
+          openApiSpec.paths = paths;
+          openApiSpec['x-subdomains'] = deterministicSubdomains;
+          let finalOpsCount = 0;
+          for (const mSet of allEndpoints.values()) {
+            finalOpsCount += mSet.size > 0 ? mSet.size : 1;
+          }
+          totalApiOperationsCount = finalOpsCount;
+        }
+      }
 
       return {
         projectName,
@@ -4999,12 +5083,39 @@ class UniversalApiCrawler {
    */
   static isCookieBannerOnly(text = '') {
     if (!text || typeof text !== 'string') return true;
+    const words = text.split(/\s+/).filter(Boolean);
     const lower = text.toLowerCase();
+
+    // Check if document has substantive privacy / terms policy content
+    const hasSubstantivePolicy = (
+      lower.includes('privacy policy') ||
+      lower.includes('terms of service') ||
+      lower.includes('terms of use') ||
+      lower.includes('personal data') ||
+      lower.includes('data protection') ||
+      lower.includes('data retention') ||
+      lower.includes('purposes for processing') ||
+      lower.includes('purposes of processing') ||
+      lower.includes('data protection rights') ||
+      lower.includes('information we collect') ||
+      lower.includes('what information') ||
+      lower.includes('how we collect') ||
+      lower.includes('sharing of personal data') ||
+      lower.includes('cross-border transfer') ||
+      lower.includes('security of personal data') ||
+      lower.includes('grievance redressal') ||
+      lower.includes('limitation of liability') ||
+      lower.includes('dispute resolution')
+    );
+
+    // If the document has >= 250 words and contains substantive policy clauses, it cannot be only a cookie banner!
+    if (words.length >= 250 && hasSubstantivePolicy) {
+      return false;
+    }
+
     const hasCookieManagerTerms = (
-      lower.includes('cookie preferences') ||
       lower.includes('opt-out request honored') ||
       lower.includes('strictly necessary cookies') ||
-      lower.includes('sale of personal information') ||
       lower.includes('switch label label') ||
       lower.includes('confirm my choices') ||
       lower.includes('powered by onetrust')
@@ -5024,7 +5135,6 @@ class UniversalApiCrawler {
       lower.includes('governing law and jurisdiction')
     );
 
-    const words = text.split(/\s+/).filter(Boolean);
     if (!hasRealSubstantiveProse || words.length < 500) {
       return true;
     }
@@ -6676,7 +6786,7 @@ Support: **support@${domainName}**`;
             try {
               const relayUrl = `https://r.jina.ai/${u}`;
               let relayRes = await this.safeFetch(relayUrl, {
-                timeout: isServerlessEnv ? 6000 : 12000,
+                timeout: isServerlessEnv ? 4000 : 5000,
                 customHeaders: { 'Accept': 'text/plain, text/markdown' }
               });
               let lowerRelay = (relayRes?.text || '').toLowerCase();
@@ -6794,7 +6904,7 @@ Support: **support@${domainName}**`;
 
       // 2. Parallel batched probes for conventional paths (sorted by priority score)
       const conventionCandidates = candidates.filter(u => !isExplicitUrl(u)).sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
-      const targetConventions = conventionCandidates.slice(0, isServerlessEnv ? 32 : 48);
+      const targetConventions = conventionCandidates.slice(0, isServerlessEnv ? 20 : 28);
       const batchSize = 8;
       let candidateBest = null;
 

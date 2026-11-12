@@ -16,32 +16,32 @@ const localCrawlerProfile = {
   name: 'local_development',
   isServerless: false,
 
-  // Chunk crawling budget - Unbounded by default; dynamic concurrency and queue drain
-  maxChunks: Infinity,
-  maxCrawlDurationMs: 180000,
-  concurrency: 32,
+  // Chunk crawling budget - calibrated enterprise traversal with fast-fail
+  maxChunks: 1200,
+  maxCrawlDurationMs: 90000,
+  concurrency: 60,
 
-  // Subdomain discovery & verification limits (supports 1,000 - 10,000+ subdomains with zero truncation)
-  dnsLookupConcurrency: 80,
-  candidateTimeout: 550,
-  subdomainValidationTimeout: 25000,
-  subdomainCandidateLimit: 5000,
-  activeDnsPrefixes: 600,
+  // Subdomain discovery & verification limits (supports 1,000 - 15,000+ subdomains with zero truncation)
+  dnsLookupConcurrency: 200,
+  candidateTimeout: 450,
+  subdomainValidationTimeout: 35000,
+  subdomainCandidateLimit: 25000,
+  activeDnsPrefixes: 850,
 
   // Passive reconnaissance timeouts (concurrent parallel execution)
-  subdomainCenterTimeout: 8000,
-  alienVaultTimeout: 6000,
-  certSpotterPages: 12,
-  certSpotterTimeout: 6000,
-  crtShTimeout: 8000,
+  subdomainCenterTimeout: 20000,
+  alienVaultTimeout: 8000,
+  certSpotterPages: 22,
+  certSpotterTimeout: 7000,
+  crtShTimeout: 18000,
   hackerTargetTimeout: 3500,
-  rapidDnsTimeout: 5000,
+  rapidDnsTimeout: 6000,
 
   // Stage budget calculators
-  canRunPhase2: (elapsed) => true,
-  canRunGatewayProbes: (elapsed) => true,
-  maxLegalWaitMs: (elapsed) => 30000,
-  maxSubdomainBudgetMs: (elapsed) => Math.max(40000, 120000 - elapsed)
+  canRunPhase2: (elapsed) => elapsed < 70000,
+  canRunGatewayProbes: (elapsed) => elapsed < 82000,
+  maxLegalWaitMs: (elapsed) => Math.max(2000, Math.min(10000, 88000 - elapsed)),
+  maxSubdomainBudgetMs: (elapsed) => Math.max(15000, Math.min(32000, 85000 - elapsed))
 };
 
 module.exports = localCrawlerProfile;

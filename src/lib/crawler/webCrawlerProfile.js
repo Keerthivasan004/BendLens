@@ -22,21 +22,21 @@ const webCrawlerProfile = {
   // Chunk crawling budget - deep, exhaustive traversal in cloud functions
   maxChunks: 650,
   maxCrawlDurationMs: 48000,
-  concurrency: 36,
+  concurrency: 60,
 
   // Subdomain discovery & verification limits (supports 1,000 - 25,000+ candidates without truncation)
-  dnsLookupConcurrency: 80,
-  candidateTimeout: 550,
-  subdomainValidationTimeout: 18000,
-  subdomainCandidateLimit: 5000,
-  activeDnsPrefixes: 350,
+  dnsLookupConcurrency: 200,
+  candidateTimeout: 450,
+  subdomainValidationTimeout: 22000,
+  subdomainCandidateLimit: 20000,
+  activeDnsPrefixes: 750,
 
   // Passive reconnaissance timeouts (concurrent parallel execution)
-  subdomainCenterTimeout: 7000,
-  alienVaultTimeout: 6000,
-  certSpotterPages: 8,
+  subdomainCenterTimeout: 14000,
+  alienVaultTimeout: 7000,
+  certSpotterPages: 16,
   certSpotterTimeout: 6000,
-  crtShTimeout: 8000,
+  crtShTimeout: 16000,
   hackerTargetTimeout: 3000,
   rapidDnsTimeout: 5000,
 

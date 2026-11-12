@@ -144,6 +144,7 @@ class ProjectAnalyzer {
     const MAX_SCHEMA_FILES = 100000;
     const MAX_CODE_SIZE = 5 * 1024 * 1024;
     const MAX_SCHEMA_SIZE = 500 * 1024 * 1024;
+    const MAX_INFRA_SIZE = 100 * 1024 * 1024;
     const DIR_CONCURRENCY = 32; // parallel readdir operations
 
     // Single-file scans
@@ -185,7 +186,9 @@ class ProjectAnalyzer {
     };
 
     const handleRelevantFile = (fullPath, size, priority) => {
-      if (!priority && size > MAX_CODE_SIZE) {
+      const isInfra = ProjectAnalyzer.isInfraTarget(fullPath);
+      const maxAllowedSize = priority ? MAX_SCHEMA_SIZE : (isInfra ? MAX_INFRA_SIZE : MAX_CODE_SIZE);
+      if (size > maxAllowedSize) {
         skippedOversizeCount++;
         if (skippedOversize.length < 25) {
           skippedOversize.push(path.relative(targetDir, fullPath).replace(/\\/g, '/'));
@@ -313,6 +316,7 @@ class ProjectAnalyzer {
     const MAX_SCHEMA_FILES = 100000;
     const MAX_CODE_SIZE = 5 * 1024 * 1024;
     const MAX_SCHEMA_SIZE = 500 * 1024 * 1024;
+    const MAX_INFRA_SIZE = 100 * 1024 * 1024;
 
     function walk(currentDir) {
       if (!fs.existsSync(currentDir)) return;
@@ -338,7 +342,9 @@ class ProjectAnalyzer {
               const priority = ProjectAnalyzer.isSchemaPriorityFile(fullPath);
               const stat = fs.statSync(fullPath);
 
-              if (!priority && stat.size > MAX_CODE_SIZE) {
+              const isInfra = ProjectAnalyzer.isInfraTarget(fullPath);
+              const maxAllowedSize = priority ? MAX_SCHEMA_SIZE : (isInfra ? MAX_INFRA_SIZE : MAX_CODE_SIZE);
+              if (stat.size > maxAllowedSize) {
                 skippedOversizeCount++;
                 if (skippedOversize.length < 25) {
                   skippedOversize.push(path.relative(targetDir, fullPath).replace(/\\/g, '/'));
@@ -548,6 +554,13 @@ class ProjectAnalyzer {
         : (codeData.modules || [])
     };
 
+    const sanitizedInfra = {
+      ...infraData,
+      externalAPIs: (infraData?.externalAPIs && infraData.externalAPIs.length > 50)
+        ? infraData.externalAPIs.slice(0, 50)
+        : (infraData?.externalAPIs || [])
+    };
+
     if (developerView) {
       developerView.functions = sanitizedCode.functions;
       developerView.modules = sanitizedCode.modules;
@@ -561,7 +574,7 @@ class ProjectAnalyzer {
       scanStats,
       schema: schemaData,
       code: sanitizedCode,
-      infra: infraData,
+      infra: sanitizedInfra,
       subdomains: Array.from(new Set([...(infraData?.subdomains || []), ...(codeData.endpoints.map(e => e.subdomain).filter(Boolean)), ...(infraData?.externalAPIs ? infraData.externalAPIs.map(e => e.subdomain).filter(Boolean) : [])])),
       graph: {
         stats: graph.getStats()

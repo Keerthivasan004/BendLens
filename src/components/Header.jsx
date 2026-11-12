@@ -331,7 +331,7 @@ export default function Header({
               ) : (
                 <span className="flex items-center gap-1.5 px-1 text-muted whitespace-nowrap shrink-0">
                   <Code2 className="h-3.5 w-3.5 text-rose-500 shrink-0" />
-                  <span><strong className="text-foreground font-mono">{analysisData.code?.endpoints?.length || 0}</strong> endpoints</span>
+                  <span><strong className="text-foreground font-mono">{analysisData.code?.endpoints?.length || analysisData.endpoints?.length || analysisData.crawlerTelemetry?.totalEndpointsCount || 0}</strong> endpoints</span>
                 </span>
               )}
               <span className="h-3 w-px bg-border hidden sm:block shrink-0" />

@@ -449,13 +449,23 @@ export default function SubdomainsModal({ isOpen, onClose, analysisData }) {
                     >
                       Load More (+{Math.min(180, filteredSubdomains.length - visibleCount)})
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setVisibleCount(filteredSubdomains.length)}
-                      className="text-xs text-indigo-400 hover:underline cursor-pointer font-medium px-2 py-1"
-                    >
-                      Show All ({filteredSubdomains.length})
-                    </button>
+                    {filteredSubdomains.length <= 500 ? (
+                      <button
+                        type="button"
+                        onClick={() => setVisibleCount(filteredSubdomains.length)}
+                        className="text-xs text-indigo-400 hover:underline cursor-pointer font-medium px-2 py-1"
+                      >
+                        Show All ({filteredSubdomains.length})
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setVisibleCount((prev) => Math.min(filteredSubdomains.length, prev + 500))}
+                        className="text-xs text-indigo-400 hover:underline cursor-pointer font-medium px-2 py-1"
+                      >
+                        Load 500 More (+{Math.min(500, filteredSubdomains.length - visibleCount)})
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

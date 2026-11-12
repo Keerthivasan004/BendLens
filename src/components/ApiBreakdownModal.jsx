@@ -39,6 +39,11 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
   const [sortBy, setSortBy] = useState('count_desc'); // 'count_desc' | 'count_asc' | 'name_asc'
   const [expandedApiIds, setExpandedApiIds] = useState(new Set());
   const [copiedKey, setCopiedKey] = useState(null);
+  const [visibleCount, setVisibleCount] = useState(60);
+
+  useEffect(() => {
+    setVisibleCount(60);
+  }, [searchQuery, methodFilter, sortBy, groupBy]);
 
   useEffect(() => {
     setMounted(true);
@@ -325,10 +330,12 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
               </button>
             </div>
           ) : (
-            filteredApis.map((api) => {
-              const isExpanded = expandedApiIds.has(api.id);
-              const Icon = getApiIcon(api);
-              const endpointsToRender = api.displayEndpoints || api.endpoints;
+            <>
+              {filteredApis.slice(0, visibleCount).map((api) => {
+                const isExpanded = expandedApiIds.has(api.id);
+                const Icon = getApiIcon(api);
+                const rawEndpointsToRender = api.displayEndpoints || api.endpoints || [];
+                const endpointsToRender = rawEndpointsToRender.slice(0, 40);
 
               return (
                 <div
@@ -556,13 +563,31 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
                             </div>
                           );
                         })}
+                        {rawEndpointsToRender.length > 40 && (
+                          <div className="p-2 text-center text-xs font-mono text-muted bg-surface/80 rounded-lg border border-border/50">
+                            Showing 40 of {rawEndpointsToRender.length} operations. Use search above to filter specific routes.
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
                 </div>
               );
-            })
-          )}
+            })}
+
+            {filteredApis.length > visibleCount && (
+              <div className="pt-2 pb-4 text-center">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((prev) => prev + 60)}
+                  className="px-4 py-2 rounded-xl text-xs font-mono font-semibold bg-surface-raised hover:bg-surface border border-border hover:border-brand/50 text-foreground transition-all cursor-pointer shadow-xs"
+                >
+                  Load More APIs (+{filteredApis.length - visibleCount} remaining)
+                </button>
+              </div>
+            )}
+          </>
+        )}
         </div>
 
         {/* Modal Footer */}

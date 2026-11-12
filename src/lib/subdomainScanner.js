@@ -29,7 +29,19 @@ function loadDiskPerimeterCache() {
       const cache = new Map();
       if (data && typeof data === 'object') {
         for (const [k, v] of Object.entries(data)) {
-          if (Array.isArray(v)) cache.set(k, new Set(v));
+          if (Array.isArray(v)) {
+            const cleanSet = new Set();
+            for (const item of v) {
+              if (item && typeof item === 'string') {
+                let clean = item.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/\.+$/, '');
+                if (clean.startsWith('www.')) clean = clean.slice(4);
+                if (clean && !clean.includes('.feedproxy.ghs.') && !clean.includes('.afd.ghs.') && !clean.endsWith('.ghs.google.com') && !/^[a-z0-9]{16,}\./i.test(clean)) {
+                  cleanSet.add(clean);
+                }
+              }
+            }
+            cache.set(k, cleanSet);
+          }
         }
       }
       return cache;
@@ -122,6 +134,9 @@ class SubdomainScanner {
     if (/^\d{1,3}[-_.]\d{1,3}[-_.]\d{1,3}[-_.]\d{1,3}\./.test(clean)) return '';
     // Filter out DNS protocol records, DKIM hashes, SPF markers, and ACME challenge domains
     if (clean.startsWith('_') || clean.includes('._') || clean.includes('._spfm') || clean.includes('._domainkey') || clean.includes('._dmarc') || clean.includes('._acme')) return '';
+    // Filter out FeedProxy noise, Google GHS customer endpoints, and random high-entropy crypto nonces
+    if (clean.includes('.feedproxy.ghs.') || clean.includes('.afd.ghs.') || clean.endsWith('.ghs.google.com')) return '';
+    if (/^[a-z0-9]{16,}\./i.test(clean)) return '';
     return clean;
   }
 
@@ -229,7 +244,7 @@ class SubdomainScanner {
    * Certificate Transparency logs from CertSpotter with automated multi-page streaming
    * Capable of harvesting 800-1000+ issuances in seconds
    */
-  static async getCertSpotterSubdomains(apexDomain, maxPages = 10, timeoutMs = 15000) {
+  static async getCertSpotterSubdomains(apexDomain, maxPages = 20, timeoutMs = 15000) {
     if (!apexDomain) return [];
     const discovered = new Set();
     let after = null;
@@ -245,7 +260,7 @@ class SubdomainScanner {
             settled = true;
             resolve([]);
           }
-        }, 7000);
+        }, 5000);
 
         try {
           let url = `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(apexDomain)}&include_subdomains=true&expand=dns_names`;
@@ -341,7 +356,7 @@ class SubdomainScanner {
         ? `https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}`
         : `https://api.subdomain.center/?domain=${encodeURIComponent(apexDomain)}&page=${page}`;
 
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         const attemptRemaining = maxBudget - (Date.now() - startTime);
         if (attemptRemaining < 800) return [];
         try {
@@ -350,11 +365,11 @@ class SubdomainScanner {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
               'Accept': 'application/json, text/plain, */*'
             },
-            signal: AbortSignal.timeout(Math.min(6000, attemptRemaining))
+            signal: AbortSignal.timeout(Math.min(8000, Math.max(3000, attemptRemaining)))
           });
 
           if (res.status === 503 || res.status === 429) {
-            await new Promise((r) => setTimeout(r, 400));
+            await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
             continue;
           }
           if (!res.ok) return [];
@@ -364,7 +379,7 @@ class SubdomainScanner {
           }
           await new Promise((r) => setTimeout(r, 300));
         } catch (_err) {
-          await new Promise((r) => setTimeout(r, 200));
+          await new Promise((r) => setTimeout(r, 250));
         }
       }
       return [];
@@ -383,12 +398,16 @@ class SubdomainScanner {
       }
     }
 
-    // 2. If page 1 returned a full batch (>= 450 items), fetch pages 2..8 concurrently in parallel
-    if (page1Items && page1Items.length >= 450) {
-      const remainingPages = [2, 3, 4, 5, 6, 7, 8];
-      const pageResults = await Promise.allSettled(remainingPages.map(fetchPage));
+    // 2. Fetch pages 2..8 in paced parallel batches of 2 to avoid triggering "server busy (64 queries in flight)"
+    const shouldFetchMore = (Array.isArray(page1Items) && page1Items.length >= 400);
+    const candidateBatches = shouldFetchMore ? [[2, 3], [4, 5], [6, 7], [8]] : [[2]];
+    for (const batch of candidateBatches) {
+      if (maxBudget - (Date.now() - startTime) < 1500) break;
+      const pageResults = await Promise.allSettled(batch.map(fetchPage));
+      let hadItems = false;
       for (const res of pageResults) {
         if (res.status === 'fulfilled' && Array.isArray(res.value)) {
+          if (res.value.length > 0) hadItems = true;
           for (const item of res.value) {
             if (item) {
               const clean = this.canonicalize(String(item));
@@ -399,6 +418,8 @@ class SubdomainScanner {
           }
         }
       }
+      if (!hadItems && !shouldFetchMore) break;
+      await new Promise(r => setTimeout(r, 200));
     }
 
     return Array.from(discovered);
@@ -425,7 +446,7 @@ class SubdomainScanner {
       return null;
     };
 
-    const pages = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    const pages = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
     const [passiveDnsData, ...urlListResults] = await Promise.all([
       fetchJson(`https://otx.alienvault.com/api/v1/indicators/domain/${encodeURIComponent(apexDomain)}/passive_dns`),
       ...pages.map((p) => fetchJson(`https://otx.alienvault.com/api/v1/indicators/domain/${encodeURIComponent(apexDomain)}/url_list?limit=500&page=${p}`))
@@ -464,7 +485,7 @@ class SubdomainScanner {
   /**
    * Certificate Transparency logs from crt.sh with resilient retry & JSON parsing
    */
-  static async getCrtShSubdomains(apexDomain, timeoutMs = 8000) {
+  static async getCrtShSubdomains(apexDomain, timeoutMs = 18000) {
     if (!apexDomain) return [];
     const fetchQuery = (queryStr) => new Promise((resolve) => {
       let settled = false;
@@ -477,7 +498,7 @@ class SubdomainScanner {
 
       try {
         const req = https.get(
-          `https://crt.sh/?q=${queryStr}&output=json&exclude=expired`,
+          `https://crt.sh/?q=${queryStr}&output=json`,
           {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -571,7 +592,8 @@ class SubdomainScanner {
    */
   static async getRapidDnsSubdomains(apexDomain, timeoutMs = 8000) {
     if (!apexDomain) return [];
-    return new Promise((resolve) => {
+    const discovered = new Set();
+    const fetchPage = (page) => new Promise((resolve) => {
       let settled = false;
       const timer = setTimeout(() => {
         if (!settled) {
@@ -581,8 +603,12 @@ class SubdomainScanner {
       }, timeoutMs);
 
       try {
+        const url = page === 1
+          ? `https://rapiddns.io/subdomain/${encodeURIComponent(apexDomain)}?full=1`
+          : `https://rapiddns.io/subdomain/${encodeURIComponent(apexDomain)}?full=1&page=${page}`;
+
         const req = https.get(
-          `https://rapiddns.io/subdomain/${encodeURIComponent(apexDomain)}?full=1`,
+          url,
           {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -598,17 +624,17 @@ class SubdomainScanner {
               settled = true;
               clearTimeout(timer);
               if (!html || res.statusCode !== 200) return resolve([]);
-              const discovered = new Set();
               const escapedApex = escapeRegex(apexDomain);
-              const regex = new RegExp(`<td>([a-zA-Z0-9_\\-\\.]+\\.${escapedApex})<\\/td>`, 'gi');
+              const regex = new RegExp(`<td>((?:[a-zA-Z0-9_\\-]{1,63}\\.)+${escapedApex})<\\/td>`, 'gi');
               let m;
+              const pageSubs = [];
               while ((m = regex.exec(html)) !== null) {
                 const clean = this.canonicalize(m[1]);
                 if (clean && (clean === apexDomain || clean.endsWith('.' + apexDomain))) {
-                  discovered.add(clean);
+                  pageSubs.push(clean);
                 }
               }
-              resolve(Array.from(discovered));
+              resolve(pageSubs);
             });
           }
         );
@@ -635,6 +661,15 @@ class SubdomainScanner {
         }
       }
     });
+
+    const pages = [1, 2, 3, 4, 5, 6, 7, 8];
+    const results = await Promise.allSettled(pages.map(fetchPage));
+    for (const r of results) {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        for (const item of r.value) discovered.add(item);
+      }
+    }
+    return Array.from(discovered);
   }
 
   /**
@@ -857,7 +892,7 @@ class SubdomainScanner {
    * High-Probability Active DNS Resolution with Expanded Enterprise Dictionary (450+ entries)
    * Powered by non-blocking Multi-Tier DoH and native OS verification
    */
-  static async getActiveDnsSubdomains(apexDomain, maxPrefixes = 350) {
+  static async getActiveDnsSubdomains(apexDomain, maxPrefixes = 650) {
     if (!apexDomain) return [];
     // 1. Check for Wildcard DNS with bounded timeout
     let hasWildcard = false;
@@ -873,9 +908,11 @@ class SubdomainScanner {
       return [];
     }
 
-    // 600+ High-Frequency Enterprise, SaaS, Airline & Infrastructure Subdomain Prefixes
+    // 850+ High-Frequency Enterprise, SaaS, Google, Microsoft, Airline, Cloud & Regional Infrastructure Subdomain Prefixes
     const fullWordlist = [
       'www', 'api', 'app', 'portal', 'admin', 'auth', 'gateway', 'backend', 'cloud', 'mail', 'webmail', 'ftp',
+      'drive', 'docs', 'sheets', 'slides', 'forms', 'sites', 'play', 'maps', 'translate', 'photos', 'calendar', 'contacts', 'keep', 'classroom', 'earth', 'scholar', 'finance', 'news', 'fonts', 'pay', 'wallet', 'ads', 'analytics', 'tagmanager', 'trends', 'workspace', 'developers', 'support', 'myaccount', 'gemini', 'lens', 'voice', 'groups', 'meet',
+      'azure', 'office', 'teams', 'onedrive', 'outlook', 'live', 'xbox', 'bing', 'copilot', 'sharepoint', 'skype', 'dynamics', 'powerbi', 'powerapps', 'visualstudio', 'msdn', 'technet', 'developer', 'learn',
       'tpo', 'kp', 'mentor', 'student', 'dev', 'stage', 'staging', 'test', 'qa', 'uat', 'prod',
       'accounts', 'account', 'login', 'sso', 'cpanel', 'whm', 'autodiscover', 'autoconfig', 'direct', 'cp',
       'verify', 'learning', 'lab', 'labs', 'exams', 'examform', 'services', 'id', 'billing', 'pay', 'payment',
@@ -925,7 +962,15 @@ class SubdomainScanner {
       'identity-stg', 'iam', 'keycloak', 'okta', 'sts', 'oauth2', 'oidc', 'idp', 'saml', 'jwt',
       'otel', 'trace', 'tracing', 'jaeger', 'zipkin', 'datadog', 'newrelic', 'dynatrace', 'splunk',
       'kafka', 'rabbitmq', 'sqs', 'sns', 'eventbridge', 'nats', 'pulsar', 'mqtt', 'grpc', 'rpc',
-      'gql', 'hasura', 'nexus', 'artifactory', 'sonarqube', 'snyk', 'consul', 'nomad'
+      'gql', 'hasura', 'nexus', 'artifactory', 'sonarqube', 'snyk', 'consul', 'nomad',
+      'hangouts', 'duo', 'jamboard', 'apis', 'cloudsearch', 'colab', 'kaggle', 'chrome', 'chromecast',
+      'android', 'shopping', 'travel', 'flights', 'hotels', 'alerts', 'books', 'podcasts', 'fi', 'fiber',
+      'domains', 'stadia', 'waze', 'nest', 'fit', 'vr', 'ar', 'assistant', 'auto', 'tv', 'cast',
+      'gsuite', 'images', 'video', 'music', 'admin-api', 'maps-api', 'cloud-api', 'drive-api',
+      'feed', 'feeds', 'rss', 'proxy', 'edge', 'node', 'nodes', 'customer', 'customers', 'vendor',
+      'vendors', 'client', 'clients', 'course', 'courses', 'trust', 'ping', 'health', 'probe',
+      'cdn3', 'cdn4', 'static2', 'media2', 'assets2', 'assets3', 's4', 's5', 'eu', 'us', 'asia',
+      'uk', 'in', 'de', 'fr', 'jp', 'au', 'br', 'ca', 'sg', 'emea', 'apac', 'latam', 'na', 'sa'
     ];
 
     const wordlist = fullWordlist.slice(0, maxPrefixes);
@@ -972,7 +1017,7 @@ class SubdomainScanner {
 
     // Token search for domain strings: https?://sub.apexDomain
     const escapedApex = escapeRegex(apexDomain);
-    const tokenRegex = new RegExp(`(?:https?:)?\\/\\/([a-zA-Z0-9_\\-\\.]+\\.${escapedApex})`, 'gi');
+    const tokenRegex = new RegExp(`(?:https?:)?\\/\\/((?:[a-zA-Z0-9_\\-]{1,63}\\.)+${escapedApex})`, 'gi');
     let tMatch;
     while ((tMatch = tokenRegex.exec(html)) !== null) {
       try {
@@ -1000,7 +1045,7 @@ class SubdomainScanner {
     }
 
     const escapedApex = escapeRegex(apexDomain);
-    const regex = new RegExp(`[a-zA-Z0-9_\\-\\.]+\\.${escapedApex}`, 'gi');
+    const regex = new RegExp(`(?:[a-zA-Z0-9_\\-]{1,63}\\.)+${escapedApex}`, 'gi');
     let m;
     while ((m = regex.exec(headerStr)) !== null) {
       const sub = this.canonicalize(m[0]);
@@ -1018,7 +1063,7 @@ class SubdomainScanner {
     if (!code || typeof code !== 'string' || !apexDomain) return [];
     const discovered = new Set();
     const escapedApex = escapeRegex(apexDomain);
-    const regex = new RegExp(`[a-zA-Z0-9_\\-\\.]+\\.${escapedApex}`, 'gi');
+    const regex = new RegExp(`(?:[a-zA-Z0-9_\\-]{1,63}\\.)+${escapedApex}`, 'gi');
     let m;
     while ((m = regex.exec(code)) !== null) {
       const sub = this.canonicalize(m[0]);
@@ -1044,6 +1089,9 @@ class SubdomainScanner {
 
     const priorityPrefixes = [
       'www.', 'api.', 'app.', 'business.', 'teach.', 'support.', 'status.', 'about.',
+      'drive.', 'docs.', 'sheets.', 'slides.', 'play.', 'maps.', 'workspace.', 'developers.',
+      'gemini.', 'photos.', 'translate.', 'calendar.', 'meet.', 'chat.', 'classroom.', 'scholar.',
+      'finance.', 'news.', 'azure.', 'office.', 'teams.', 'onedrive.', 'outlook.', 'copilot.', 'bing.', 'xbox.',
       'investors.', 'auth.', 'login.', 'sso.', 'identity.', 'portal.', 'admin.',
       'gateway.', 'backend.', 'media.', 'mobile.', 'connect.', 'courses.', 'careers.',
       'cloud.', 'stage.', 'dev.', 'secure.', 'mail.', 'm.'
@@ -1270,24 +1318,21 @@ class SubdomainScanner {
         }
       }
 
-      // Deterministic Accumulation & Monotonic Growth:
-      // A rescan must NEVER drop previously verified live subdomains due to transient network lag or partial timeout.
-      const accumulated = this.perimeterCache.get(apex) || new Set();
-      for (const item of verifiedList) {
-        accumulated.add(item);
-      }
+      // Deterministic Active Verification Snapshot (Zero Accumulator Drift):
+      // Live subdomains are strictly the actively verified hosts that resolve via authoritative DNS or certified TLS SAN.
+      const liveSet = new Set(verifiedList);
       for (const item of tlsVerifiedSet) {
-        accumulated.add(item);
+        liveSet.add(item);
       }
-      this.perimeterCache.set(apex, accumulated);
+      this.perimeterCache.set(apex, liveSet);
       saveDiskPerimeterCache(this.perimeterCache);
 
-      const liveList = Array.from(accumulated)
+      const liveList = Array.from(liveSet)
         .filter(Boolean)
         .sort((a, b) => a === apex ? -1 : b === apex ? 1 : a.localeCompare(b));
 
       const historicalList = Array.from(candidateSet)
-        .filter((h) => h && !accumulated.has(h))
+        .filter((h) => h && !liveSet.has(h))
         .sort((a, b) => a.localeCompare(b));
 
       // Combined array: Verified Live subdomains first, followed by Historical/Archival subdomains

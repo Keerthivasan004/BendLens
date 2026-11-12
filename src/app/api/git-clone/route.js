@@ -121,7 +121,7 @@ export async function POST(request) {
       }
 
       if (crawlResult && crawlResult.openApiSpec) {
-        fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec, null, 2), 'utf-8');
+        fs.writeFileSync(path.join(cloneDir, 'openapi.json'), JSON.stringify(crawlResult.openApiSpec), 'utf-8');
         if (crawlResult.sqlSchema) {
           fs.writeFileSync(path.join(cloneDir, 'schema.sql'), crawlResult.sqlSchema, 'utf-8');
         }
@@ -149,6 +149,40 @@ export async function POST(request) {
         result.scannedFilesCount = crawlResult.telemetry?.chunksCrawledCount || result.scannedFilesCount || 1;
         if (!result.endpoints || result.endpoints.length === 0) {
           result.endpoints = result.code?.endpoints || [];
+        }
+        if ((!result.endpoints || result.endpoints.length === 0) && crawlResult.openApiSpec?.paths) {
+          const derived = [];
+          for (const [rPath, methodsObj] of Object.entries(crawlResult.openApiSpec.paths)) {
+            if (!methodsObj || typeof methodsObj !== 'object') continue;
+            for (const [m, op] of Object.entries(methodsObj)) {
+              if (['get', 'post', 'put', 'delete', 'patch', 'options', 'head'].includes(m.toLowerCase())) {
+                let sub = op?.['x-subdomain'] || null;
+                if (!sub && rPath.startsWith('//')) {
+                  sub = rPath.slice(2).split('/')[0];
+                }
+                derived.push({
+                  method: m.toUpperCase(),
+                  path: rPath.startsWith('//') ? '/' + rPath.slice(2).split('/').slice(1).join('/') : rPath,
+                  summary: op?.summary || op?.description || '',
+                  source: sub ? `Subdomain (${sub})` : 'Universal Web Crawler',
+                  module: op?.['x-bundle-source'] || '',
+                  subdomain: sub,
+                  origin: op?.['x-origin'] || (sub ? `https://${sub}` : null),
+                  crawlTier: op?.['x-crawl-tier'] || 'normal',
+                  isLazyLoaded: op?.['x-lazy-loaded'] === true,
+                  routeType: op?.['x-route-type'] || 'API',
+                  isUiRoute: op?.['x-is-ui-route'] === true
+                });
+              }
+            }
+          }
+          result.endpoints = derived;
+          if (!result.code) result.code = { endpoints: [], stats: { totalEndpoints: 0 } };
+          result.code.endpoints = derived;
+          if (result.code.stats) result.code.stats.totalEndpoints = derived.length;
+        }
+        if (result.crawlerTelemetry) {
+          result.crawlerTelemetry.endpoints = result.endpoints || result.code?.endpoints || [];
         }
         if (!crawlResult.sqlSchema) {
           result.schema = { tables: [], relationships: [] };

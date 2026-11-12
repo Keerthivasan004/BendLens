@@ -296,7 +296,9 @@ export function getApiEndpointsBreakdown(analysisData, groupBy = 'auto') {
     const hasWpJson = normalizedEndpoints.some(e => e.path?.includes('/wp-json/'));
     const subdomainsWithEndpoints = new Set(normalizedEndpoints.map(e => e.subdomain).filter(Boolean));
 
-    if (roleDomainsCount >= 4 && (hasStudent || hasMentor || hasTpo)) {
+    if (subdomainsWithEndpoints.size > 1 && (subdomainsWithEndpoints.size >= roleDomainsCount || subdomainsWithEndpoints.size >= 3)) {
+      effectiveStrategy = 'subdomain';
+    } else if (roleDomainsCount >= 4 && (hasStudent || hasMentor || hasTpo)) {
       effectiveStrategy = 'domain';
     } else if (hasWpJson) {
       effectiveStrategy = 'resource';

@@ -215,9 +215,8 @@ export default function ApiFlowModal({
   }, []);
 
   // Construct complete topological network graph with layout coordinates
-  // Construct complete topological network graph with layout coordinates
   const flowGraph = useMemo(() => {
-    if (!endpoints || endpoints.length === 0) {
+    if (!isOpen || !endpoints || endpoints.length === 0) {
       return {
         stages: [],
         nodes: [],
@@ -230,6 +229,24 @@ export default function ApiFlowModal({
         isFilteredService: false,
         stats: { total: 0, links: 0, domains: 0, apiServices: 0 }
       };
+    }
+
+    // High-scale visual guard: Cap topological visual canvas nodes to top 64 endpoints
+    // to guarantee 60fps butter-smooth rendering and eliminate CPU main thread freeze
+    const MAX_GRAPH_NODES = 64;
+    let targetEndpoints = endpoints;
+    if (endpoints.length > MAX_GRAPH_NODES) {
+      targetEndpoints = [...endpoints].sort((a, b) => {
+        let wa = (a.level === 'HIGH' ? 20 : a.level === 'MEDIUM' ? 10 : 0) +
+                 (['POST', 'PUT', 'DELETE'].includes(a.method) ? 10 : 0) +
+                 (a.kind === 'AUTH' ? 15 : 0) +
+                 ((a.connectedTables && a.connectedTables.length > 0) ? 5 : 0);
+        let wb = (b.level === 'HIGH' ? 20 : b.level === 'MEDIUM' ? 10 : 0) +
+                 (['POST', 'PUT', 'DELETE'].includes(b.method) ? 10 : 0) +
+                 (b.kind === 'AUTH' ? 15 : 0) +
+                 ((b.connectedTables && b.connectedTables.length > 0) ? 5 : 0);
+        return wb - wa;
+      }).slice(0, MAX_GRAPH_NODES);
     }
 
     const nodeLookup = new Map();
@@ -253,7 +270,7 @@ export default function ApiFlowModal({
 
     // 2. Discover authentic parent API Services & cluster endpoints
     // Intelligently group endpoints into genuine Services and Resource Branches
-    const isSingleProjectApp = endpoints.length <= 20 && (!endpoints.some(e => e.module && !['api', 'default', ''].includes(e.module.toLowerCase())));
+    const isSingleProjectApp = targetEndpoints.length <= 20 && (!targetEndpoints.some(e => e.module && !['api', 'default', ''].includes(e.module.toLowerCase())));
     
     const getCleanPath = (rawPath) => {
       const p = String(rawPath || '/').trim();
@@ -323,7 +340,7 @@ export default function ApiFlowModal({
     };
 
     const apiGroups = new Map();
-    endpoints.forEach((ep, idx) => {
+    targetEndpoints.forEach((ep, idx) => {
       const p = String(ep.path || '/');
       const method = String(ep.method || 'GET').toUpperCase();
       let apiName = ep.module || '';
@@ -1196,7 +1213,7 @@ export default function ApiFlowModal({
       }
 
       // Rule 2: Resource Lifecycle & State Handoff (Create/Mutate -> Read/Query)
-      mutateEps.forEach(mutEp => {
+      mutateEps.slice(0, 12).forEach(mutEp => {
         const mutTokens = (mutEp.path || '').toLowerCase().split('/').filter(Boolean);
         const relatedQueries = queryEps.filter(qEp => {
           if (qEp.id === mutEp.id) return false;
@@ -1218,7 +1235,7 @@ export default function ApiFlowModal({
       });
 
       // Rule 3: Sub-Resource Hierarchical Delegation
-      epsInService.forEach(srcEp => {
+      epsInService.slice(0, 15).forEach(srcEp => {
         const srcPath = (srcEp.path || '').replace(/\/$/, '');
         if (srcPath.length < 3) return;
         const subEps = epsInService.filter(tgtEp => {
@@ -1239,7 +1256,7 @@ export default function ApiFlowModal({
       });
 
       // Rule 4: Shared Database Entity Data Bus
-      epsInService.forEach(srcEp => {
+      epsInService.slice(0, 15).forEach(srcEp => {
         const srcWrites = (srcEp.connectedTables || []).filter(ct => 
           typeof ct === 'object' && ct !== null ? ct.action === 'WRITE' : srcEp.method !== 'GET'
         );
@@ -1271,7 +1288,7 @@ export default function ApiFlowModal({
       });
 
       // Rule 5: Webhooks & Event Handlers
-      webhookEps.forEach(whEp => {
+      webhookEps.slice(0, 8).forEach(whEp => {
         const targetDown = mutateEps.find(m => m.id !== whEp.id) || queryEps[0];
         if (targetDown) {
           addEndpointLink(
@@ -1286,7 +1303,7 @@ export default function ApiFlowModal({
       });
 
       // Rule 6: Logical Workflow Progression for Remaining Unconnected Endpoints
-      epsInService.forEach((ep, idx) => {
+      epsInService.slice(0, 15).forEach((ep, idx) => {
         const hasDirectLinks = links.some(l => 
           (l.sourceId === ep.id || l.targetId === ep.id) && 
           l.type !== 'GATEWAY_ROUTING'
