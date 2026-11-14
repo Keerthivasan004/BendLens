@@ -1184,7 +1184,7 @@ class SubdomainScanner {
     const profile = getCrawlerProfile(options);
     const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || profile.isServerless);
     const concurrency = isServerlessEnv
-      ? Math.min(profile.dnsLookupConcurrency || 60, 80)
+      ? Math.min(profile.dnsLookupConcurrency || 350, 400)
       : Math.min(profile.dnsLookupConcurrency || 350, 400);
     const candidateLimit = profile.subdomainCandidateLimit || maxCandidates;
 

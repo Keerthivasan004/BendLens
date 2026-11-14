@@ -1470,7 +1470,7 @@ class UniversalApiCrawler {
       };
 
 
-      while (normalQueue.length > 0 && visitedUrls.size < maxNormalChunks && (Date.now() - startTime < maxCrawlTimeMs * 0.5)) {
+      while (normalQueue.length > 0 && visitedUrls.size < maxNormalChunks && (Date.now() - startTime < maxCrawlTimeMs * (isServerless ? 0.65 : 0.5))) {
 
         const batch = normalQueue.splice(0, concurrency);
         await Promise.all(batch.map(async (url) => {
@@ -1757,7 +1757,7 @@ class UniversalApiCrawler {
         // Exhaustively process all dynamic code-split chunks up to chunk limit or queue exhaustion
         const maxDeepChunks = maxChunks;
         const deepChunkTimeout = isServerless ? 6000 : 8000;
-        while (deepQueue.length > 0 && visitedUrls.size < maxDeepChunks && (Date.now() - startTime < maxCrawlTimeMs * 0.7)) {
+        while (deepQueue.length > 0 && visitedUrls.size < maxDeepChunks && (Date.now() - startTime < maxCrawlTimeMs * (isServerless ? 0.88 : 0.7))) {
           const batch = deepQueue.splice(0, concurrency);
 
           await Promise.all(batch.map(async (url) => {
@@ -1942,7 +1942,7 @@ class UniversalApiCrawler {
         const diff = score(b) - score(a);
         if (diff !== 0) return diff;
         return a.localeCompare(b);
-      }).slice(0, isServerless ? 8 : 10);
+      }).slice(0, 10);
 
       // Identify Primary Dedicated API Gateway (e.g. api.*, backend.*, or PaaS endpoints)
       const primaryApiGateway = prioritizedGateways.find(u => {
@@ -2552,7 +2552,7 @@ class UniversalApiCrawler {
       try {
         if (pLegalDocuments) {
           const elapsed = Date.now() - startTime;
-          const waitBudget = isServerless ? Math.min(10000, Math.max(3000, maxCrawlTimeMs - elapsed)) : Math.min(25000, Math.max(6000, maxCrawlTimeMs - elapsed));
+          const waitBudget = isServerless ? Math.min(18000, Math.max(5000, maxCrawlTimeMs - elapsed)) : Math.min(25000, Math.max(6000, maxCrawlTimeMs - elapsed));
           legalDocuments = await Promise.race([
             pLegalDocuments,
             new Promise((resolve) => setTimeout(() => resolve(null), waitBudget))
@@ -2569,7 +2569,7 @@ class UniversalApiCrawler {
         if (!legalDocuments.privacyPolicy || !legalDocuments.termsOfService) {
           try {
             const elapsed = Date.now() - startTime;
-            const suppWait = isServerless ? Math.min(6000, Math.max(2000, maxCrawlTimeMs - elapsed)) : Math.min(15000, Math.max(4000, maxCrawlTimeMs - elapsed));
+            const suppWait = isServerless ? Math.min(10000, Math.max(3000, maxCrawlTimeMs - elapsed)) : Math.min(15000, Math.max(4000, maxCrawlTimeMs - elapsed));
             const legalKeywordRegex = /^(?:legal|privacy|terms|policies|policy|support|help|about|corporate|account|auth|developer|docs|security)\./i;
             const filteredSubs = (discoveredSubdomainsList || []).filter(s => legalKeywordRegex.test(s)).slice(0, 15);
             const supplemental = await Promise.race([
@@ -6397,7 +6397,7 @@ class UniversalApiCrawler {
             try {
               const relayUrl = `https://r.jina.ai/${u}`;
               let relayRes = await this.safeFetch(relayUrl, {
-                timeout: isServerlessEnv ? 5000 : 10000,
+                timeout: isServerlessEnv ? 9000 : 10000,
                 customHeaders: { 'Accept': 'text/plain, text/markdown' }
               });
               let lowerRelay = (relayRes?.text || '').toLowerCase();
@@ -6414,7 +6414,7 @@ class UniversalApiCrawler {
                 try {
                   const retryWithLocale = u.includes('?') ? `${u}&locale=en_US` : `${u}?locale=en_US`;
                   const retryRelayRes = await this.safeFetch(`https://r.jina.ai/${retryWithLocale}`, {
-                    timeout: isServerlessEnv ? 6000 : 12000,
+                    timeout: isServerlessEnv ? 10000 : 12000,
                     customHeaders: { 'Accept': 'text/plain, text/markdown' }
                   });
                   if (retryRelayRes.ok && retryRelayRes.status === 200 && retryRelayRes.text && retryRelayRes.text.length > 500) {
@@ -6557,7 +6557,7 @@ class UniversalApiCrawler {
 
       // 2. Parallel batched probes for conventional paths (sorted by priority score)
       const conventionCandidates = candidates.filter(u => !isExplicitUrl(u)).sort((a, b) => scoreCandidate(b, docType) - scoreCandidate(a, docType));
-      const targetConventions = conventionCandidates.slice(0, isServerlessEnv ? 24 : 36);
+      const targetConventions = conventionCandidates.slice(0, 36);
       const batchSize = 8;
       let candidateBest = null;
 
