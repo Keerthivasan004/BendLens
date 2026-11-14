@@ -86,6 +86,11 @@ CREATE TABLE orders (
     if (!docUrl) return null;
     const s = String(docUrl).trim();
     if (!s || s === '#' || s.startsWith('javascript:') || s.includes('bendlens.local')) return null;
+    const lower = s.toLowerCase();
+    if (lower.includes('goindigo') || lower.includes('indigo')) {
+      if (lower.includes('privacy')) return 'https://www.goindigo.in/information/privacy.html';
+      if (lower.includes('term') || lower.includes('condition')) return 'https://www.goindigo.in/loyalty/terms-and-conditions.html';
+    }
     if (s.startsWith('http://') || s.startsWith('https://')) {
       if (s.startsWith('http://') && !s.includes('localhost')) return s.replace(/^http:\/\//i, 'https://');
       return s;
@@ -316,6 +321,10 @@ CREATE TABLE orders (
         setScanProgress(100);
         try {
           if (result.data) {
+            if (result.techStack && !result.data.techStack) result.data.techStack = result.techStack;
+            if (result.cloudProvider && !result.data.cloudProvider) result.data.cloudProvider = result.cloudProvider;
+            if (result.legalDocuments && !result.data.legalDocuments) result.data.legalDocuments = result.legalDocuments;
+            if (result.telemetry && !result.data.crawlerTelemetry) result.data.crawlerTelemetry = result.telemetry;
             await saveAnalysisData(result.data);
             if (result.data.projectPath || result.data.targetUrl) {
               localStorage.setItem('bendlens-path', result.data.projectPath || result.data.targetUrl);

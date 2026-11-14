@@ -10,56 +10,110 @@ const { getCrawlerProfile } = require('./crawler/index.js');
 
 const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 
-// Shared high-speed non-blocking c-ares resolver
+// Shared high-speed non-blocking c-ares resolver with Anycast redundancy
 const sharedResolver = new dns.Resolver();
 try {
-  const sysServers = (dns.getServers() || []).filter(s => s !== '127.0.0.1' && s !== '::1' && !s.startsWith('fe80:'));
-  const workingServers = sysServers.length > 0
-    ? [...sysServers, '8.8.8.8', '1.1.1.1']
-    : ['8.8.8.8', '1.1.1.1', '1.0.0.1'];
+  const workingServers = ['1.1.1.1', '8.8.8.8', '1.0.0.1', '8.8.4.4', '9.9.9.9'];
   sharedResolver.setServers(workingServers);
 } catch (_err) { }
 
 const PERIMETER_CACHE_FILE = path.join(os.tmpdir(), '.bendlens_perimeter_cache.json');
 
+function sanitizeCandidateHost(item) {
+  if (!item || typeof item !== 'string') return null;
+  let clean = item.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/\.+$/, '');
+  if (clean && !clean.includes('.feedproxy.ghs.') && !clean.includes('.afd.ghs.') && !clean.endsWith('.ghs.google.com') && !/^[a-z0-9]{16,}\./i.test(clean)) {
+    return clean;
+  }
+  return null;
+}
+
 function loadDiskPerimeterCache() {
+  const perimeterCache = new Map();
+  const historicalCache = new Map();
+  const allCandidatesCache = new Map();
+
   try {
     if (fs.existsSync(PERIMETER_CACHE_FILE)) {
       const data = JSON.parse(fs.readFileSync(PERIMETER_CACHE_FILE, 'utf8'));
-      const cache = new Map();
       if (data && typeof data === 'object') {
         for (const [k, v] of Object.entries(data)) {
+          const liveSet = new Set();
+          const histSet = new Set();
+          const allSet = new Set();
+
           if (Array.isArray(v)) {
-            const cleanSet = new Set();
             for (const item of v) {
-              if (item && typeof item === 'string') {
-                let clean = item.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/\.+$/, '');
-                if (clean.startsWith('www.')) clean = clean.slice(4);
-                if (clean && !clean.includes('.feedproxy.ghs.') && !clean.includes('.afd.ghs.') && !clean.endsWith('.ghs.google.com') && !/^[a-z0-9]{16,}\./i.test(clean)) {
-                  cleanSet.add(clean);
+              const clean = sanitizeCandidateHost(item);
+              if (clean) {
+                liveSet.add(clean);
+                allSet.add(clean);
+              }
+            }
+          } else if (v && typeof v === 'object') {
+            if (Array.isArray(v.live)) {
+              for (const item of v.live) {
+                const clean = sanitizeCandidateHost(item);
+                if (clean) {
+                  liveSet.add(clean);
+                  allSet.add(clean);
                 }
               }
             }
-            cache.set(k, cleanSet);
+            if (Array.isArray(v.historical)) {
+              for (const item of v.historical) {
+                const clean = sanitizeCandidateHost(item);
+                if (clean) {
+                  histSet.add(clean);
+                  allSet.add(clean);
+                }
+              }
+            }
+            if (Array.isArray(v.all)) {
+              for (const item of v.all) {
+                const clean = sanitizeCandidateHost(item);
+                if (clean) allSet.add(clean);
+              }
+            }
+          }
+
+          if (liveSet.size > 0 || histSet.size > 0 || allSet.size > 0) {
+            perimeterCache.set(k, liveSet);
+            historicalCache.set(k, histSet);
+            allCandidatesCache.set(k, allSet);
           }
         }
       }
-      return cache;
     }
   } catch (_err) { }
-  return new Map();
+
+  perimeterCache.historicalCache = historicalCache;
+  perimeterCache.allCandidatesCache = allCandidatesCache;
+  return perimeterCache;
 }
 
-function saveDiskPerimeterCache(cache) {
+function saveDiskPerimeterCache(perimeterCache, historicalCache = null, allCandidatesCache = null) {
   try {
-    if (!cache || !(cache instanceof Map)) return;
+    if (!perimeterCache || !(perimeterCache instanceof Map)) return;
+    const hCache = historicalCache || SubdomainScanner.historicalCache || perimeterCache.historicalCache;
+    const aCache = allCandidatesCache || SubdomainScanner.allCandidatesCache || perimeterCache.allCandidatesCache;
     const obj = {};
-    for (const [k, v] of cache.entries()) {
-      if (v instanceof Set) {
-        obj[k] = Array.from(v);
-      } else if (Array.isArray(v)) {
-        obj[k] = v;
-      }
+    const allApexes = new Set([
+      ...perimeterCache.keys(),
+      ...(hCache ? hCache.keys() : []),
+      ...(aCache ? aCache.keys() : [])
+    ]);
+
+    for (const apex of allApexes) {
+      const liveSet = perimeterCache.get(apex) || new Set();
+      const histSet = (hCache && hCache.get(apex)) || new Set();
+      const allSet = (aCache && aCache.get(apex)) || new Set([...liveSet, ...histSet]);
+
+      obj[apex] = {
+        live: Array.from(liveSet),
+        historical: Array.from(histSet),
+        all: Array.from(allSet)
+      };
     }
     fs.writeFileSync(PERIMETER_CACHE_FILE, JSON.stringify(obj, null, 2), 'utf8');
   } catch (_err) { }
@@ -398,9 +452,11 @@ class SubdomainScanner {
       }
     }
 
-    // 2. Fetch pages 2..8 in paced parallel batches of 2 to avoid triggering "server busy (64 queries in flight)"
-    const shouldFetchMore = (Array.isArray(page1Items) && page1Items.length >= 400);
-    const candidateBatches = shouldFetchMore ? [[2, 3], [4, 5], [6, 7], [8]] : [[2]];
+    // 2. Fetch pages 2..20 in paced parallel batches of 3 to harvest high-density perimeters (e.g. 5,000+ subdomains)
+    const shouldFetchMore = (Array.isArray(page1Items) && page1Items.length >= 350);
+    const candidateBatches = shouldFetchMore
+      ? [[2, 3, 4], [5, 6, 7], [8, 9, 10], [11, 12, 13], [14, 15, 16], [17, 18, 19], [20]]
+      : [[2]];
     for (const batch of candidateBatches) {
       if (maxBudget - (Date.now() - startTime) < 1500) break;
       const pageResults = await Promise.allSettled(batch.map(fetchPage));
@@ -419,7 +475,7 @@ class SubdomainScanner {
         }
       }
       if (!hadItems && !shouldFetchMore) break;
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 60));
     }
 
     return Array.from(discovered);
@@ -572,13 +628,13 @@ class SubdomainScanner {
     });
 
     // Primary: query with wildcard %.<apexDomain> (fast PostgreSQL index scan)
-    let res = await fetchQuery(`%.${encodeURIComponent(apexDomain)}`);
+    let res = await fetchQuery(`%25.${encodeURIComponent(apexDomain)}`);
     if (res.data && res.data.length > 0) return res.data;
 
-    // Resilient retry with 1s backoff for transient 502/503/429 status from crt.sh
-    if ([502, 503, 429].includes(res.status)) {
-      await new Promise(r => setTimeout(r, 1000));
-      res = await fetchQuery(`%.${encodeURIComponent(apexDomain)}`);
+    // Resilient retry with 1.2s backoff for transient 502/503/429/504 status from crt.sh
+    if ([502, 503, 429, 504].includes(res.status)) {
+      await new Promise(r => setTimeout(r, 1200));
+      res = await fetchQuery(`%25.${encodeURIComponent(apexDomain)}`);
       if (res.data && res.data.length > 0) return res.data;
     }
 
@@ -844,48 +900,90 @@ class SubdomainScanner {
   }
 
   /**
-   * High-Speed Non-Blocking UDP c-ares DNS Verification (15-40ms per query)
-   * Resolves IPv4, CNAME, and IPv6 records concurrently with zero external DoH HTTP overhead.
+   * High-Speed Non-Blocking UDP c-ares + Native OS DNS Verification (15-40ms per query)
+   * Concurrently verifies IPv4 (A), CNAME, and native OS lookup (IPv6/cached GetAddrInfo) in parallel.
+   * Distinguishes confirmed live, confirmed dead (NXDOMAIN), and transient timeouts.
+   *
+   * @param {string} host Hostname to verify
+   * @param {number} timeoutMs Max timeout in ms (default 800)
+   * @param {boolean} returnDetails When true, returns { isLive: boolean, isNxDomain: boolean }
+   * @returns {Promise<boolean|{isLive: boolean, isNxDomain: boolean}>}
    */
-  static async resolveHostMultiTier(host, timeoutMs = 600) {
-    if (!host) return false;
+  static async resolveHostMultiTier(host, timeoutMs = 800, returnDetails = false) {
+    if (!host) return returnDetails ? { isLive: false, isNxDomain: false } : false;
+
+    let isLive = false;
+    let isNxDomain = false;
 
     try {
-      const live = await new Promise((resolve) => {
-        let done = false;
-        const tier0Timeout = Math.min(450, timeoutMs);
-        const timer = setTimeout(() => {
-          if (!done) { done = true; resolve(false); }
-        }, tier0Timeout);
+      const res = await new Promise((resolve) => {
+        let settled = false;
+        let nxCount = 0;
+        let totalQueries = 3;
 
-        sharedResolver.resolve4(host, (err, addrs) => {
-          if (done) return;
-          if (!err && Array.isArray(addrs) && addrs.length > 0) {
-            done = true;
-            clearTimeout(timer);
-            return resolve(true);
+        const tierTimeout = Math.min(1200, Math.max(250, timeoutMs));
+        const timer = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            // Timeout is an inconclusive result, NEVER mark as NXDOMAIN
+            resolve({ isLive: false, isNxDomain: false });
           }
-          // Check CNAME or IPv6 if A record did not answer
-          sharedResolver.resolveCname(host, (cErr, cnames) => {
-            if (done) return;
-            if (!cErr && Array.isArray(cnames) && cnames.length > 0) {
-              done = true;
-              clearTimeout(timer);
-              return resolve(true);
-            }
-            sharedResolver.resolve6(host, (err6, addrs6) => {
-              if (done) return;
-              done = true;
-              clearTimeout(timer);
-              return resolve(!err6 && Array.isArray(addrs6) && addrs6.length > 0);
-            });
-          });
+        }, tierTimeout);
+
+        function checkNx(err) {
+          if (err && (err.code === 'ENOTFOUND' || err.code === 'NODATA')) {
+            nxCount++;
+          }
+          totalQueries--;
+          if (totalQueries <= 0 && !settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve({ isLive: false, isNxDomain: nxCount >= 2 });
+          }
+        }
+
+        // 1. Parallel c-ares A query
+        sharedResolver.resolve4(host, (err, addrs) => {
+          if (settled) return;
+          if (!err && Array.isArray(addrs) && addrs.length > 0) {
+            settled = true;
+            clearTimeout(timer);
+            return resolve({ isLive: true, isNxDomain: false });
+          }
+          checkNx(err);
+        });
+
+        // 2. Parallel c-ares CNAME query
+        sharedResolver.resolveCname(host, (err, cnames) => {
+          if (settled) return;
+          if (!err && Array.isArray(cnames) && cnames.length > 0) {
+            settled = true;
+            clearTimeout(timer);
+            return resolve({ isLive: true, isNxDomain: false });
+          }
+          checkNx(err);
+        });
+
+        // 3. Parallel native OS resolver lookup (fast Windows DNS cache / GetAddrInfo)
+        dns.lookup(host, { all: false }, (err, addr) => {
+          if (settled) return;
+          if (!err && addr) {
+            settled = true;
+            clearTimeout(timer);
+            return resolve({ isLive: true, isNxDomain: false });
+          }
+          checkNx(err);
         });
       });
-      return Boolean(live);
+
+      isLive = res.isLive;
+      isNxDomain = res.isNxDomain;
     } catch (_e) {
-      return false;
+      isLive = false;
+      isNxDomain = false;
     }
+
+    return returnDetails ? { isLive, isNxDomain } : isLive;
   }
 
   /**
@@ -1076,16 +1174,21 @@ class SubdomainScanner {
 
   /**
    * Rigorous Active Verification:
-   * Concurrently verifies candidate subdomains via high-speed non-blocking UDP c-ares worker pool
-   * with bounded time budget and multi-tier DNS resolution (A -> CNAME -> AAAA -> OS lookup).
+   * Concurrently verifies candidate subdomains via high-speed non-blocking UDP c-ares + OS worker pool
+   * with bounded time budget and multi-tier DNS resolution (A -> CNAME -> OS lookup).
    */
-  static async validateCandidates(candidateSet, apexDomain, maxCandidates = 25000, totalTimeoutMs = 45000, options = {}) {
+  static async validateCandidates(candidateSet, apexDomain, maxCandidates = 25000, totalTimeoutMs = 30000, options = {}) {
     if (!apexDomain) return [];
     const verified = new Set([apexDomain]);
+    const confirmedDead = new Set();
     const profile = getCrawlerProfile(options);
-    const concurrency = profile.dnsLookupConcurrency || 80;
-    const candidateLimit = profile.subdomainCandidateLimit || maxCandidates;
     const isServerlessEnv = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || profile.isServerless);
+    const concurrency = isServerlessEnv
+      ? Math.min(profile.dnsLookupConcurrency || 60, 80)
+      : Math.min(profile.dnsLookupConcurrency || 350, 400);
+    const candidateLimit = profile.subdomainCandidateLimit || maxCandidates;
+
+    const previouslyVerifiedLive = SubdomainScanner.perimeterCache?.get(apexDomain) || new Set();
 
     const priorityPrefixes = [
       'www.', 'api.', 'app.', 'business.', 'teach.', 'support.', 'status.', 'about.',
@@ -1099,6 +1202,11 @@ class SubdomainScanner {
     const candidates = Array.from(candidateSet)
       .filter((h) => h && h !== apexDomain && !h.includes('*'))
       .sort((a, b) => {
+        // Prioritize previously confirmed LIVE subdomains so they are validated at t=0 within 1-2 seconds
+        const aLive = previouslyVerifiedLive.has(a) ? 0 : 1;
+        const bLive = previouslyVerifiedLive.has(b) ? 0 : 1;
+        if (aLive !== bLive) return aLive - bLive;
+
         const aPri = priorityPrefixes.some(p => a.startsWith(p)) ? 0 : 1;
         const bPri = priorityPrefixes.some(p => b.startsWith(p)) ? 0 : 1;
         if (aPri !== bPri) return aPri - bPri;
@@ -1108,22 +1216,34 @@ class SubdomainScanner {
 
     const startTime = Date.now();
     let index = 0;
-    const candidateTimeout = profile.candidateTimeout || 450;
+    const candidateTimeout = Math.min(600, Math.max(150, profile.candidateTimeout || 200));
 
     async function worker() {
       while (index < candidates.length) {
         if (Date.now() - startTime > totalTimeoutMs) break;
         const host = candidates[index++];
         if (!host) continue;
-        const isLive = await SubdomainScanner.resolveHostMultiTier(host, candidateTimeout);
-        if (isLive) {
+        const res = await SubdomainScanner.resolveHostMultiTier(host, candidateTimeout, true);
+        if (res.isLive) {
           verified.add(host);
+        } else if (res.isNxDomain) {
+          confirmedDead.add(host);
         }
       }
     }
 
     const workers = Array.from({ length: concurrency }, () => worker());
     await Promise.all(workers);
+
+    // Monotonic Active Asset Preservation:
+    // If a subdomain was actively verified live in a previous scan or crawl pass,
+    // preserve it UNLESS the authoritative DNS query explicitly proved NXDOMAIN (domain was deleted).
+    // This completely prevents UDP packet loss or public DNS rate limits from causing fluctuating counts across rescans.
+    for (const prev of previouslyVerifiedLive) {
+      if (!confirmedDead.has(prev)) {
+        verified.add(prev);
+      }
+    }
 
     const sortedSubdomains = Array.from(verified)
       .filter((h) => h !== apexDomain)
@@ -1175,10 +1295,18 @@ class SubdomainScanner {
         candidateSet.add(targetClean);
       }
 
-      // Preload previously verified subdomains from perimeterCache to re-verify live
-      const cached = this.perimeterCache.get(apex);
+      // Preload previously discovered candidates (both live & historical) to ensure complete perimeter preservation across rescans
+      const allKnown = SubdomainScanner.allCandidatesCache?.get(apex);
+      if (allKnown && allKnown.size > 0) {
+        for (const item of allKnown) candidateSet.add(item);
+      }
+      const cached = this.perimeterCache?.get(apex);
       if (cached && cached.size > 0) {
         for (const item of cached) candidateSet.add(item);
+      }
+      const histCached = SubdomainScanner.historicalCache?.get(apex);
+      if (histCached && histCached.size > 0) {
+        for (const item of histCached) candidateSet.add(item);
       }
 
       // Adaptive bounded timeouts for serverless and local environments
@@ -1324,16 +1452,21 @@ class SubdomainScanner {
       for (const item of tlsVerifiedSet) {
         liveSet.add(item);
       }
-      this.perimeterCache.set(apex, liveSet);
-      saveDiskPerimeterCache(this.perimeterCache);
-
-      const liveList = Array.from(liveSet)
-        .filter(Boolean)
-        .sort((a, b) => a === apex ? -1 : b === apex ? 1 : a.localeCompare(b));
 
       const historicalList = Array.from(candidateSet)
         .filter((h) => h && !liveSet.has(h))
         .sort((a, b) => a.localeCompare(b));
+      const historicalSet = new Set(historicalList);
+      const allSet = new Set([...liveSet, ...historicalSet]);
+
+      this.perimeterCache.set(apex, liveSet);
+      if (SubdomainScanner.historicalCache) SubdomainScanner.historicalCache.set(apex, historicalSet);
+      if (SubdomainScanner.allCandidatesCache) SubdomainScanner.allCandidatesCache.set(apex, allSet);
+      saveDiskPerimeterCache(this.perimeterCache, SubdomainScanner.historicalCache, SubdomainScanner.allCandidatesCache);
+
+      const liveList = Array.from(liveSet)
+        .filter(Boolean)
+        .sort((a, b) => a === apex ? -1 : b === apex ? 1 : a.localeCompare(b));
 
       // Combined array: Verified Live subdomains first, followed by Historical/Archival subdomains
       const finalSorted = [...liveList, ...historicalList];
@@ -1361,7 +1494,10 @@ class SubdomainScanner {
 }
 
 // In-memory & disk-persistent perimeter cache preserving verified assets across repeated runs
-SubdomainScanner.perimeterCache = loadDiskPerimeterCache();
+const initialCaches = loadDiskPerimeterCache();
+SubdomainScanner.perimeterCache = initialCaches;
+SubdomainScanner.historicalCache = initialCaches.historicalCache || new Map();
+SubdomainScanner.allCandidatesCache = initialCaches.allCandidatesCache || new Map();
 SubdomainScanner.inFlightScans = new Map();
 SubdomainScanner.default = SubdomainScanner;
 SubdomainScanner.SubdomainScanner = SubdomainScanner;

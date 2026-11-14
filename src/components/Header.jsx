@@ -389,12 +389,19 @@ export default function Header({
 
               {(() => {
                 const legalDocs = analysisData?.legalDocuments || analysisData?.crawlerTelemetry?.legalDocuments;
-                const hasAny = !!(
+                const isWeb = Boolean(
+                  analysisData?.isUrlCrawl ||
+                  analysisData?.crawlerTelemetry ||
+                  (currentPath && (currentPath.startsWith('http://') || currentPath.startsWith('https://')))
+                );
+                const hasAny = Boolean(
+                  legalDocs?.hasLegalDocuments ||
                   legalDocs?.privacyPolicy ||
                   legalDocs?.privacy ||
                   legalDocs?.termsOfService ||
                   legalDocs?.termsOfUse ||
-                  legalDocs?.terms
+                  legalDocs?.terms ||
+                  !isWeb
                 );
                 return (
                   <button

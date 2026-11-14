@@ -142,6 +142,7 @@ class InfraParser {
     try {
       const spec = JSON.parse(content);
       if (spec.paths) {
+        const subdomainsSet = new Set(this.subdomains);
         const specServerHosts = [];
         if (Array.isArray(spec.servers)) {
           for (const s of spec.servers) {
@@ -150,7 +151,7 @@ class InfraParser {
                 let h = new URL(s.url).hostname.toLowerCase().replace(/^www\./, '');
                 if (h && !specServerHosts.includes(h)) {
                   specServerHosts.push(h);
-                  if (!this.subdomains.includes(h)) this.subdomains.push(h);
+                  subdomainsSet.add(h);
                 }
               } catch {}
             }
@@ -161,7 +162,7 @@ class InfraParser {
           for (const s of spec['x-subdomains']) {
             if (s && typeof s === 'string') {
               let h = s.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '');
-              if (h && !this.subdomains.includes(h)) this.subdomains.push(h);
+              if (h) subdomainsSet.add(h);
             }
           }
         }
@@ -185,7 +186,7 @@ class InfraParser {
               const rawSub = details?.['x-subdomain'] || inferredSubdomain || (details?.servers?.[0]?.url ? (function() { try { return new URL(details.servers[0].url).hostname; } catch { return null; } })() : null) || primaryHost;
               const sub = rawSub ? rawSub.toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '') : null;
               const orig = details?.['x-origin'] || inferredOrigin || (details?.servers?.[0]?.url || (sub ? `https://${sub}` : null));
-              if (sub && !this.subdomains.includes(sub)) this.subdomains.push(sub);
+              if (sub) subdomainsSet.add(sub);
 
               this.externalAPIs.push({
                 path: fullPath,
@@ -204,6 +205,7 @@ class InfraParser {
             }
           }
         }
+        this.subdomains = Array.from(subdomainsSet);
         return;
       }
     } catch {

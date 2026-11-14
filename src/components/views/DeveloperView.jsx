@@ -857,18 +857,28 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
           badge = '/api/core';
         }
       } else {
+        let normPath = ep.path || '';
+        if (normPath.startsWith('//')) {
+          normPath = '/' + normPath.slice(2).split('/').slice(1).join('/');
+        } else if (normPath.startsWith('http://') || normPath.startsWith('https://')) {
+          try {
+            normPath = new URL(normPath).pathname;
+          } catch {
+            normPath = '/' + normPath.split('/').slice(3).join('/');
+          }
+        }
         let rawKey = 'general';
         if (Array.isArray(ep.tags) && ep.tags[0] && ep.tags[0] !== 'General') {
           rawKey = ep.tags[0].toLowerCase();
-        } else if (ep.path?.startsWith('/wp-json/')) {
-          const parts = ep.path.replace('/wp-json/', '').split('/').filter(Boolean);
+        } else if (normPath.startsWith('/wp-json/')) {
+          const parts = normPath.replace('/wp-json/', '').split('/').filter(Boolean);
           rawKey = parts.slice(0, 2).join('/') || 'wp';
         } else {
-          const segs = (ep.path || '').replace(/^\/+/, '').split('/').filter(Boolean);
+          const segs = normPath.replace(/^\/+/, '').split('/').filter(Boolean);
           let idx = 0;
-          if (segs[0]?.toLowerCase() === 'api') {
-            idx = (segs[1] && /^v[0-9]+$/i.test(segs[1])) ? 2 : 1;
-          } else if (/^v[0-9]+$/i.test(segs[0])) {
+          if (/^api(?:[-_.]?v?[0-9]+(?:\.[0-9]+)*)?$/i.test(segs[0])) {
+            idx = (segs[1] && /^v?[0-9]+(?:\.[0-9]+)*$/i.test(segs[1])) ? 2 : 1;
+          } else if (/^v?[0-9]+(?:\.[0-9]+)*$/i.test(segs[0])) {
             idx = 1;
           }
           const candidate = segs[idx] || segs[0] || 'general';
@@ -876,7 +886,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
         }
         key = rawKey.toLowerCase();
         name = formatResourceName(key);
-        badge = ep.path?.startsWith('/wp-json/') ? `/wp-json/${key}` : `/api/${key}`;
+        badge = normPath.startsWith('/wp-json/') ? `/wp-json/${key}` : `/api/${key}`;
       }
 
       if (!map.has(key)) {

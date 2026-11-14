@@ -210,6 +210,18 @@ export default function LensDashboard() {
       }
 
       if (result && result.success) {
+        if (result.data) {
+          if (result.techStack && !result.data.techStack) result.data.techStack = result.techStack;
+          if (result.cloudProvider && !result.data.cloudProvider) result.data.cloudProvider = result.cloudProvider;
+          if (result.legalDocuments && !result.data.legalDocuments) result.data.legalDocuments = result.legalDocuments;
+          if (result.telemetry && !result.data.crawlerTelemetry) result.data.crawlerTelemetry = result.telemetry;
+          if (result.data.personas?.developer) {
+            if (!result.data.personas.developer.techStack) result.data.personas.developer.techStack = result.data.techStack;
+            if (!result.data.personas.developer.cloudProvider) result.data.personas.developer.cloudProvider = result.data.cloudProvider;
+            if (!result.data.personas.developer.legalDocuments) result.data.personas.developer.legalDocuments = result.data.legalDocuments;
+            if (!result.data.personas.developer.crawlerTelemetry) result.data.personas.developer.crawlerTelemetry = result.data.crawlerTelemetry;
+          }
+        }
         setAnalysisData(result.data);
         const resolvedPath = isRemoteUrl 
           ? (result.data.projectPath || result.data.targetUrl || normalizedRemote) 

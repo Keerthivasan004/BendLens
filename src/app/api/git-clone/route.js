@@ -8,9 +8,29 @@ import fs from 'fs';
 import path from 'path';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const HISTORY_FILE = path.join(os.tmpdir(), '.bendlens_history.json');
+
+function safeResponseJson(data) {
+  const ancestors = [];
+  try {
+    return JSON.parse(JSON.stringify(data, function (key, value) {
+      if (typeof value === 'object' && value !== null) {
+        while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) {
+          ancestors.pop();
+        }
+        if (ancestors.includes(value)) {
+          return undefined;
+        }
+        ancestors.push(value);
+      }
+      return value;
+    }));
+  } catch {
+    return data;
+  }
+}
 
 function saveToHistory(result) {
   try {
@@ -181,23 +201,70 @@ export async function POST(request) {
           result.code.endpoints = derived;
           if (result.code.stats) result.code.stats.totalEndpoints = derived.length;
         }
+        if (result.openApiSpec?.paths && Object.keys(result.openApiSpec.paths).length > 500) {
+          const compactedPaths = {};
+          for (const [p, methodsObj] of Object.entries(result.openApiSpec.paths)) {
+            if (!methodsObj || typeof methodsObj !== 'object') continue;
+            compactedPaths[p] = {};
+            for (const [m, op] of Object.entries(methodsObj)) {
+              if (typeof op === 'object' && op !== null) {
+                compactedPaths[p][m] = {
+                  summary: op.summary || op.description || '',
+                  'x-subdomain': op['x-subdomain'] || null,
+                  'x-discovery-scope': op['x-discovery-scope'] || undefined
+                };
+              } else {
+                compactedPaths[p][m] = op;
+              }
+            }
+          }
+          result.openApiSpec = {
+            ...result.openApiSpec,
+            paths: compactedPaths
+          };
+        }
+
+        // Avoid duplicating multi-megabyte endpoints arrays across telemetry and personas
         if (result.crawlerTelemetry) {
-          result.crawlerTelemetry.endpoints = result.endpoints || result.code?.endpoints || [];
+          delete result.crawlerTelemetry.endpoints;
+        }
+        if (crawlResult.telemetry) {
+          delete crawlResult.telemetry.endpoints;
+        }
+        if (result.code?.endpoints) {
+          result.endpoints = result.code.endpoints;
         }
         if (!crawlResult.sqlSchema) {
           result.schema = { tables: [], relationships: [] };
         }
 
+        if (result.personas?.developer) {
+          result.personas.developer.techStack = result.techStack;
+          result.personas.developer.cloudProvider = result.cloudProvider;
+          result.personas.developer.legalDocuments = result.legalDocuments;
+          result.personas.developer.crawlerTelemetry = result.crawlerTelemetry;
+        }
+        if (result.personas?.manager) {
+          result.personas.manager.techStack = result.techStack;
+          result.personas.manager.cloudProvider = result.cloudProvider;
+          result.personas.manager.legalDocuments = result.legalDocuments;
+        }
+        if (result.personas?.business) {
+          result.personas.business.techStack = result.techStack;
+          result.personas.business.cloudProvider = result.cloudProvider;
+          result.personas.business.legalDocuments = result.legalDocuments;
+        }
+
         saveToHistory(result);
 
-        return NextResponse.json({
+        return NextResponse.json(safeResponseJson({
           success: true,
           data: result,
           telemetry: crawlResult.telemetry,
           techStack: result.techStack,
           cloudProvider: result.cloudProvider,
           legalDocuments: result.legalDocuments
-        });
+        }));
       }
     }
 
@@ -334,8 +401,31 @@ export async function POST(request) {
                     if (!crawlResult.sqlSchema) {
                       result.schema = { tables: [], relationships: [] };
                     }
+                    if (result.personas?.developer) {
+                      result.personas.developer.techStack = result.techStack;
+                      result.personas.developer.cloudProvider = result.cloudProvider;
+                      result.personas.developer.legalDocuments = result.legalDocuments;
+                      result.personas.developer.crawlerTelemetry = result.crawlerTelemetry;
+                    }
+                    if (result.personas?.manager) {
+                      result.personas.manager.techStack = result.techStack;
+                      result.personas.manager.cloudProvider = result.cloudProvider;
+                      result.personas.manager.legalDocuments = result.legalDocuments;
+                    }
+                    if (result.personas?.business) {
+                      result.personas.business.techStack = result.techStack;
+                      result.personas.business.cloudProvider = result.cloudProvider;
+                      result.personas.business.legalDocuments = result.legalDocuments;
+                    }
                     saveToHistory(result);
-                    return NextResponse.json({ success: true, data: result });
+                    return NextResponse.json(safeResponseJson({
+                      success: true,
+                      data: result,
+                      telemetry: crawlResult.telemetry,
+                      techStack: result.techStack,
+                      cloudProvider: result.cloudProvider,
+                      legalDocuments: result.legalDocuments
+                    }));
                   }
                 } catch (crawlErr) {
                   console.warn('Universal web crawler error:', crawlErr.message);
@@ -382,7 +472,7 @@ export async function POST(request) {
                 discoveryStrategy: 'openapi_spec'
               };
               saveToHistory(result);
-              return NextResponse.json({ success: true, data: result });
+              return NextResponse.json(safeResponseJson({ success: true, data: result }));
             }
 
             // -----------------------------------------------------------------
@@ -407,7 +497,7 @@ export async function POST(request) {
                     discoveryStrategy: 'postman_collection'
                   };
                   saveToHistory(result);
-                  return NextResponse.json({ success: true, data: result });
+                  return NextResponse.json(safeResponseJson({ success: true, data: result }));
                 }
               } catch {}
             }
@@ -435,7 +525,7 @@ export async function POST(request) {
                     discoveryStrategy: 'live_rest_api'
                   };
                   saveToHistory(result);
-                  return NextResponse.json({ success: true, data: result });
+                  return NextResponse.json(safeResponseJson({ success: true, data: result }));
                 }
               } catch (apiErr) {
                 console.warn('API parsing / analysis error in Case 2D:', apiErr.message);
@@ -453,7 +543,7 @@ export async function POST(request) {
               result.projectPath = targetFetchUrl;
               result.isUrlCrawl = true;
               saveToHistory(result);
-              return NextResponse.json({ success: true, data: result });
+              return NextResponse.json(safeResponseJson({ success: true, data: result }));
             }
           } else {
             lastError = `HTTP ${specRes.status} from ${targetFetchUrl}: ${specRes.statusText}`;
@@ -519,7 +609,7 @@ export async function POST(request) {
 
             const result = await ProjectAnalyzer.analyzeAsync(targetAnalyzeDir);
             result.projectName = repoName;
-            return NextResponse.json({ success: true, data: result });
+            return NextResponse.json(safeResponseJson({ success: true, data: result }));
           }
         } catch (archErr) {
           console.warn('Direct public archive fetch failed:', archErr.message);
@@ -575,7 +665,7 @@ export async function POST(request) {
 
           const result = await ProjectAnalyzer.analyzeAsync(targetAnalyzeDir);
           result.projectName = repoName;
-          return NextResponse.json({ success: true, data: result });
+          return NextResponse.json(safeResponseJson({ success: true, data: result }));
         } else {
           const errText = await res.text().catch(() => '');
           lastError = `GitHub API returned ${res.status}: ${errText.slice(0, 150) || 'Unauthorized or repo not found.'}`;
@@ -616,7 +706,7 @@ export async function POST(request) {
 
             const result = await ProjectAnalyzer.analyzeAsync(targetAnalyzeDir);
             result.projectName = glRepo;
-            return NextResponse.json({ success: true, data: result });
+            return NextResponse.json(safeResponseJson({ success: true, data: result }));
           }
         } catch (glErr) {}
       }
@@ -644,7 +734,14 @@ export async function POST(request) {
         result.projectName = repoName || 'repository';
         result.projectPath = repoUrl;
         saveToHistory(result);
-        return NextResponse.json({ success: true, data: result });
+        return NextResponse.json(safeResponseJson({
+          success: true,
+          data: result,
+          telemetry: crawlResult.telemetry,
+          techStack: result.techStack,
+          cloudProvider: result.cloudProvider,
+          legalDocuments: result.legalDocuments
+        }));
       } catch (gitErr) {
         console.error('Git CLI fallback error:', gitErr.message);
         if (!lastError) lastError = gitErr.message;
@@ -697,8 +794,31 @@ export async function POST(request) {
         if (!crawlResult.sqlSchema) {
           result.schema = { tables: [], relationships: [] };
         }
+        if (result.personas?.developer) {
+          result.personas.developer.techStack = result.techStack;
+          result.personas.developer.cloudProvider = result.cloudProvider;
+          result.personas.developer.legalDocuments = result.legalDocuments;
+          result.personas.developer.crawlerTelemetry = result.crawlerTelemetry;
+        }
+        if (result.personas?.manager) {
+          result.personas.manager.techStack = result.techStack;
+          result.personas.manager.cloudProvider = result.cloudProvider;
+          result.personas.manager.legalDocuments = result.legalDocuments;
+        }
+        if (result.personas?.business) {
+          result.personas.business.techStack = result.techStack;
+          result.personas.business.cloudProvider = result.cloudProvider;
+          result.personas.business.legalDocuments = result.legalDocuments;
+        }
         saveToHistory(result);
-        return NextResponse.json({ success: true, data: result });
+        return NextResponse.json(safeResponseJson({
+          success: true,
+          data: result,
+          telemetry: crawlResult.telemetry,
+          techStack: result.techStack,
+          cloudProvider: result.cloudProvider,
+          legalDocuments: result.legalDocuments
+        }));
       }
       if (crawlResult?.telemetry?.error) {
         lastError = crawlResult.telemetry.error;

@@ -26,7 +26,7 @@ const webCrawlerProfile = {
 
   // Subdomain discovery & verification limits (supports 1,000 - 25,000+ candidates without truncation)
   dnsLookupConcurrency: 200,
-  candidateTimeout: 450,
+  candidateTimeout: 600,
   subdomainValidationTimeout: 22000,
   subdomainCandidateLimit: 20000,
   activeDnsPrefixes: 750,
@@ -36,9 +36,9 @@ const webCrawlerProfile = {
   alienVaultTimeout: 7000,
   certSpotterPages: 16,
   certSpotterTimeout: 6000,
-  crtShTimeout: 16000,
+  crtShTimeout: 22000,
   hackerTargetTimeout: 3000,
-  rapidDnsTimeout: 5000,
+  rapidDnsTimeout: 6000,
 
   // Stage budget calculators (ensures parity while finishing safely under 50s total, well within Vercel's 60s maxDuration)
   canRunPhase2: (elapsed) => elapsed < 45000,

@@ -83,7 +83,7 @@ class PersonaMapper {
       },
       tables,
       relations,
-      endpoints,
+      endpoints: endpoints || [],
       classes,
       functions,
       modules,

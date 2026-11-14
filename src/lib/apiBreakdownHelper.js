@@ -20,7 +20,11 @@ export function formatResourceName(resourceKey) {
 
   // Specific canonical naming
   const lower = resourceKey.toLowerCase().replace(/^\/+|\/+$/g, '');
-  if (lower === 'auth' || lower === 'login' || lower === 'oauth') return 'Authentication & Identity API';
+  if (lower === 'root') return 'Tenant & Gateway Service API';
+  if (lower === 'api-2.0' || lower === 'api_2.0' || lower === 'api2.0') return 'Core Enterprise REST API (v2.0)';
+  if (lower === 'api-1.0' || lower === 'api_1.0' || lower === 'api1.0') return 'Core Enterprise REST API (v1.0)';
+  if (lower === 'api') return 'Core Gateway API';
+  if (lower === 'auth' || lower === 'login' || lower.startsWith('oauth')) return 'Authentication & Identity API';
   if (lower === 'contact' || lower === 'contact-us' || lower === 'inquiry' || lower === 'leads') return 'Contact & Inquiries API';
   if (lower === 'about' || lower === 'about-us') return 'Company Information & About API';
   if (lower === 'process') return 'Operations & Process API';
@@ -41,6 +45,11 @@ export function formatResourceName(resourceKey) {
   if (lower === 'storage' || lower === 'files' || lower === 'media' || lower === 'upload') return 'Storage & Asset Delivery API';
   if (lower === 'webhooks' || lower === 'webhook' || lower === 'callbacks') return 'Event Webhooks API';
   if (lower === 'graphql') return 'GraphQL Gateway API';
+  if (lower === 'courses' || lower === 'course' || lower === 'curriculum') return 'Course Catalog & Curriculum API';
+  if (lower === 'instructors' || lower === 'teaching' || lower === 'teach') return 'Instructor & Teaching API';
+  if (lower === 'organizations' || lower === 'organization' || lower === 'business') return 'Enterprise & Organization API';
+  if (lower === 'discovery-units' || lower === 'search' || lower === 'search-suggestions') return 'Search & Course Discovery API';
+  if (lower === 'reviews' || lower === 'feedback') return 'Course Reviews & Ratings API';
 
   // WordPress namespaces
   if (lower.startsWith('wp/v2') || lower.startsWith('wp-json/wp/v2')) return 'WordPress Core API (wp/v2)';
@@ -103,14 +112,14 @@ function extractSemanticResourceKey(endpoint) {
 
   if (segments.length === 0) return 'root';
 
-  // 4. Handle /api/v1/resource or /api/resource or /v1/resource
+  // 4. Handle /api/v1/resource or /api/resource or /v1/resource or /api-2.0/resource
   let resourceIdx = 0;
-  if (segments[0].toLowerCase() === 'api') {
+  if (/^api(?:[-_.]?v?[0-9]+(?:\.[0-9]+)*)?$/i.test(segments[0])) {
     resourceIdx = 1;
-    if (segments[1] && /^v[0-9]+$/i.test(segments[1])) {
+    if (segments[1] && /^v?[0-9]+(?:\.[0-9]+)*$/i.test(segments[1])) {
       resourceIdx = 2;
     }
-  } else if (/^v[0-9]+$/i.test(segments[0])) {
+  } else if (/^v?[0-9]+(?:\.[0-9]+)*$/i.test(segments[0])) {
     resourceIdx = 1;
   }
 
@@ -296,13 +305,22 @@ export function getApiEndpointsBreakdown(analysisData, groupBy = 'auto') {
     const hasWpJson = normalizedEndpoints.some(e => e.path?.includes('/wp-json/'));
     const subdomainsWithEndpoints = new Set(normalizedEndpoints.map(e => e.subdomain).filter(Boolean));
 
-    if (subdomainsWithEndpoints.size > 1 && (subdomainsWithEndpoints.size >= roleDomainsCount || subdomainsWithEndpoints.size >= 3)) {
+    const roleEndpointsCount = normalizedEndpoints.filter(e => {
+      const p = (e.path || '').toLowerCase();
+      return p.includes('/admin') || p.includes('/student') || p.includes('/learning') || p.includes('/mentor') || p.includes('/tpo') || p.includes('/employer');
+    }).length;
+    const isAuthenticMultiRolePortal = roleDomainsCount >= 4 && (hasStudent || hasMentor || hasTpo) && (roleEndpointsCount >= 8 && (roleEndpointsCount / (normalizedEndpoints.length || 1) >= 0.20 || normalizedEndpoints.length <= 1500));
+
+    // When there are between 2 and 25 subdomains, they represent distinct microservice clusters/gateways.
+    // When there are >25 subdomains (e.g. 500+ or 7000+ wildcard/tenant subdomains), grouping by semantic resource
+    // provides the true architectural service distribution rather than thousands of fragmented 1-endpoint items.
+    if (subdomainsWithEndpoints.size > 1 && subdomainsWithEndpoints.size <= 25 && (subdomainsWithEndpoints.size >= roleDomainsCount || subdomainsWithEndpoints.size >= 3)) {
       effectiveStrategy = 'subdomain';
-    } else if (roleDomainsCount >= 4 && (hasStudent || hasMentor || hasTpo)) {
+    } else if (isAuthenticMultiRolePortal) {
       effectiveStrategy = 'domain';
     } else if (hasWpJson) {
       effectiveStrategy = 'resource';
-    } else if (subdomainsWithEndpoints.size > 1) {
+    } else if (subdomainsWithEndpoints.size > 1 && subdomainsWithEndpoints.size <= 25) {
       effectiveStrategy = 'subdomain';
     } else {
       effectiveStrategy = 'resource';

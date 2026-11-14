@@ -6,10 +6,30 @@ import os from 'os';
 import path from 'path';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 120;
 export const revalidate = 0;
 
 const HISTORY_FILE = path.join(os.tmpdir(), '.bendlens_history.json');
+
+function safeResponseJson(data) {
+  const ancestors = [];
+  try {
+    return JSON.parse(JSON.stringify(data, function (key, value) {
+      if (typeof value === 'object' && value !== null) {
+        while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) {
+          ancestors.pop();
+        }
+        if (ancestors.includes(value)) {
+          return undefined;
+        }
+        ancestors.push(value);
+      }
+      return value;
+    }));
+  } catch {
+    return data;
+  }
+}
 
 function saveToHistory(result) {
   try {
@@ -105,10 +125,33 @@ export async function POST(request) {
         if (!crawlResult.sqlSchema) {
           result.schema = { tables: [], relationships: [] };
         }
+        if (result.personas?.developer) {
+          result.personas.developer.techStack = result.techStack;
+          result.personas.developer.cloudProvider = result.cloudProvider;
+          result.personas.developer.legalDocuments = result.legalDocuments;
+          result.personas.developer.crawlerTelemetry = result.crawlerTelemetry;
+        }
+        if (result.personas?.manager) {
+          result.personas.manager.techStack = result.techStack;
+          result.personas.manager.cloudProvider = result.cloudProvider;
+          result.personas.manager.legalDocuments = result.legalDocuments;
+        }
+        if (result.personas?.business) {
+          result.personas.business.techStack = result.techStack;
+          result.personas.business.cloudProvider = result.cloudProvider;
+          result.personas.business.legalDocuments = result.legalDocuments;
+        }
         saveToHistory(result);
 
         return NextResponse.json(
-          { success: true, data: result },
+          safeResponseJson({
+            success: true,
+            data: result,
+            telemetry: crawlResult.telemetry,
+            techStack: result.techStack,
+            cloudProvider: result.cloudProvider,
+            legalDocuments: result.legalDocuments
+          }),
           { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
         );
       } finally {
@@ -123,7 +166,7 @@ export async function POST(request) {
     saveToHistory(result);
 
     return NextResponse.json(
-      { success: true, data: result },
+      safeResponseJson({ success: true, data: result }),
       { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
     );
   } catch (error) {
