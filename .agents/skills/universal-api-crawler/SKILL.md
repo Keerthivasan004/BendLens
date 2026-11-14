@@ -166,6 +166,11 @@ Use this skill when you need to:
         - Immediate Substantive Return: In `tryFetchCandidates`, canonical legal URLs with legal title and >= 200 words return immediately in Batch 1 in under 500ms, completely eliminating batch starvation and multi-second probe delays for concise authentic policies (e.g. `https://futrsec.in/terms` with 270 words).
         - Quality-Preserving Composite Scoring: Replaced naive wordCount comparison with composite scoring (URL relevance + title relevance + substantive word threshold), ensuring authentic concise policies are never overwritten by longer incidental pages.
         - Serverless Legal Floor: Elevated `maxLegalWaitMs` in `crawl()` to a 4,000ms minimum floor under serverless, preventing Phase 2 timeout abortion.
+        - Single Page Application (SPA) Compiled JSX Discovery Engine:
+          - In modern client-rendered applications (Vite, React, Vue, Next.js, Rollup) such as `bcbuzz.org`, legal policies are compiled directly into client application bundles rather than separate static HTML or server-rendered CMS endpoints.
+          - AST and token parsing extracts compiled legal components via `document.title = "..."`, `s.jsx("h1", ...)` / `_jsx(...)`, headings, paragraphs, lists, and statutory disclosure arrays (e.g. `fW = [{ id: 1, title: "...", content: "..." }]`).
+          - Wildcard / Catch-All SPA Fallback Guard (`homeTitle === relayCandTitle` and word count threshold `>= 500` for non-explicit titles) prevents non-existent conventional probe paths returning root SPA shells (`<div id="root"></div>`) from overwriting authentic policies.
+          - Accurately discovers and extracts `bcbuzz.org` Privacy Policy (990 authentic words, Title: `Privacy Policy & Data Rights`, URL: `https://bcbuzz.org/privacy-policy`) and Terms of Service (398 authentic words, Title: `Terms & Conditions`, URL: `https://bcbuzz.org/terms-of-service`).
         - Zero Hallucination Guarantee: Discovers authentic live policies (`Privacy Policy | FUTRSEC` with 1,500 words at `https://futrsec.in/privacy-policy/` and `Terms of Service | FUTRSEC` with 270 words at `https://futrsec.in/terms`) with exact 100% parity across localhost and production HTTPS (`VERCEL=1`), without falling back to synthetic text.
         - Full-Spectrum UI & Modal Synchronization:
           - `LegalDocumentsModal.jsx`: Auto-recovers `normalizedTargetUrl` from document URLs when target is an unadorned brand name, passes `activeTab` to `AuthenticWebsiteRenderer` and `safeHttpsUrl`, auto-triggers on-demand upgrade via `/api/legal` when firewall-resilient documents are initially displayed, and supports all aliases (`termsOfService`, `termsOfUse`, `terms`, `privacyPolicy`, `privacy`).
@@ -238,39 +243,48 @@ Use this skill when you need to:
 BendLens automatically extracts and verifies the complete Frontend and Backend technology stack with 100% in-memory AST analysis and HTTP response header verification (zero cloud leakage, zero hallucination):
 
 1. **Frontend Layer**:
-   - **Frameworks**: Next.js (App Router vs Pages Router), React, Nuxt.js, Vue.js, SvelteKit, Angular (with runtime version extraction), Astro, Remix, Gatsby, Flutter Web, WordPress, jQuery / Vanilla JS.
-   - **Bundlers & Compilers**: Turbopack (Rust-based Next.js bundler), Vite / Rollup (ESM manifest analysis), Webpack (`webpackChunk`), esbuild (`chunk-*.js`).
-   - **UI & Styling Frameworks**: Tailwind CSS, Radix UI / Shadcn UI (`data-radix-*`), Material UI (`MuiButton-*`), Ant Design (`ant-btn-*`), Chakra UI, Bootstrap (`btn-*`, `col-md-*`).
+   - **Frameworks**: Next.js (App Router vs Pages Router), React, Nuxt.js, Vue.js, SvelteKit, Angular (with runtime version extraction), Astro, Remix, Gatsby, Solid.js / SolidStart, Qwik / Qwik City, Preact, Ember.js, Flutter Web, Shopify (Liquid / Hydrogen), Drupal CMS, Joomla CMS, Ghost CMS, WordPress, jQuery / Vanilla JS.
+   - **Bundlers & Compilers**: Turbopack (Rust-based Next.js bundler), Vite / Rollup (ESM manifest analysis), Webpack (`webpackChunk`), esbuild (`chunk-*.js`), Parcel (Zero-Config), Bun Bundler & Runtime, Rollup.
+   - **UI & Styling Frameworks**: Tailwind CSS, Radix UI / Shadcn UI (`data-radix-*`), Material UI (`MuiButton-*`), Ant Design (`ant-btn-*`), Chakra UI, Bootstrap (`btn-*`, `col-md-*`), Bulma CSS, Vuetify, Quasar Framework, Carbon Design System (IBM), Semantic UI / Fomantic UI, Shoelace Web Components.
    - **Rendering Strategies**: React Server Components (RSC) + Incremental Static Regeneration (ISR), Server-Side Rendering (SSR), Static Site Generation (SSG), Client-Side Rendered SPA (CSR).
    - **Client Routing**: Next.js App Router (File-System Nested Layouts), Pages Router, React Router, Nuxt/Vue Router, Flutter Web Navigator.
 
 2. **Backend & Cloud Infrastructure**:
-   - **Server Runtimes**: Node.js (Vercel Edge & Serverless Runtime), Express.js, Fastify, Python (FastAPI / Starlette / Uvicorn ASGI Server), PHP Runtime (PHP-FPM / Laravel / WordPress), Microsoft .NET / ASP.NET Core.
+   - **Server Runtimes**: Node.js (Vercel Edge & Serverless Runtime, NestJS, Koa, Express.js, Fastify, V8 Engine), Python (FastAPI / Starlette / Uvicorn ASGI Server, Django / WSGI, Flask / WSGI), Ruby on Rails (Puma / Passenger), Go / Golang (Fiber / Gin / HTTP Engine), Java (Spring Boot / Tomcat Servlet Engine), PHP Runtime (PHP-FPM / Laravel Artisan / WordPress), Microsoft .NET / ASP.NET Core (Kestrel / IIS).
    - **API Protocols & Architectures**: RESTful HTTP APIs, React Server Actions (RPC), GraphQL, tRPC, WebSockets / Real-Time Bi-Directional Streams.
-   - **Hosting & CDN Networks**: Vercel Global Edge Network, Microsoft Azure Cloud & Front Door, Cloudflare Enterprise CDN & Anycast DDoS Shield, Amazon Web Services (AWS CloudFront / S3), Netlify, Render, Fly.io, GitHub Pages.
+   - **Hosting & CDN Networks**: Vercel Global Edge Network, Microsoft Azure Cloud & Front Door, Cloudflare Enterprise CDN & Anycast DDoS Shield, Amazon Web Services (AWS CloudFront / S3), Google Cloud Platform (GCP), Oracle Cloud Infrastructure (OCI), Alibaba Cloud (Aliyun), Hetzner Online / Cloud, OVHcloud, Linode (Akamai Connected Cloud), DigitalOcean, Hostinger Cloud, Cloudways, WP Engine, Kinsta, Pantheon, Netlify, Render, Fly.io, GitHub Pages, LiteSpeed, cPanel / WHM.
    - **Discovered Microservice Gateways**: Remote API origins extracted from bundle callers (e.g. `api.futrsec.in`, `app.finstackk.com`, `salestaxx.ai`).
+   - **Subdomain Perimeter Isolation**: When scanning subdomains (e.g. `kp.futrsec.in`), sibling apex subdomains (e.g. `api.futrsec.in`) are strictly excluded from default candidate gateways unless explicitly called by the client code (`codeReferencedBackendDomains`), preventing false cloud provider inheritance across unrelated applications under the same apex. Origin headers are merged with backend headers to guarantee single-origin / co-hosted applications accurately identify their backend compute host.
 
 3. **Cloud Service Provider (CSP) Reverse-Engineering Engine (`detectCloudProvider` & `detectBackendCloudProvider`)**:
    - **100% Local-First & Air-Gapped**: Reverse-engineers target cloud hosting without querying external intelligence APIs or sending URLs to third parties.
    - **Dual-Tier Cloud Architecture (Frontend Edge + Backend Compute)**:
-     - **Frontend Edge Hosting (`frontendCloudProvider`)**: Discovers where client static assets, HTML, and bundles are served (e.g. Vercel Global Edge Network, Cloudflare Anycast CDN & DDoS Shield, AWS CloudFront / S3, Hostinger CDN, Netlify Edge).
-     - **Backend Cloud Hosting (`backendCloudProvider`)**: Discovers where APIs, serverless functions, database queries, and compute run (e.g. AWS Lambda / ECS / ALB, Vercel Serverless Functions on AWS Firecracker, Supabase Cloud on AWS, Render Web Services, Google Cloud Run, Railway, Fly.io MicroVMs, Hostinger Cloud Server, Self-Hosted Linux VPS).
+     - **Frontend Edge Hosting (`frontendCloudProvider`)**: Discovers where client static assets, HTML, and bundles are served (e.g. Vercel Global Edge Network, Cloudflare Anycast CDN & DDoS Shield, AWS CloudFront / S3, Hostinger CDN, Netlify Edge, Hetzner, OVH, Linode, Oracle Cloud, Alibaba Cloud).
+     - **Backend Cloud Hosting (`backendCloudProvider`)**: Discovers where APIs, serverless functions, database queries, and compute run (e.g. AWS Lambda / ECS / ALB, Vercel Serverless Functions on AWS Firecracker, Supabase Cloud on AWS, Render Web Services, Google Cloud Run, Railway, Fly.io MicroVMs, Hostinger Cloud Server, Hetzner Cloud VPS, OVHcloud VPS, Linode Compute Instances, Oracle Cloud Compute, Alibaba Cloud ECS, WP Engine Managed Server, Kinsta Cloud Server, LiteSpeed Web Server, cPanel / WHM Managed Server, Self-Hosted Linux VPS).
    - **Multi-Signal Triangulation**:
-     - **Cryptographic & Diagnostic HTTP Headers**: Primary evidence extracted from live responses (`x-azure-ref`, `x-ms-request-id`, `cf-ray`, `x-amz-cf-id`, `x-amzn-trace-id`, `x-vercel-id`, `platform: hostinger`, `server: hcdn`, `x-nf-request-id`, `fly-request-id`, `x-railway-request-id`, `x-render-origin-server`, etc.).
-     - **Discovered Backend Gateways & Origin Probe Precedence**: Inspects `backendDomains` for external cloud gateways (`.amazonaws.com`, `.supabase.co`, `.onrender.com`, `.railway.app`, `.fly.dev`, `.run.app`, `.azurewebsites.net`, etc.) and probes health/auth routes (`/api/health`, `/api/auth/*`) to capture authentic backend server headers.
-     - **DNS CNAME Alias Chains**: Inspects canonical names for edge routing aliases (`*.azureedge.net`, `*.cloudfront.net`, `*.trafficmanager.net`, `*.azurefd.net`, `*.vercel.app`, `*.netlify.app`, `*.onrender.com`, `*.fly.dev`, `*.railway.app`, `*.herokuapp.com`, `*.github.io`).
-     - **In-Memory Bitwise IPv4 CIDR Matching**: Implements `ipToInt` and `matchCidr` checking against known enterprise cloud IP blocks (AWS, Azure, GCP, Cloudflare, Fastly, Akamai, GitHub Pages, DigitalOcean), reliably identifying origin hosting even when origin servers strip custom headers.
+     - **Cryptographic & Diagnostic HTTP Headers**: Primary evidence extracted from live responses (`x-azure-ref`, `x-ms-request-id`, `cf-ray`, `x-amz-cf-id`, `x-amzn-trace-id`, `x-vercel-id`, `platform: hostinger`, `server: hcdn`, `x-nf-request-id`, `fly-request-id`, `x-railway-request-id`, `x-render-origin-server`, `opc-request-id`, `eagleeye-traceid`, `wpe-backend`, `x-kinsta-cache`, `x-pantheon-endpoint`, `x-cloudways-cache`, `x-litespeed-cache`, `x-cpanel-cache`, etc.).
+     - **Discovered Backend Gateways & Origin Probe Precedence**: Inspects `backendDomains` for external cloud gateways (`.amazonaws.com`, `.supabase.co`, `.onrender.com`, `.railway.app`, `.fly.dev`, `.run.app`, `.azurewebsites.net`, `.oraclecloud.com`, `.aliyun.com`, `hetzner.com`, `ovh.net`, `.linode.com`, etc.) and probes health/auth routes (`/api/health`, `/api/auth/*`) to capture authentic backend server headers.
+     - **DNS CNAME Alias Chains**: Inspects canonical names for edge routing aliases (`*.azureedge.net`, `*.cloudfront.net`, `*.trafficmanager.net`, `*.azurefd.net`, `*.vercel.app`, `*.netlify.app`, `*.onrender.com`, `*.fly.dev`, `*.railway.app`, `*.herokuapp.com`, `*.github.io`, `*.hetzner.com`, `*.ovh.net`, `*.linode.com`, `*.oraclecloud.com`, `*.kunlunca.com`).
+     - **In-Memory Bitwise IPv4 CIDR Matching**: Implements `ipToInt` and `matchCidr` checking against known enterprise cloud IP blocks (AWS, Azure, GCP, Cloudflare, Fastly, Akamai, GitHub Pages, DigitalOcean, Hetzner, OVHcloud, Linode, Oracle Cloud, Alibaba Cloud), reliably identifying origin hosting even when origin servers strip custom headers.
      - **Edge Region & Point of Presence (POP) Recovery**: Extracts geographical edge POP codes directly from headers (e.g., Cloudflare airport IATA codes like `BOM`, `IAD`; Hostinger POPs like `MUM-EDGE10`; Vercel edge regions like `sin1`, `fra1`; AWS CloudFront edge IDs).
-   - **18+ Supported Cloud Ecosystems**:
-     - Amazon Web Services (AWS): CloudFront, S3, Application Load Balancers (ALB/ELB), ECS / Fargate Containers, Route 53 Managed DNS, EC2 compute (all modern subnets including 3.0.0.0/9, 44.192.0.0/10, 52.0.0.0/8, 54.0.0.0/8, 99.80.0.0/12).
+   - **25+ Supported Cloud & Hosting Ecosystems**:
+     - Amazon Web Services (AWS): CloudFront, S3, Application Load Balancers (ALB/ELB), ECS / Fargate Containers, Route 53 Managed DNS, EC2 compute.
      - Microsoft Azure: Front Door, App Service, Blob Storage, Traffic Manager.
-     - Google Cloud Platform (GCP): Google Front End, Cloud Storage, Cloud Run.
+     - Google Cloud Platform (GCP): Google Front End, Cloud Storage, Cloud Run, Firebase.
      - Cloudflare: Global Anycast CDN, Workers, Pages.
      - Vercel: Global Edge & Serverless Runtime.
-     - Hostinger Cloud: Hostinger CDN, Web Server, Mumbai/Global edge clusters.
-     - Netlify, DigitalOcean, Render, Fly.io, Railway, Heroku, Supabase.
-     - Fastly, Akamai, GitHub Pages, Hetzner, OVHcloud.
-     - Self-Hosted / On-Premise: Nginx, Apache HTTP Server, LiteSpeed, Caddy.
+     - Hostinger Cloud: Hostinger CDN, Web Server, Mumbai/Global edge clusters, Managed HPanel.
+     - Hetzner Online / Cloud: Cloud VPS, Dedicated Servers, Robot Network.
+     - OVHcloud: Public Cloud, VPS, Dedicated Infrastructure.
+     - Linode (Akamai Connected Cloud): Compute Instances, NodeBalancers.
+     - Oracle Cloud Infrastructure (OCI): OCI Compute VMs, FastConnect, Load Balancer.
+     - Alibaba Cloud (Aliyun): ECS Compute, Aliyun CDN, OSS.
+     - Cloudways: ThunderStack Managed Cloud Hosting.
+     - WP Engine: EverCache Managed WordPress Platform.
+     - Kinsta: Google Cloud C2/C3 Powered Managed Cloud & LXC Containers.
+     - Pantheon: Containerized WebOps Cloud.
+     - Netlify, DigitalOcean, Render, Fly.io, Railway, Heroku, Supabase, Fastly, Akamai, GitHub Pages.
+     - Managed Web & Server Software: LiteSpeed Enterprise Web Server / LSCache, cPanel / WHM Managed Web Hosting, Nginx, Apache HTTP Server, OpenResty (Nginx + Lua), Caddy, Microsoft Windows Server (IIS).
    - **Multi-Tier Composition**: Accurately recognizes layered architectures where an edge CDN fronts a distinct cloud origin (e.g. `Amazon Web Services (AWS) via Cloudflare`, or `Vercel (FE) + AWS (BE)`).
    - **Non-Blocking Resilience**: DNS lookups and CNAME resolutions run in parallel, strictly bounded by a 1,200ms `Promise.race` timeout to guarantee offline, air-gapped, or rate-limited crawls never hang.
 

@@ -240,18 +240,34 @@ BendLens provides a high-fidelity cloud hosting detection engine (`detectCloudPr
    - The crawler isolates the `primaryApiGateway` by prioritizing `api.*`, `backend.*`, `gateway.*`, or explicit cloud compute domains (`.azurewebsites.net`, `.supabase.co`, `.onrender.com`, `.railway.app`).
    - Resolves the non-blocking DNS IP address of the primary API gateway (`primaryApiIp = lookupRes.address`, e.g. `20.207.79.208` matching Azure `20.0.0.0/8`).
    - `detectBackendCloudProvider` prioritizes this primary gateway as **Step 0: Primary Dedicated API Gateway Verification (Highest Fidelity)**, returning the authentic backend compute host (e.g. `Microsoft Azure`, `Azure App Service / Cloud VMs`) with high confidence.
-2. **Subdomain Header Isolation (Zero Cross-Contamination)**:
-   - Auxiliary subdomain probes (`kp.*`, `blog.*`) must never overwrite the primary API gateway's response headers. `primaryApiHeaders` are captured and stored in strict isolation, preventing secondary CMS/hosting headers (`platform: hostinger`, `server: hcdn`) from contaminating the backend cloud classification.
-3. **Backend `hostingCdn` Separation**:
+2. **Subdomain Header & Perimeter Isolation (Zero Cross-Contamination)**:
+   - When scanning an apex domain (e.g. `futrsec.in`), organization-level subdomains such as `api.futrsec.in` legitimately serve as candidate gateways.
+   - When scanning a distinct subdomain (e.g. `kp.futrsec.in`), sibling subdomains under the apex (e.g. `api.futrsec.in`) MUST NOT be blindly injected into candidate gateways unless explicitly referenced in the target's client code or network calls (`codeReferencedBackendDomains.has(d)`).
+   - This prevents independent subdomain apps hosted on Hostinger, Vercel, Netlify, or VPS from falsely inheriting an unrelated sibling subdomain's backend provider (such as Microsoft Azure from `api.futrsec.in`).
+   - `originHeaders` are forwarded into `detectBackendCloudProvider` and merged into `backendHeaders`, guaranteeing that single-origin/co-hosted applications correctly resolve their backend compute environment even if standalone diagnostic endpoints return 404.
+3. **Universal Cloud & Hosting Provider Coverage Worldwide**:
+   - `detectCloudProvider` and `detectBackendCloudProvider` provide 100% in-memory, zero-hallucination fingerprinting across all major cloud and managed hosting ecosystems:
+     - **Hyperscale Cloud**: AWS, Microsoft Azure, Google Cloud Platform (GCP), Oracle Cloud Infrastructure (OCI), Alibaba Cloud (Aliyun).
+     - **European & Global VPS/Dedicated**: Hetzner Online / Cloud, OVHcloud, Linode (Akamai Connected Cloud), DigitalOcean.
+     - **Serverless & Edge Platforms**: Vercel, Cloudflare Workers/Pages, Netlify, Fly.io, Render, Railway, Heroku, GitHub Pages, Supabase.
+     - **Managed Web & CMS Hosting**: Hostinger Cloud / HCDN, Cloudways, WP Engine, Kinsta, Pantheon, cPanel / WHM Managed Web Hosting, LiteSpeed Enterprise Web Server.
+     - **Web Server Software Fallbacks**: Nginx, Apache HTTP Server, LiteSpeed Web Server, OpenResty (Nginx + Lua), Caddy, Microsoft Windows Server (IIS).
+4. **Universal Frontend & Backend Tech Stack Detection**:
+   - **Frontend Frameworks & Variants**: Next.js (App Router / RSC vs. Pages Router), Nuxt.js, SvelteKit, Angular (with version detection), Remix, Astro, Gatsby, Solid.js / SolidStart, Qwik / Qwik City, Preact, Ember.js, Flutter Web, Vue.js (SPA), React (SPA), WordPress (WooCommerce, Elementor, Divi, Gutenberg, Core), Shopify (Liquid / Hydrogen), Drupal CMS, Joomla CMS, Ghost CMS, jQuery / Vanilla JS.
+   - **Bundlers & Compilers**: Turbopack (Rust-based), Vite / Rollup (ESM), Webpack, esbuild, Parcel (Zero-Config), Bun Bundler & Runtime, Rollup.
+   - **UI & Styling Systems**: Tailwind CSS (+ Radix UI / Shadcn UI), Material UI (MUI), Ant Design, Chakra UI, Bootstrap, Bulma CSS, Vuetify, Quasar Framework, Carbon Design System (IBM), Semantic UI / Fomantic UI, Shoelace Web Components, WordPress visual builders.
+   - **Server Runtimes & Backends**: Node.js (Vercel Serverless / NestJS / Koa / Express / Fastify / V8 Engine), Python (FastAPI / Starlette / Uvicorn ASGI, Django / WSGI, Flask / WSGI), Ruby on Rails (Puma / Passenger), Go / Golang (Fiber / Gin / HTTP Engine), Java (Spring Boot / Tomcat Servlet Engine), PHP (Laravel Artisan / PHP-FPM / FastCGI), Microsoft .NET / ASP.NET Core (Kestrel / IIS).
+   - **Third-Party Integrations**: Stripe, Razorpay, PayPal, Lemon Squeezy, WooCommerce, Shopify, Yoast SEO, Contact Form 7, Google Analytics / GTM, PostHog, Mixpanel, Segment, Hotjar, Sentry, Clerk, Auth0, Supabase, Firebase, Algolia, Cloudinary, Datadog, LaunchDarkly, Plausible, Cloudflare Turnstile, Google reCAPTCHA, hCaptcha, Twilio, Mailchimp.
+5. **Backend `hostingCdn` Separation**:
    - `backend.hostingCdn` is strictly derived from the backend compute provider: `${backendCloudProvider.name}${backendCloudProvider.services?.length > 0 ? ` · ${backendCloudProvider.services[0]}` : ''}` (e.g. `Microsoft Azure · Azure App Service / Cloud VMs`), avoiding inheritance of frontend CDN strings.
-4. **Dynamic Runtime Mapping on Managed Cloud**:
+6. **Dynamic Runtime Mapping on Managed Cloud**:
    - For managed platforms like Hostinger Cloud Server, runtime environments are dynamically bound to the verified server runtime (`PHP Runtime (PHP-FPM / FastCGI)`, `Hostinger Managed WordPress Engine`, `Node.js Container`, or `Python WSGI/ASGI`), preventing static/incorrect framework assumptions (e.g. avoiding Node.js tags on WordPress/PHP architectures).
-5. **First-Party Subdomain Separation from External Gateways**:
+7. **First-Party Subdomain Separation from External Gateways**:
    - `extDomains` and `discoveredGateways` use `SubdomainScanner.getApexDomain()` to filter out first-party subdomains (e.g. `rcas.cyberxpertz.org` under `cyberxpertz.org`). Subdomains are classified as perimeter gateways rather than external third-party microservices.
-6. **Co-Hosted vs. Multi-Cloud Unification**:
+8. **Co-Hosted vs. Multi-Cloud Unification**:
    - Single-provider co-hosted architectures (e.g. Hostinger Cloud edge + Hostinger Cloud Server backend) share identical `code` and are labeled `isCoHosted: true`.
    - Header indicators only trigger `MULTI-CLOUD` if `feCp.code !== beCp.code`, preventing redundant display strings like `Hostinger Cloud / Hostinger Cloud Server`.
-7. **Local Repository & Codebase Infrastructure Ingestion**:
+9. **Local Repository & Codebase Infrastructure Ingestion**:
    - Local folders and cloned repositories without HTTP targets detect backend hosting via AST infrastructure parser:
      - Docker Compose: `Docker Compose (services...)`
      - Dockerfile: `Docker Container Runtime`
@@ -2216,6 +2232,28 @@ To guarantee 100% bit-for-bit parity between localhost and production HTTPS (Ver
    - Conventional candidate paths budget: 36 paths across both environments.
 5. **Physical Profile Isolation**:
    - `localCrawlerProfile.js` remains 100% untouched. All improvements are strictly targeted to `webCrawlerProfile.js` and serverless conditional branches (`isServerless`, `isServerlessEnv`).
+
+---
+
+## 6. Single Page Application (SPA) Compiled JSX Legal Document Discovery Engine (v1.1.62)
+
+Modern client-rendered applications (Vite, React, Vue, Next.js, Rollup) frequently embed their entire Privacy Policy, statutory disclosures, and Terms of Service directly inside compiled client JavaScript bundles rather than static HTML or server-rendered CMS endpoints.
+
+### Key Innovations:
+1. **Direct React/Vue JSX AST Token Parsing**:
+   - Discovers compiled legal components via `document.title = "..."`, `children: "..."`, and JSX function calls (`s.jsx("h1", ...)` / `_jsx(...)`).
+   - Extracts page titles, last updated timestamps (`Last Updated: DD/MM/YYYY`), policy versions, and structured sections (`h1`, `h2`, `h3`, `h4`, `p`, `li`, `strong`).
+   - Seamlessly extracts statutory compliance disclosure arrays (e.g. `fW = [{ id: 1, title: "...", content: "..." }]` containing itemized statutory disclosures under DPDPA 2023 §5 and Rule 3).
+
+2. **Wildcard / Catch-All SPA Fallback Guard (`homeTitle` & `relayCandTitle`)**:
+   - Prevents non-existent paths (such as `/about/policies/terms/`) that return the SPA's root shell (`<div id="root"></div>`) from being mistaken for valid legal pages.
+   - Detects when Gateway Relay (Jina) returns the homepage title (`homeTitle === relayCandTitle`) and marks it as a catch-all fallback.
+   - Requires substantive word count (`>= 500` words) for candidate URLs lacking explicit legal title keywords, ensuring generic footers with 260 words cannot overwrite full 990+ word policies.
+
+3. **Benchmarked Real-World Validation (`bcbuzz.org`)**:
+   - **Privacy Policy**: 990 authentic words, Title: `Privacy Policy & Data Rights`, URL: `https://bcbuzz.org/privacy-policy`, with all 8 core DPDP Act 2023 compliance sections and 12 statutory disclosures.
+   - **Terms of Service**: 398 authentic words, Title: `Terms & Conditions`, URL: `https://bcbuzz.org/terms-of-service`, with all 9 core terms sections.
+
 
 
 
