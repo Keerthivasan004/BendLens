@@ -5294,13 +5294,22 @@ class UniversalApiCrawler {
         body = body.slice(mdContentIdx + 'Markdown Content:'.length).trim();
       }
 
+      const isAmazonDoc = Boolean(
+        (canonicalUrl && canonicalUrl.includes('amazon.')) ||
+        (pageUrl && pageUrl.includes('amazon.')) ||
+        (title && title.toLowerCase().includes('amazon') && title.toLowerCase().includes('privacy')) ||
+        (body.includes('Amazon.com') && body.includes('Privacy Notice') && body.includes('What Personal Information'))
+      );
+
       const headingMatch = body.match(/(?:^|\n)(#{1,2}\s+(?:Privacy|Terms|Conditions|Legal|Policy|Notice)[^\r\n]*)/i);
-      if (headingMatch && headingMatch.index !== undefined && (headingMatch.index < 4000 || body.slice(headingMatch.index).length > 1000)) {
+      if (!isAmazonDoc && headingMatch && headingMatch.index !== undefined && (headingMatch.index < 4000 || body.slice(headingMatch.index).length > 1000)) {
         body = body.slice(headingMatch.index).trim();
         const firstHeading = body.match(/^#{1,2}\s+([^\r\n]+)/);
         if (firstHeading && firstHeading[1] && (!title || title === fallbackTitle)) {
           title = firstHeading[1].trim();
         }
+      } else if (isAmazonDoc && (!title || title === fallbackTitle)) {
+        title = 'Amazon.com Privacy Notice';
       }
 
       // Strip javascript links with nested parentheses: [label](javascript:void(0)) -> label
@@ -5779,6 +5788,10 @@ class UniversalApiCrawler {
     }
     if (targetApex === 'amazon.com') {
       // Do not add pay.amazon.com or amazonpay subsidiaries when auditing main retail amazon.com
+      discoveredPrivacyUrls.add('https://www.amazon.com/gp/help/customer/display.html?nodeId=GX7NJQ4ZB8MHFRNJ');
+      discoveredPrivacyUrls.add('https://www.amazon.com/gp/help/customer/display.html?nodeId=468496');
+      discoveredPrivacyUrls.add('https://www.amazon.com/privacy');
+      discoveredPrivacyUrls.add('https://www.amazon.com/privacy-policy/');
     }
     if (targetApex === 'chatgpt.com') {
       candidateOrigins.add('https://openai.com');
@@ -5792,6 +5805,17 @@ class UniversalApiCrawler {
       discoveredPrivacyUrls.add('https://www.udemy.com/terms/privacy/');
       discoveredTermsUrls.add('https://www.udemy.com/frontends-legal-terms/cms-dispatcher/page/content/?pageType=STANDALONE&slug=/terms/terms-of-use/&locale=en&preview_mode=false');
       discoveredTermsUrls.add('https://www.udemy.com/terms/');
+    }
+    if (targetApex === 'github.com') {
+      candidateOrigins.add('https://docs.github.com');
+      discoveredPrivacyUrls.add('https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement');
+      discoveredPrivacyUrls.add('https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement');
+      discoveredPrivacyUrls.add('https://github.com/site/privacy');
+      discoveredPrivacyUrls.add('https://docs.github.com/site-policy/privacy-policies/github-privacy-statement');
+
+      discoveredTermsUrls.add('https://docs.github.com/en/site-policy/github-terms/github-terms-of-service');
+      discoveredTermsUrls.add('https://github.com/site/terms');
+      discoveredTermsUrls.add('https://docs.github.com/site-policy/github-terms/github-terms-of-service');
     }
     if (targetApex && discoveredSubdomains) {
       const subsList = Array.isArray(discoveredSubdomains) ? discoveredSubdomains : Array.from(discoveredSubdomains);
@@ -5894,7 +5918,18 @@ class UniversalApiCrawler {
     ];
 
     const privacyCandidates = Array.from(new Set([
-
+      ...(targetApex === 'amazon.com' ? [
+        'https://www.amazon.com/gp/help/customer/display.html?nodeId=GX7NJQ4ZB8MHFRNJ',
+        'https://www.amazon.com/gp/help/customer/display.html?nodeId=468496',
+        'https://www.amazon.com/privacy',
+        'https://www.amazon.com/privacy-policy/'
+      ] : []),
+      ...(targetApex === 'github.com' ? [
+        'https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement',
+        'https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement',
+        'https://github.com/site/privacy',
+        'https://docs.github.com/site-policy/privacy-policies/github-privacy-statement'
+      ] : []),
       ...Array.from(discoveredPrivacyUrls),
       ...primaryPrivacyPaths.map(p => `${origin}${p}`),
       ...Array.from(candidateOrigins)
@@ -6019,6 +6054,11 @@ class UniversalApiCrawler {
         'https://www.amazon.com/gp/help/customer/display.html?nodeId=508088',
         'https://www.amazon.com/gp/help/customer/display.html?nodeId=GLSBYFE9MGKKQXXM'
       ] : []),
+      ...(targetApex === 'github.com' ? [
+        'https://docs.github.com/en/site-policy/github-terms/github-terms-of-service',
+        'https://github.com/site/terms',
+        'https://docs.github.com/site-policy/github-terms/github-terms-of-service'
+      ] : []),
       ...Array.from(discoveredTermsUrls),
       ...primaryTermsPaths.map(p => `${origin}${p}`),
       ...Array.from(candidateOrigins)
@@ -6057,6 +6097,13 @@ class UniversalApiCrawler {
 
         // Verify extracted text is not just a cookie consent modal
         if (this.isCookieBannerOnly(meta.content)) return null;
+
+        if (targetApex === 'github.com') {
+          const lowerContent = (meta.content || '').toLowerCase();
+          if (lowerContent.includes('signed in with another tab') || lowerContent.includes('tab=repositories') || lowerContent.includes('follow](/login')) {
+            return null;
+          }
+        }
 
         const mTitleLower = (meta.title || '').toLowerCase();
         const candLower = (candidateUrl || meta.url || '').toLowerCase();
@@ -6480,6 +6527,7 @@ class UniversalApiCrawler {
         const l = url.toLowerCase();
         if (type === 'privacy') {
           if (l.includes('nodeid=468496') || l.includes('nodeid=gx7njq4zb8mhfrnj') || l.includes('nodeid=201909010')) score += 50;
+          if (l.includes('github-privacy-statement') || l.includes('github-general-privacy-statement') || l.includes('site-policy/privacy-policies') || l.includes('site/privacy')) score += 50;
           if (l.includes('terms/privacy') || l.includes('policies/privacy') || l.includes('about/policies/privacy') || l.includes('information/privacy') || l.includes('privacy.html')) score += 45;
           if (l.includes('privacy-policy') || l.includes('privacy_policy')) score += 40;
           if (l.endsWith('/privacy') || l.endsWith('/privacy/')) score += 35;
@@ -6490,6 +6538,7 @@ class UniversalApiCrawler {
           if (l.includes('carriage')) score -= 30;
         } else {
           if (l.includes('nodeid=508088') || l.includes('nodeid=glsbyfe9mgkkqxxm')) score += 50;
+          if (l.includes('github-terms-of-service') || l.includes('site-policy/github-terms') || l.includes('site/terms')) score += 50;
           if (l.includes('terms-of-use') || l.includes('terms_of_use') || l.includes('policies/terms') || l.includes('about/policies/terms') || l.includes('information/terms') || l.includes('loyalty/terms') || l.includes('terms-and-conditions.html') || l.includes('conditions-of-carriage')) score += 45;
           if (l.includes('terms-of-service') || l.includes('terms_of_service')) score += 40;
           if (l.endsWith('/terms') || l.endsWith('/terms/')) score += 35;

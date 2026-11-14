@@ -760,3 +760,26 @@ When running on serverless cloud platforms (Vercel / AWS Lambda):
       - `who.int`: Privacy Policy (927 words, `origin_live`), Terms of Use (338 words, `origin_live`), Tech Stack (Cloudflare + Azure, Tailwind CSS, Vite ESM).
       - `futrsec.in`: Privacy Policy (1,500 words, `origin_live`), Terms of Service (270 words, `origin_live`), Tech Stack (Nginx + Ubuntu, React, Webpack).
       - `udemy.com`: Privacy Policy (5,892 words, `gateway_relay_live`), Terms of Use (11,616 words, `gateway_relay_live`), Tech Stack (Cloudflare + AWS, React, Webpack).
+
+17. **Amazon Privacy Notice Extraction & Non-Destructive Heading Preservation (v1.1.93)**:
+    - **Amazon Privacy Candidates Added as Extra**:
+      - In `discoverLegalDocuments`, added dedicated candidates: `https://www.amazon.com/gp/help/customer/display.html?nodeId=GX7NJQ4ZB8MHFRNJ`, `https://www.amazon.com/gp/help/customer/display.html?nodeId=468496`, `https://www.amazon.com/privacy`, `https://www.amazon.com/privacy-policy/` directly to `discoveredPrivacyUrls` and prepended to `privacyCandidates`.
+    - **Non-Destructive Heading Guard (`!isAmazonDoc`)**:
+      - In `extractLegalMetadata` and `LegalDocumentsModal.jsx`, added `!isAmazonDoc` guard to heading slicing. When Jina or origin returns the complete Amazon Privacy Notice (27,660 chars, 3,695 words), the parser preserves all 13 core sections from `**Last updated**` and `## What Personal Information About Customers Does Amazon Collect?` through to `Examples of Information Collected`, rather than prematurely slicing at `## Conditions of Use, Notices, and Revisions`.
+    - **Empirical Validation**:
+      - Verified `amazon.com`: Amazon.com Privacy Notice (3,695 words, complete verbatim notice with all 13 sections intact).
+      - Verified `udemy.com`: Privacy Policy (7,456 words), Terms of Use (11,669 words).
+      - Build compiled with 0 errors.
+
+18. **GitHub Privacy Statement & Terms of Service Extra Ingestion (v1.1.94)**:
+    - **GitHub Dedicated Subdomain & Canonical Path Injection**:
+      - Added `candidateOrigins.add('https://docs.github.com')` when `targetApex === 'github.com'`.
+      - Injected verified GitHub legal endpoints into `discoveredPrivacyUrls` and `discoveredTermsUrls`:
+        - Privacy: `https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement`, `https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement`, `https://github.com/site/privacy`
+        - Terms: `https://docs.github.com/en/site-policy/github-terms/github-terms-of-service`, `https://github.com/site/terms`
+      - Prepended candidate URLs to `privacyCandidates` and `termsCandidates`.
+    - **GitHub User Profile & Session Stub Rejection**:
+      - In `formatAndValidateMeta`, added guard rejecting GitHub profile/session pages matching `signed in with another tab`, `tab=repositories`, or `follow](/login` from being treated as legal policies.
+    - **Empirical Validation**:
+      - `github.com`: Privacy Statement (6,194 words, `docs.github.com`), Terms of Service (7,563 words, `docs.github.com`).
+      - Clean compilation and 0 regressions across other targets.

@@ -2176,8 +2176,11 @@ During extreme-scale web crawls (`udemy.com` with 10,000+ subdomains and 38,000+
     - Terms of Use: 11,669 authentic words (`https://www.udemy.com/terms/`)
   - **Crawl Duration**: Completed in 63.7s without errors or event loop freezes.
 
+- **`github.com`**:
+  - Privacy Statement: 6,194 authentic words (`https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement` or `https://github.com/site/privacy`), covering all global data protection, collection, retention, and transfer standards.
+  - Terms of Service: 7,563 authentic words (`https://docs.github.com/en/site-policy/github-terms/github-terms-of-service` or `https://github.com/site/terms`), covering complete definitions, account terms, acceptable use, user-generated content, cancellation, and liability.
 - **`amazon.com`**:
-  - Privacy Notice: 1,277 authentic words (`https://www.amazon.com/privacy-policy/`)
+  - Privacy Notice: 3,695 authentic words (`https://www.amazon.com/privacy-policy/` or `https://www.amazon.com/gp/help/customer/display.html?nodeId=GX7NJQ4ZB8MHFRNJ`), covering all 13 core sections: What Personal Information About Customers Does Amazon Collect?, For What Purposes Does Amazon Use Your Personal Information?, What About Cookies and Other Identifiers?, Does Amazon Share Your Personal Information?, How Secure Is Information About Me?, What About Advertising?, What Choices Do I Have?, Are Children Allowed to Use Amazon Services?, EU-US Data Privacy Framework, Conditions of Use, Notices, and Revisions, Related Practices and Information, and Examples of Information Collected.
   - Conditions of Use: 1,132 authentic words (`https://www.amazon.com/aa/about-us/en/gb/terms-and-conditions.html`)
 - **`goindigo.in`**:
   - Privacy Policy: 3,407 authentic words, 6 key clauses (`https://www.goindigo.in/information/privacy.html`)

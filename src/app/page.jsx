@@ -2536,9 +2536,20 @@ CREATE TABLE audit_logs (
 
           {/* Error Banner */}
           {errorMessage && (
-            <div className="mt-3.5 p-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2 animate-fadeIn font-medium">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{errorMessage}</span>
+            <div className="mt-3.5 p-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-400 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 animate-fadeIn font-medium">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+              {errorMessage.includes('Desktop App') && (
+                <button
+                  type="button"
+                  onClick={() => setIsDownloadModalOpen(true)}
+                  className="self-start sm:self-auto px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-700 dark:text-rose-300 text-[11px] font-semibold whitespace-nowrap transition-colors"
+                >
+                  Get Desktop App
+                </button>
+              )}
             </div>
           )}
 

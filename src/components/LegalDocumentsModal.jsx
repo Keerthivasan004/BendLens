@@ -489,8 +489,14 @@ export default function LegalDocumentsModal({
     if (!currentDoc?.content) return '';
     let text = currentDoc.content;
     if (text.includes('Markdown Content:')) {
+      const isAmazonDoc = Boolean(
+        (cleanHost && cleanHost.toLowerCase().includes('amazon')) ||
+        (targetUrl && String(targetUrl).toLowerCase().includes('amazon')) ||
+        (currentDoc?.url && currentDoc.url.includes('amazon.')) ||
+        (text.includes('Amazon.com') && text.includes('Privacy Notice'))
+      );
       const headingMatch = text.match(/(?:^|\n)(#{1,2}\s+(?:Privacy|Terms|Conditions|Legal|Policy|Notice)[^\r\n]*)/i);
-      if (headingMatch && headingMatch.index !== undefined) {
+      if (!isAmazonDoc && headingMatch && headingMatch.index !== undefined && headingMatch.index < 4000) {
         text = text.slice(headingMatch.index).trim();
       } else {
         const idx = text.indexOf('Markdown Content:');
@@ -1248,8 +1254,14 @@ function AuthenticWebsiteRenderer({ content, searchQuery, currentDoc, cleanHost,
     if (!content) return '';
     let text = content;
     if (text.includes('Markdown Content:')) {
+      const isAmazonDoc = Boolean(
+        (cleanHost && cleanHost.toLowerCase().includes('amazon')) ||
+        (targetUrl && String(targetUrl).toLowerCase().includes('amazon')) ||
+        (currentDoc?.url && currentDoc.url.includes('amazon.')) ||
+        (text.includes('Amazon.com') && text.includes('Privacy Notice'))
+      );
       const headingMatch = text.match(/(?:^|\n)(#{1,2}\s+(?:Privacy|Terms|Conditions|Legal|Policy|Notice)[^\r\n]*)/i);
-      if (headingMatch && headingMatch.index !== undefined) {
+      if (!isAmazonDoc && headingMatch && headingMatch.index !== undefined && headingMatch.index < 4000) {
         text = text.slice(headingMatch.index).trim();
       } else {
         const idx = text.indexOf('Markdown Content:');

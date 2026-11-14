@@ -175,7 +175,12 @@ export default function LensDashboard() {
       try {
         result = await res.json();
       } catch {
-        result = { success: false, error: `Server error (${res.status})` };
+        result = {
+          success: false,
+          error: res.status === 504
+            ? 'Crawl execution timed out on cloud serverless function. Please rescan or use the BendLens Desktop App for unrestricted crawl depth.'
+            : `Server error (${res.status})`
+        };
       }
 
       // If server crawl timed out or was challenged on web deployment, attempt client-side relay recovery
