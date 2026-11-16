@@ -135,7 +135,7 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
       navigator.clipboard.writeText(path);
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 2000);
-    } catch {}
+    } catch { }
   };
 
   const handleCopyCurl = (ep, key) => {
@@ -144,12 +144,12 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
       navigator.clipboard.writeText(curl);
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 2000);
-    } catch {}
+    } catch { }
   };
 
   const modalContent = (
     <div className="fixed inset-0 z-[99999] flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-fadeIn">
-      <div 
+      <div
         className="w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl bg-surface border border-border shadow-2xl overflow-hidden animate-scaleUp"
         onClick={(e) => e.stopPropagation()}
       >
@@ -185,7 +185,7 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
                 title="Open interactive visual API communication graph"
               >
                 <Workflow className="h-3.5 w-3.5 text-cyan-400 group-hover:scale-110 transition-transform animate-pulse" />
-                <span>View Interactive Graph</span>
+                <span>View Interactive Topology</span>
               </button>
             )}
 
@@ -249,11 +249,10 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
               <button
                 key={opt.id}
                 onClick={() => setGroupBy(opt.id)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border whitespace-nowrap cursor-pointer ${
-                  groupBy === opt.id
-                    ? 'bg-violet-50 dark:bg-violet-500/15 border-violet-300 dark:border-violet-500/40 text-violet-800 dark:text-violet-300 font-semibold shadow-xs'
-                    : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border whitespace-nowrap cursor-pointer ${groupBy === opt.id
+                  ? 'bg-violet-50 dark:bg-violet-500/15 border-violet-300 dark:border-violet-500/40 text-violet-800 dark:text-violet-300 font-semibold shadow-xs'
+                  : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
+                  }`}
               >
                 {opt.label}
               </button>
@@ -337,257 +336,255 @@ export default function ApiBreakdownModal({ isOpen, onClose, analysisData, onOpe
                 const rawEndpointsToRender = api.displayEndpoints || api.endpoints || [];
                 const endpointsToRender = rawEndpointsToRender.slice(0, 40);
 
-              return (
-                <div
-                  key={api.id}
-                  className="rounded-xl border border-border/80 bg-surface-raised/40 hover:border-border transition-all overflow-hidden shadow-xs"
-                >
-                  {/* API Card Header */}
+                return (
                   <div
-                    onClick={() => toggleExpand(api.id)}
-                    className="p-3.5 sm:p-4 flex items-center justify-between gap-3 cursor-pointer select-none hover:bg-surface-raised/80 transition-colors"
+                    key={api.id}
+                    className="rounded-xl border border-border/80 bg-surface-raised/40 hover:border-border transition-all overflow-hidden shadow-xs"
                   >
-                    {/* Left: Icon + Name + Badge */}
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="h-9 w-9 rounded-xl bg-violet-500/10 border border-violet-500/25 flex items-center justify-center text-violet-400 shrink-0">
-                        <Icon className="h-4 w-4" />
+                    {/* API Card Header */}
+                    <div
+                      onClick={() => toggleExpand(api.id)}
+                      className="p-3.5 sm:p-4 flex items-center justify-between gap-3 cursor-pointer select-none hover:bg-surface-raised/80 transition-colors"
+                    >
+                      {/* Left: Icon + Name + Badge */}
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="h-9 w-9 rounded-xl bg-violet-500/10 border border-violet-500/25 flex items-center justify-center text-violet-400 shrink-0">
+                          <Icon className="h-4 w-4" />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-sm font-bold text-foreground hover:text-brand transition-colors truncate">
+                              {api.name}
+                            </h3>
+                            <span className="px-2 py-0.5 rounded-md font-mono text-[10px] bg-surface border border-border text-muted truncate flex items-center gap-1">
+                              <span>{api.badge}</span>
+                              {(() => {
+                                const sMap = analysisData?.subdomainStatusMap || analysisData?.crawlerTelemetry?.subdomainStatusMap || {};
+                                const lSet = new Set(analysisData?.liveSubdomains || analysisData?.crawlerTelemetry?.liveSubdomains || []);
+                                const cleanBadge = (api.badge || '').toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '');
+                                if (lSet.has(cleanBadge) || sMap[cleanBadge] === 'live') {
+                                  return <span className="px-1 py-0.2 text-[8px] font-sans rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-500/25 dark:text-emerald-300 uppercase font-extrabold ml-1">LIVE</span>;
+                                }
+                                if (sMap[cleanBadge] === 'historical') {
+                                  return <span className="px-1 py-0.2 text-[8px] font-sans rounded bg-amber-100 text-amber-800 dark:bg-amber-500/25 dark:text-amber-300 uppercase font-bold ml-1">HIST</span>;
+                                }
+                                return null;
+                              })()}
+                            </span>
+                            {api.riskLevel && (
+                              <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase font-semibold ${api.riskLevel === 'HIGH' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/25' :
+                                api.riskLevel === 'MEDIUM' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/25' :
+                                  'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
+                                }`}>
+                                {api.riskLevel} IMPACT
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-muted truncate mt-0.5">
+                            {api.description || `${api.type} containing ${api.totalEndpoints} exposed operations`}
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-sm font-bold text-foreground hover:text-brand transition-colors truncate">
-                            {api.name}
-                          </h3>
-                          <span className="px-2 py-0.5 rounded-md font-mono text-[10px] bg-surface border border-border text-muted truncate flex items-center gap-1">
-                            <span>{api.badge}</span>
-                            {(() => {
-                              const sMap = analysisData?.subdomainStatusMap || analysisData?.crawlerTelemetry?.subdomainStatusMap || {};
-                              const lSet = new Set(analysisData?.liveSubdomains || analysisData?.crawlerTelemetry?.liveSubdomains || []);
-                              const cleanBadge = (api.badge || '').toLowerCase().trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./, '');
-                              if (lSet.has(cleanBadge) || sMap[cleanBadge] === 'live') {
-                                return <span className="px-1 py-0.2 text-[8px] font-sans rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-500/25 dark:text-emerald-300 uppercase font-extrabold ml-1">LIVE</span>;
-                              }
-                              if (sMap[cleanBadge] === 'historical') {
-                                return <span className="px-1 py-0.2 text-[8px] font-sans rounded bg-amber-100 text-amber-800 dark:bg-amber-500/25 dark:text-amber-300 uppercase font-bold ml-1">HIST</span>;
-                              }
-                              return null;
-                            })()}
-                          </span>
-                          {api.riskLevel && (
-                            <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase font-semibold ${
-                              api.riskLevel === 'HIGH' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/25' :
-                              api.riskLevel === 'MEDIUM' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/25' :
-                              'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
-                            }`}>
-                              {api.riskLevel} IMPACT
+                      {/* Right: Counts + Method Distribution + Chevron */}
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        {onOpenApiFlow && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onClose();
+                              onOpenApiFlow(api.endpoints?.[0]);
+                            }}
+                            className="px-2 py-1 rounded-md text-[11px] font-semibold bg-cyan-50 dark:bg-cyan-500/10 hover:bg-cyan-100 dark:hover:bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-500/25 flex items-center gap-1 cursor-pointer transition-colors"
+                            title="View this API service cluster in the interactive graph"
+                          >
+                            <Workflow className="h-3 w-3 text-cyan-600 dark:text-cyan-400" />
+                            <span className="hidden sm:inline">Graph</span>
+                          </button>
+                        )}
+
+                        {/* Endpoints Count Glow Pill */}
+                        <div className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-violet-50 dark:bg-violet-500/10 text-violet-800 dark:text-violet-300 border border-violet-200 dark:border-violet-500/30 flex items-center gap-1.5">
+                          <Sparkles className="h-3 w-3 text-violet-600 dark:text-violet-400" />
+                          <span>{api.totalEndpoints} {api.totalEndpoints === 1 ? 'Endpoint' : 'Endpoints'}</span>
+                        </div>
+
+                        {/* Method breakdown chips */}
+                        <div className="hidden sm:flex items-center gap-1 text-[10px] font-mono">
+                          {api.methodCounts.GET > 0 && (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+                              {api.methodCounts.GET} GET
+                            </span>
+                          )}
+                          {api.methodCounts.POST > 0 && (
+                            <span className="px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
+                              {api.methodCounts.POST} POST
+                            </span>
+                          )}
+                          {api.methodCounts.PUT > 0 && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
+                              {api.methodCounts.PUT} PUT
+                            </span>
+                          )}
+                          {api.methodCounts.DELETE > 0 && (
+                            <span className="px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20">
+                              {api.methodCounts.DELETE} DEL
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-muted truncate mt-0.5">
-                          {api.description || `${api.type} containing ${api.totalEndpoints} exposed operations`}
+
+                        <div className="text-muted">
+                          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                         </div>
                       </div>
                     </div>
 
-                    {/* Right: Counts + Method Distribution + Chevron */}
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      {onOpenApiFlow && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onClose();
-                            onOpenApiFlow(api.endpoints?.[0]);
-                          }}
-                          className="px-2 py-1 rounded-md text-[11px] font-semibold bg-cyan-50 dark:bg-cyan-500/10 hover:bg-cyan-100 dark:hover:bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-500/25 flex items-center gap-1 cursor-pointer transition-colors"
-                          title="View this API service cluster in the interactive graph"
-                        >
-                          <Workflow className="h-3 w-3 text-cyan-600 dark:text-cyan-400" />
-                          <span className="hidden sm:inline">Graph</span>
-                        </button>
-                      )}
+                    {/* API Card Expanded Content: Full Endpoints List */}
+                    {isExpanded && (
+                      <div className="border-t border-border/60 bg-surface/60 p-3 sm:p-4 space-y-2">
+                        <div className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-2 flex items-center justify-between">
+                          <span>Endpoints in this API ({endpointsToRender.length}):</span>
+                          <span className="text-[10px] font-normal lowercase">Click to copy route path or cURL command</span>
+                        </div>
 
-                      {/* Endpoints Count Glow Pill */}
-                      <div className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-violet-50 dark:bg-violet-500/10 text-violet-800 dark:text-violet-300 border border-violet-200 dark:border-violet-500/30 flex items-center gap-1.5">
-                        <Sparkles className="h-3 w-3 text-violet-600 dark:text-violet-400" />
-                        <span>{api.totalEndpoints} {api.totalEndpoints === 1 ? 'Endpoint' : 'Endpoints'}</span>
-                      </div>
+                        <div className="space-y-1.5">
+                          {endpointsToRender.map((ep, idx) => {
+                            const epKey = `${api.id}_${ep.method}_${ep.path}_${idx}`;
+                            const isPathCopied = copiedKey === `path_${epKey}`;
+                            const isCurlCopied = copiedKey === `curl_${epKey}`;
 
-                      {/* Method breakdown chips */}
-                      <div className="hidden sm:flex items-center gap-1 text-[10px] font-mono">
-                        {api.methodCounts.GET > 0 && (
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
-                            {api.methodCounts.GET} GET
-                          </span>
-                        )}
-                        {api.methodCounts.POST > 0 && (
-                          <span className="px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
-                            {api.methodCounts.POST} POST
-                          </span>
-                        )}
-                        {api.methodCounts.PUT > 0 && (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
-                            {api.methodCounts.PUT} PUT
-                          </span>
-                        )}
-                        {api.methodCounts.DELETE > 0 && (
-                          <span className="px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20">
-                            {api.methodCounts.DELETE} DEL
-                          </span>
-                        )}
-                      </div>
+                            const methodColor =
+                              ep.method === 'GET' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25' :
+                                ep.method === 'POST' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/25' :
+                                  ep.method === 'PUT' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/25' :
+                                    ep.method === 'DELETE' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/25' :
+                                      'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25';
 
-                      <div className="text-muted">
-                        {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                      </div>
-                    </div>
-                  </div>
+                            return (
+                              <div
+                                key={epKey}
+                                className="p-2.5 rounded-lg bg-surface hover:bg-surface-raised border border-border/70 hover:border-border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-2.5 text-xs"
+                              >
+                                {/* Left: Method + Path + Handler */}
+                                <div className="flex items-start md:items-center gap-2.5 min-w-0 flex-1">
+                                  <span className={`px-2 py-0.5 rounded font-mono font-bold text-[10px] border uppercase shrink-0 ${methodColor}`}>
+                                    {ep.method}
+                                  </span>
 
-                  {/* API Card Expanded Content: Full Endpoints List */}
-                  {isExpanded && (
-                    <div className="border-t border-border/60 bg-surface/60 p-3 sm:p-4 space-y-2">
-                      <div className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-2 flex items-center justify-between">
-                        <span>Endpoints in this API ({endpointsToRender.length}):</span>
-                        <span className="text-[10px] font-normal lowercase">Click to copy route path or cURL command</span>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        {endpointsToRender.map((ep, idx) => {
-                          const epKey = `${api.id}_${ep.method}_${ep.path}_${idx}`;
-                          const isPathCopied = copiedKey === `path_${epKey}`;
-                          const isCurlCopied = copiedKey === `curl_${epKey}`;
-
-                          const methodColor =
-                            ep.method === 'GET' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25' :
-                            ep.method === 'POST' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/25' :
-                            ep.method === 'PUT' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/25' :
-                            ep.method === 'DELETE' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/25' :
-                            'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25';
-
-                          return (
-                            <div
-                              key={epKey}
-                              className="p-2.5 rounded-lg bg-surface hover:bg-surface-raised border border-border/70 hover:border-border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-2.5 text-xs"
-                            >
-                              {/* Left: Method + Path + Handler */}
-                              <div className="flex items-start md:items-center gap-2.5 min-w-0 flex-1">
-                                <span className={`px-2 py-0.5 rounded font-mono font-bold text-[10px] border uppercase shrink-0 ${methodColor}`}>
-                                  {ep.method}
-                                </span>
-
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-mono text-xs font-bold text-foreground break-all select-all">
-                                      {ep.path}
-                                    </span>
-                                    {ep.level && (
-                                      <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${
-                                        ep.level === 'HIGH' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/25' :
-                                        ep.level === 'MEDIUM' ? 'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25' :
-                                        'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
-                                      }`}>
-                                        {ep.level}
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-mono text-xs font-bold text-foreground break-all select-all">
+                                        {ep.path}
                                       </span>
+                                      {ep.level && (
+                                        <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${ep.level === 'HIGH' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/25' :
+                                          ep.level === 'MEDIUM' ? 'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25' :
+                                            'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
+                                          }`}>
+                                          {ep.level}
+                                        </span>
+                                      )}
+                                      {ep.isLazyLoaded && (
+                                        <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-50 dark:bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30">
+                                          LAZY
+                                        </span>
+                                      )}
+                                      {(ep.subdomain || (breakdown?.groupBy === 'subdomain' && api?.name ? api.name.replace(/\s*API$/i, '') : null)) && (
+                                        <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 dark:text-indigo-300 border border-indigo-500/30 flex items-center gap-1 font-semibold shrink-0">
+                                          <Globe className="h-2.5 w-2.5 shrink-0" />
+                                          {ep.subdomain || api.name.replace(/\s*API$/i, '')}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {(ep.handler || ep.module || ep.summary) && (
+                                      <div className="text-[10px] text-muted font-mono truncate mt-0.5">
+                                        {ep.handler ? `handler: ${ep.handler}` : (ep.module ? `file: ${ep.module}` : ep.summary)}
+                                      </div>
                                     )}
-                                    {ep.isLazyLoaded && (
-                                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-50 dark:bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30">
-                                        LAZY
-                                      </span>
-                                    )}
-                                    {(ep.subdomain || (breakdown?.groupBy === 'subdomain' && api?.name ? api.name.replace(/\s*API$/i, '') : null)) && (
-                                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 dark:text-indigo-300 border border-indigo-500/30 flex items-center gap-1 font-semibold shrink-0">
-                                        <Globe className="h-2.5 w-2.5 shrink-0" />
-                                        {ep.subdomain || api.name.replace(/\s*API$/i, '')}
-                                      </span>
+                                    {onOpenApiFlow && (
+                                      <button
+                                        onClick={() => {
+                                          onClose();
+                                          onOpenApiFlow(ep);
+                                        }}
+                                        className="px-2 py-1 rounded bg-cyan-500/10 border border-cyan-500/25 hover:bg-cyan-500/20 text-[10px] font-mono text-cyan-400 flex items-center gap-1 transition-colors cursor-pointer"
+                                        title="Open interactive visual API graph focused on this endpoint"
+                                      >
+                                        <Workflow className="h-3 w-3" />
+                                        <span>Graph</span>
+                                      </button>
                                     )}
                                   </div>
+                                </div>
 
-                                  {(ep.handler || ep.module || ep.summary) && (
-                                    <div className="text-[10px] text-muted font-mono truncate mt-0.5">
-                                      {ep.handler ? `handler: ${ep.handler}` : (ep.module ? `file: ${ep.module}` : ep.summary)}
-                                    </div>
-                                  )}
-                                  {onOpenApiFlow && (
-                                    <button
-                                      onClick={() => {
-                                        onClose();
-                                        onOpenApiFlow(ep);
-                                      }}
-                                      className="px-2 py-1 rounded bg-cyan-500/10 border border-cyan-500/25 hover:bg-cyan-500/20 text-[10px] font-mono text-cyan-400 flex items-center gap-1 transition-colors cursor-pointer"
-                                      title="Open interactive visual API graph focused on this endpoint"
-                                    >
-                                      <Workflow className="h-3 w-3" />
-                                      <span>Graph</span>
-                                    </button>
-                                  )}
+                                {/* Right: Quick Actions */}
+                                <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
+                                  <button
+                                    onClick={() => handleCopyPath(ep.path, `path_${epKey}`)}
+                                    className="px-2 py-1 rounded bg-surface-subtle border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
+                                    title="Copy relative route path"
+                                  >
+                                    {isPathCopied ? (
+                                      <>
+                                        <Check className="h-3 w-3 text-emerald-400" />
+                                        <span className="text-emerald-400">Copied</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="h-3 w-3" />
+                                        <span>Path</span>
+                                      </>
+                                    )}
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleCopyCurl(ep, `curl_${epKey}`)}
+                                    className="px-2 py-1 rounded bg-surface-subtle border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
+                                    title="Copy executable cURL command"
+                                  >
+                                    {isCurlCopied ? (
+                                      <>
+                                        <Check className="h-3 w-3 text-emerald-400" />
+                                        <span className="text-emerald-400">Copied</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Terminal className="h-3 w-3" />
+                                        <span>cURL</span>
+                                      </>
+                                    )}
+                                  </button>
                                 </div>
                               </div>
-
-                              {/* Right: Quick Actions */}
-                              <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
-                                <button
-                                  onClick={() => handleCopyPath(ep.path, `path_${epKey}`)}
-                                  className="px-2 py-1 rounded bg-surface-subtle border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
-                                  title="Copy relative route path"
-                                >
-                                  {isPathCopied ? (
-                                    <>
-                                      <Check className="h-3 w-3 text-emerald-400" />
-                                      <span className="text-emerald-400">Copied</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Copy className="h-3 w-3" />
-                                      <span>Path</span>
-                                    </>
-                                  )}
-                                </button>
-
-                                <button
-                                  onClick={() => handleCopyCurl(ep, `curl_${epKey}`)}
-                                  className="px-2 py-1 rounded bg-surface-subtle border border-border hover:bg-surface-raised text-[10px] font-mono text-muted hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
-                                  title="Copy executable cURL command"
-                                >
-                                  {isCurlCopied ? (
-                                    <>
-                                      <Check className="h-3 w-3 text-emerald-400" />
-                                      <span className="text-emerald-400">Copied</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Terminal className="h-3 w-3" />
-                                      <span>cURL</span>
-                                    </>
-                                  )}
-                                </button>
-                              </div>
+                            );
+                          })}
+                          {rawEndpointsToRender.length > 40 && (
+                            <div className="p-2 text-center text-xs font-mono text-muted bg-surface/80 rounded-lg border border-border/50">
+                              Showing 40 of {rawEndpointsToRender.length} operations. Use search above to filter specific routes.
                             </div>
-                          );
-                        })}
-                        {rawEndpointsToRender.length > 40 && (
-                          <div className="p-2 text-center text-xs font-mono text-muted bg-surface/80 rounded-lg border border-border/50">
-                            Showing 40 of {rawEndpointsToRender.length} operations. Use search above to filter specific routes.
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                    )}
+                  </div>
+                );
+              })}
 
-            {filteredApis.length > visibleCount && (
-              <div className="pt-2 pb-4 text-center">
-                <button
-                  type="button"
-                  onClick={() => setVisibleCount((prev) => prev + 60)}
-                  className="px-4 py-2 rounded-xl text-xs font-mono font-semibold bg-surface-raised hover:bg-surface border border-border hover:border-brand/50 text-foreground transition-all cursor-pointer shadow-xs"
-                >
-                  Load More APIs (+{filteredApis.length - visibleCount} remaining)
-                </button>
-              </div>
-            )}
-          </>
-        )}
+              {filteredApis.length > visibleCount && (
+                <div className="pt-2 pb-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCount((prev) => prev + 60)}
+                    className="px-4 py-2 rounded-xl text-xs font-mono font-semibold bg-surface-raised hover:bg-surface border border-border hover:border-brand/50 text-foreground transition-all cursor-pointer shadow-xs"
+                  >
+                    Load More APIs (+{filteredApis.length - visibleCount} remaining)
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* Modal Footer */}

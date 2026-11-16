@@ -2,10 +2,10 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { 
-  X, Workflow, ArrowRight, ArrowDown, Search, Filter, Sparkles, Radio, Layers, 
-  Database, Key, Copy, Check, Zap, Play, Pause, Download, 
-  Maximize2, Minimize2, RotateCcw, Eye, Code2, Server, Globe, 
+import {
+  X, Workflow, ArrowRight, ArrowDown, Search, Filter, Sparkles, Radio, Layers,
+  Database, Key, Copy, Check, Zap, Play, Pause, Download,
+  Maximize2, Minimize2, RotateCcw, Eye, Code2, Server, Globe,
   Activity, CheckCircle2, ChevronRight, ChevronLeft, ShieldCheck, Webhook,
   HardDrive, ShoppingBag, Package, CreditCard, Users, ArrowUpRight,
   ZoomIn, ZoomOut, Compass, ExternalLink, FolderGit2, GitBranch
@@ -177,15 +177,34 @@ export default function ApiFlowModal({
     };
   }, [isOpen]);
 
-  // Butter-smooth, non-passive mouse wheel & trackpad zooming
+  // Butter-smooth, non-passive mouse wheel & trackpad scrolling/zooming
   useEffect(() => {
     const el = canvasRef.current;
     if (!el || !isOpen) return;
 
     const handleWheelZoom = (e) => {
-      e.preventDefault();
-      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
-      setZoom((prev) => Math.min(2.5, Math.max(0.25, parseFloat((prev * zoomFactor).toFixed(3)))));
+      // 1. If in non-graphical view mode (COLUMNS, MATRIX, MERMAID), let native container scroll naturally
+      if (viewMode !== 'GRAPHICAL') return;
+
+      // 2. If wheel event target is inside a scrollable drawer, HUD, or modal dropdown, let it scroll naturally
+      if (e.target && e.target.closest && e.target.closest('.overflow-y-auto, .overflow-x-auto, .overflow-auto, [data-scrollable="true"]')) {
+        return;
+      }
+
+      // 3. Figma / modern canvas convention:
+      // If Ctrl/Cmd key is pressed (or pinch-to-zoom on trackpad), ZOOM the canvas
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+        setZoom((prev) => Math.min(2.5, Math.max(0.24, parseFloat((prev * zoomFactor).toFixed(3)))));
+      } else {
+        // Otherwise: PAN / SCROLL the canvas smoothly in 2D (supports vertical mouse wheel and 2D trackpad)
+        e.preventDefault();
+        setPanOffset((prev) => ({
+          x: Math.round(prev.x - e.deltaX),
+          y: Math.round(prev.y - e.deltaY)
+        }));
+      }
     };
 
     el.addEventListener('wheel', handleWheelZoom, { passive: false });
@@ -196,7 +215,7 @@ export default function ApiFlowModal({
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && isOpen) {
         if (document.fullscreenElement) {
-          document.exitFullscreen?.().catch(() => {});
+          document.exitFullscreen?.().catch(() => { });
         }
         onClose();
       }
@@ -234,17 +253,18 @@ export default function ApiFlowModal({
     // High-scale visual guard: Cap topological visual canvas nodes to top 64 endpoints
     // to guarantee 60fps butter-smooth rendering and eliminate CPU main thread freeze
     const MAX_GRAPH_NODES = 64;
-    let targetEndpoints = endpoints;
-    if (endpoints.length > MAX_GRAPH_NODES) {
-      targetEndpoints = [...endpoints].sort((a, b) => {
-        let wa = (a.level === 'HIGH' ? 20 : a.level === 'MEDIUM' ? 10 : 0) +
-                 (['POST', 'PUT', 'DELETE'].includes(a.method) ? 10 : 0) +
-                 (a.kind === 'AUTH' ? 15 : 0) +
-                 ((a.connectedTables && a.connectedTables.length > 0) ? 5 : 0);
-        let wb = (b.level === 'HIGH' ? 20 : b.level === 'MEDIUM' ? 10 : 0) +
-                 (['POST', 'PUT', 'DELETE'].includes(b.method) ? 10 : 0) +
-                 (b.kind === 'AUTH' ? 15 : 0) +
-                 ((b.connectedTables && b.connectedTables.length > 0) ? 5 : 0);
+    const validEndpoints = (endpoints || []).filter(e => e && typeof e === 'object');
+    let targetEndpoints = validEndpoints;
+    if (validEndpoints.length > MAX_GRAPH_NODES) {
+      targetEndpoints = [...validEndpoints].sort((a, b) => {
+        let wa = (a?.level === 'HIGH' ? 20 : a?.level === 'MEDIUM' ? 10 : 0) +
+          (['POST', 'PUT', 'DELETE'].includes(String(a?.method || '').toUpperCase()) ? 10 : 0) +
+          (a?.kind === 'AUTH' ? 15 : 0) +
+          ((a?.connectedTables && a.connectedTables.length > 0) ? 5 : 0);
+        let wb = (b?.level === 'HIGH' ? 20 : b?.level === 'MEDIUM' ? 10 : 0) +
+          (['POST', 'PUT', 'DELETE'].includes(String(b?.method || '').toUpperCase()) ? 10 : 0) +
+          (b?.kind === 'AUTH' ? 15 : 0) +
+          ((b?.connectedTables && b.connectedTables.length > 0) ? 5 : 0);
         return wb - wa;
       }).slice(0, MAX_GRAPH_NODES);
     }
@@ -271,7 +291,7 @@ export default function ApiFlowModal({
     // 2. Discover authentic parent API Services & cluster endpoints
     // Intelligently group endpoints into genuine Services and Resource Branches
     const isSingleProjectApp = targetEndpoints.length <= 20 && (!targetEndpoints.some(e => e.module && !['api', 'default', ''].includes(e.module.toLowerCase())));
-    
+
     const getCleanPath = (rawPath) => {
       const p = String(rawPath || '/').trim();
       return p.replace(/^\/api(\/v\d+)?/i, '') || p;
@@ -346,8 +366,8 @@ export default function ApiFlowModal({
       let apiName = ep.module || '';
 
       if (isSingleProjectApp) {
-        apiName = ep.module && !['api', 'default', ''].includes(ep.module) 
-          ? ep.module 
+        apiName = ep.module && !['api', 'default', ''].includes(ep.module)
+          ? ep.module
           : 'E-Commerce Core API';
       } else if (!apiName || apiName === 'api' || apiName === 'default') {
         const bInfo = getBranchInfo(ep);
@@ -408,7 +428,7 @@ export default function ApiFlowModal({
         upstreamCallers: [],
         downstreamTargets: []
       };
-      
+
       childEps.forEach((ep, epIdx) => {
         ep.indexInService = epIdx;
         ep.serviceTheme = theme;
@@ -1154,7 +1174,7 @@ export default function ApiFlowModal({
     // B. Endpoint Communication Helper with Multi-Mode Intelligent Routing
     const addEndpointLink = (src, tgt, type, label, color, themeName) => {
       if (!src || !tgt || src.id === tgt.id) return;
-      
+
       const linkIdx = links.length;
       let startAnchor, endAnchor;
 
@@ -1257,7 +1277,7 @@ export default function ApiFlowModal({
 
       // Rule 4: Shared Database Entity Data Bus
       epsInService.slice(0, 15).forEach(srcEp => {
-        const srcWrites = (srcEp.connectedTables || []).filter(ct => 
+        const srcWrites = (srcEp.connectedTables || []).filter(ct =>
           typeof ct === 'object' && ct !== null ? ct.action === 'WRITE' : srcEp.method !== 'GET'
         );
         if (srcWrites.length === 0) return;
@@ -1304,8 +1324,8 @@ export default function ApiFlowModal({
 
       // Rule 6: Logical Workflow Progression for Remaining Unconnected Endpoints
       epsInService.slice(0, 15).forEach((ep, idx) => {
-        const hasDirectLinks = links.some(l => 
-          (l.sourceId === ep.id || l.targetId === ep.id) && 
+        const hasDirectLinks = links.some(l =>
+          (l.sourceId === ep.id || l.targetId === ep.id) &&
           l.type !== 'GATEWAY_ROUTING'
         );
         if (!hasDirectLinks) {
@@ -1330,9 +1350,9 @@ export default function ApiFlowModal({
         const srcService = stageApis[i];
         const tgtService = stageApis[i + 1];
         const srcEp = visibleEndpoints.find(e => e.apiService === srcService.path && ['POST', 'PUT'].includes(e.method)) ||
-                      visibleEndpoints.find(e => e.apiService === srcService.path);
+          visibleEndpoints.find(e => e.apiService === srcService.path);
         const tgtEp = visibleEndpoints.find(e => e.apiService === tgtService.path && e.method === 'GET') ||
-                      visibleEndpoints.find(e => e.apiService === tgtService.path);
+          visibleEndpoints.find(e => e.apiService === tgtService.path);
         if (srcEp && tgtEp && srcEp.id !== tgtEp.id) {
           addEndpointLink(
             srcEp,
@@ -1376,18 +1396,18 @@ export default function ApiFlowModal({
 
     const stages = isCompact
       ? [
-          { id: 'INGRESS', title: 'Tier 1: Edge Ingress Gateway', x: 20, y: 12, width: canvasWidth - 40, height: 58 },
-          { id: 'API_ROOT', title: `Tier 2: API Service Root (${stageApis.length} ${stageApis.length === 1 ? 'Service' : 'Services'})`, x: 20, y: 74, width: canvasWidth - 40, height: 64 },
-          { id: 'BRANCHES_AND_ENDPOINTS', title: `Tier 3: Resource Branches & Communication Mesh (${allBranchNodes.length} Branches • ${visibleEndpoints.length} Endpoints • ${interEndpointCount} Flows)`, x: 20, y: 146, width: canvasWidth - 40, height: canvasHeight - 156 }
-        ]
+        { id: 'INGRESS', title: 'Tier 1: Edge Ingress Gateway', x: 20, y: 12, width: canvasWidth - 40, height: 58 },
+        { id: 'API_ROOT', title: `Tier 2: API Service Root (${stageApis.length} ${stageApis.length === 1 ? 'Service' : 'Services'})`, x: 20, y: 74, width: canvasWidth - 40, height: 64 },
+        { id: 'BRANCHES_AND_ENDPOINTS', title: `Tier 3: Resource Branches & Communication Mesh (${allBranchNodes.length} Branches • ${visibleEndpoints.length} Endpoints • ${interEndpointCount} Flows)`, x: 20, y: 146, width: canvasWidth - 40, height: canvasHeight - 156 }
+      ]
       : isHorizontal
-      ? [
+        ? [
           { id: 'INGRESS', title: 'Edge Ingress Gateway', x: 36, y: 20, width: 280, height: canvasHeight - 40 },
           { id: 'API_ROOT', title: `API Service Root (${stageApis.length} ${stageApis.length === 1 ? 'Service' : 'Services'})`, x: 350, y: 20, width: 340, height: canvasHeight - 40 },
           { id: 'BRANCHES', title: `Resource Branches (${allBranchNodes.length} Branches)`, x: 740, y: 20, width: 320, height: canvasHeight - 40 },
           { id: 'ENDPOINTS', title: `Endpoints & Mesh (${visibleEndpoints.length} Endpoints • ${interEndpointCount} Flows)`, x: 1100, y: 20, width: canvasWidth - 1140, height: canvasHeight - 40 }
         ]
-      : [
+        : [
           { id: 'INGRESS', title: 'Tier 1: Edge Ingress Gateway & Security Router', x: 28, y: 20, width: canvasWidth - 56, height: 104 },
           { id: 'API_ROOT', title: `Tier 2: API Architecture & Service Root (${stageApis.length} ${stageApis.length === 1 ? 'Service' : 'Services'})`, x: 28, y: 136, width: canvasWidth - 56, height: 108 },
           { id: 'BRANCHES_AND_ENDPOINTS', title: `Tier 3: Resource Branches & Endpoints Mesh (${allBranchNodes.length} Branches • ${visibleEndpoints.length} Endpoints • ${interEndpointCount} Communication Flows)`, x: 28, y: 256, width: canvasWidth - 56, height: canvasHeight - 276 }
@@ -1484,7 +1504,7 @@ export default function ApiFlowModal({
         }).catch(err => {
           console.warn('Modal mermaid render error:', err);
         });
-      } catch (e) {}
+      } catch (e) { }
     }
   }, [viewMode, diagrams]);
 
@@ -1512,17 +1532,20 @@ export default function ApiFlowModal({
   const toggleNativeFullscreen = () => {
     if (!document.fullscreenElement) {
       if (containerRef.current?.requestFullscreen) {
-        containerRef.current.requestFullscreen().catch(() => {});
+        containerRef.current.requestFullscreen().catch(() => { });
       } else if (document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => {});
+        document.documentElement.requestFullscreen().catch(() => { });
       }
     } else {
-      document.exitFullscreen?.().catch(() => {});
+      document.exitFullscreen?.().catch(() => { });
     }
   };
 
   const handleMouseDown = (e) => {
     if (e.button !== 0) return;
+    if (e.target && e.target.closest && e.target.closest('button, input, textarea, a, select, [role="button"], .overflow-y-auto, .overflow-auto')) {
+      return;
+    }
     setIsDragging(true);
     setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
   };
@@ -1574,7 +1597,7 @@ export default function ApiFlowModal({
     : null;
 
   const modalContent = (
-    <div 
+    <div
       ref={containerRef}
       className="fixed inset-0 z-[99999] w-screen h-screen bg-[#070d18] text-foreground flex flex-col overflow-hidden select-none animate-in fade-in duration-200"
       style={{ isolation: 'isolate' }}
@@ -1639,44 +1662,40 @@ export default function ApiFlowModal({
           <div className="flex items-center p-0.5 rounded-xl bg-slate-900 border border-slate-750 text-xs font-semibold">
             <button
               onClick={() => setViewMode('GRAPHICAL')}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                viewMode === 'GRAPHICAL'
-                  ? 'bg-cyan-500/20 text-cyan-300 shadow-sm font-bold border border-cyan-500/40'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${viewMode === 'GRAPHICAL'
+                ? 'bg-cyan-500/20 text-cyan-300 shadow-sm font-bold border border-cyan-500/40'
+                : 'text-slate-400 hover:text-white'
+                }`}
             >
               <Workflow className="h-3.5 w-3.5" />
               <span>Visual Mesh</span>
             </button>
             <button
               onClick={() => setViewMode('COLUMNS')}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                viewMode === 'COLUMNS'
-                  ? 'bg-slate-800 text-white shadow-sm font-bold border border-slate-700'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${viewMode === 'COLUMNS'
+                ? 'bg-slate-800 text-white shadow-sm font-bold border border-slate-700'
+                : 'text-slate-400 hover:text-white'
+                }`}
             >
               <Layers className="h-3.5 w-3.5 text-blue-400" />
               <span>Tiered Lanes</span>
             </button>
             <button
               onClick={() => setViewMode('MERMAID')}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                viewMode === 'MERMAID'
-                  ? 'bg-slate-800 text-white shadow-sm font-bold border border-slate-700'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${viewMode === 'MERMAID'
+                ? 'bg-slate-800 text-white shadow-sm font-bold border border-slate-700'
+                : 'text-slate-400 hover:text-white'
+                }`}
             >
               <Eye className="h-3.5 w-3.5 text-purple-400" />
               <span>Mermaid Architecture</span>
             </button>
             <button
               onClick={() => setViewMode('MATRIX')}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                viewMode === 'MATRIX'
-                  ? 'bg-slate-800 text-white shadow-sm font-bold border border-slate-700'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${viewMode === 'MATRIX'
+                ? 'bg-slate-800 text-white shadow-sm font-bold border border-slate-700'
+                : 'text-slate-400 hover:text-white'
+                }`}
             >
               <Code2 className="h-3.5 w-3.5 text-emerald-400" />
               <span>Call Matrix</span>
@@ -1689,11 +1708,10 @@ export default function ApiFlowModal({
               <button
                 type="button"
                 onClick={() => setLayoutOrientation('COMPACT')}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                  layoutOrientation === 'COMPACT'
-                    ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40 shadow-xs'
-                    : 'text-slate-400 hover:text-white'
-                }`}
+                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${layoutOrientation === 'COMPACT'
+                  ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40 shadow-xs'
+                  : 'text-slate-400 hover:text-white'
+                  }`}
                 title="Screen-Fit View: Fits entire API tree & mesh into viewport without scrolling"
               >
                 <Maximize2 className="h-3.5 w-3.5" />
@@ -1702,11 +1720,10 @@ export default function ApiFlowModal({
               <button
                 type="button"
                 onClick={() => setLayoutOrientation('HORIZONTAL')}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                  layoutOrientation === 'HORIZONTAL'
-                    ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40 shadow-xs'
-                    : 'text-slate-400 hover:text-white'
-                }`}
+                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${layoutOrientation === 'HORIZONTAL'
+                  ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40 shadow-xs'
+                  : 'text-slate-400 hover:text-white'
+                  }`}
                 title="Horizontal Tree (Left-to-Right Hierarchy: Gateway → API Root → Branches → Endpoints)"
               >
                 <ArrowRight className="h-3.5 w-3.5" />
@@ -1715,11 +1732,10 @@ export default function ApiFlowModal({
               <button
                 type="button"
                 onClick={() => setLayoutOrientation('VERTICAL')}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                  layoutOrientation === 'VERTICAL'
-                    ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40 shadow-xs'
-                    : 'text-slate-400 hover:text-white'
-                }`}
+                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${layoutOrientation === 'VERTICAL'
+                  ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40 shadow-xs'
+                  : 'text-slate-400 hover:text-white'
+                  }`}
                 title="Vertical Flow (Top-to-Bottom Multi-Tier Hierarchy)"
               >
                 <ArrowDown className="h-3.5 w-3.5" />
@@ -1731,11 +1747,10 @@ export default function ApiFlowModal({
           {/* Live Traffic Toggle */}
           <button
             onClick={() => setIsTrafficSimulated(!isTrafficSimulated)}
-            className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-              isTrafficSimulated
-                ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40 shadow-sm shadow-cyan-500/10'
-                : 'bg-slate-900 hover:bg-slate-800 text-slate-400 border-slate-750'
-            }`}
+            className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${isTrafficSimulated
+              ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40 shadow-sm shadow-cyan-500/10'
+              : 'bg-slate-900 hover:bg-slate-800 text-slate-400 border-slate-750'
+              }`}
             title="Toggle animated request pulse simulation along communication links"
           >
             {isTrafficSimulated ? <Pause className="h-3.5 w-3.5 text-cyan-400" /> : <Play className="h-3.5 w-3.5" />}
@@ -1795,11 +1810,10 @@ export default function ApiFlowModal({
                 setSelectedServiceFilter('ALL');
                 handleFitToScreen();
               }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
-                selectedServiceFilter === 'ALL'
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs font-bold'
-                  : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
-              }`}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${selectedServiceFilter === 'ALL'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs font-bold'
+                : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+                }`}
             >
               <Workflow className="h-3.5 w-3.5 text-cyan-400" />
               <span>All Services (1 Image Diagram)</span>
@@ -1824,11 +1838,10 @@ export default function ApiFlowModal({
                     handleFitToScreen();
                   }
                 }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-                  selectedServiceFilter === s.path
-                    ? 'bg-indigo-500/25 text-indigo-300 border border-indigo-500/45 shadow-xs font-bold'
-                    : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${selectedServiceFilter === s.path
+                  ? 'bg-indigo-500/25 text-indigo-300 border border-indigo-500/45 shadow-xs font-bold'
+                  : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+                  }`}
                 title={`Spotlight ${s.path} in 1-image diagram (Click again to show all)`}
               >
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.theme?.stroke || '#06b6d4' }} />
@@ -1849,11 +1862,10 @@ export default function ApiFlowModal({
               <button
                 key={m}
                 onClick={() => setSelectedMethod(m)}
-                className={`px-2 py-0.8 rounded-md text-[11px] font-mono font-bold transition-all cursor-pointer ${
-                  selectedMethod === m
-                    ? 'bg-slate-700 text-white border border-slate-600'
-                    : 'text-slate-400 hover:text-slate-200 bg-slate-900/50'
-                }`}
+                className={`px-2 py-0.8 rounded-md text-[11px] font-mono font-bold transition-all cursor-pointer ${selectedMethod === m
+                  ? 'bg-slate-700 text-white border border-slate-600'
+                  : 'text-slate-400 hover:text-slate-200 bg-slate-900/50'
+                  }`}
               >
                 {m}
               </button>
@@ -1900,11 +1912,10 @@ export default function ApiFlowModal({
                 <button
                   key={f.id}
                   onClick={() => setCommFilter(f.id)}
-                  className={`px-2 py-0.5 rounded-md text-[11px] font-mono transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-                    commFilter === f.id
-                      ? 'bg-slate-700 text-white font-bold border border-slate-600 shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200 bg-slate-900/60 border border-slate-800'
-                  }`}
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-mono transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${commFilter === f.id
+                    ? 'bg-slate-700 text-white font-bold border border-slate-600 shadow-xs'
+                    : 'text-slate-400 hover:text-slate-200 bg-slate-900/60 border border-slate-800'
+                    }`}
                 >
                   {f.dot && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: f.dot }} />}
                   <span className={f.color}>{f.label}</span>
@@ -1928,7 +1939,7 @@ export default function ApiFlowModal({
       {/* ===================================================================== */}
       {/* MAIN VIEWPORT / CANVAS CONTAINER */}
       {/* ===================================================================== */}
-      <div 
+      <div
         ref={canvasRef}
         className="relative flex-1 w-full h-full bg-[#070d18] overflow-hidden cursor-grab active:cursor-grabbing select-none"
         onMouseDown={handleMouseDown}
@@ -2130,8 +2141,8 @@ export default function ApiFlowModal({
                   const isDimmed = selectedServiceFilter !== 'ALL' && selectedServiceFilter !== s.path;
 
                   return (
-                    <g 
-                      key={cluster.id} 
+                    <g
+                      key={cluster.id}
                       opacity={isDimmed ? 0.35 : 1}
                       className="select-none"
                     >
@@ -2366,9 +2377,9 @@ export default function ApiFlowModal({
                     (commFilter === 'WORKFLOW' && link.type === 'WORKFLOW_STEP');
 
                   const isDirectlyActive = (activeFocusedNode && (activeFocusedNode.id === link.sourceId || activeFocusedNode.id === link.targetId)) ||
-                                           (hoveredNodeId && (hoveredNodeId === link.sourceId || hoveredNodeId === link.targetId));
+                    (hoveredNodeId && (hoveredNodeId === link.sourceId || hoveredNodeId === link.targetId));
                   const isServiceActive = (hoveredNodeId && (link.sourceId === hoveredNodeId || link.target?.apiService === hoveredNode?.path)) ||
-                                          (activeFocusedNode && (link.sourceId === activeFocusedNode.id || link.target?.apiService === activeFocusedNode?.path));
+                    (activeFocusedNode && (link.sourceId === activeFocusedNode.id || link.target?.apiService === activeFocusedNode?.path));
                   const isHighlighted = isDirectlyActive || isServiceActive;
                   const isDimmed = !matchesCommFilter || ((activeFocusedNode || hoveredNodeId) && !isHighlighted && !isTrunk);
 
@@ -2494,15 +2505,15 @@ export default function ApiFlowModal({
                         rx="12"
                         fill={isServiceNode ? '#0b162c' : '#0e172a'}
                         stroke={
-                          isFocused 
-                            ? '#06b6d4' 
-                            : isHovered 
-                            ? '#38bdf8' 
-                            : isConnected 
-                            ? '#a855f7' 
-                            : isServiceNode 
-                            ? (node.theme?.border || '#334155') 
-                            : '#1e293b'
+                          isFocused
+                            ? '#06b6d4'
+                            : isHovered
+                              ? '#38bdf8'
+                              : isConnected
+                                ? '#a855f7'
+                                : isServiceNode
+                                  ? (node.theme?.border || '#334155')
+                                  : '#1e293b'
                         }
                         strokeWidth={isFocused || isHovered ? 2.4 : isConnected ? 2 : 1.2}
                       />
@@ -2556,8 +2567,8 @@ export default function ApiFlowModal({
                         fill={node.theme?.stroke || '#06b6d4'}
                         className="font-mono text-[9px] font-semibold"
                       >
-                        {isServiceNode 
-                          ? (flowGraph.isFilteredService ? '← Active Service (Click to see All)' : `⚡ Tree Root ➔ ${node.branchesCount || 1} Branches`) 
+                        {isServiceNode
+                          ? (flowGraph.isFilteredService ? '← Active Service (Click to see All)' : `⚡ Tree Root ➔ ${node.branchesCount || 1} Branches`)
                           : `↓ ${node.upstreamCallers?.length || 0} in`}
                       </text>
                       {!isServiceNode && node.method !== 'GATEWAY' && (
@@ -2630,15 +2641,14 @@ export default function ApiFlowModal({
                         <div
                           key={node.id}
                           onClick={() => setFocusedEndpoint(isFocused ? null : node)}
-                          className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
-                            isFocused
-                              ? 'bg-cyan-500/15 border-cyan-500 ring-2 ring-cyan-500/30 shadow-lg'
-                              : isConnected
+                          className={`p-3 rounded-xl border transition-all cursor-pointer relative ${isFocused
+                            ? 'bg-cyan-500/15 border-cyan-500 ring-2 ring-cyan-500/30 shadow-lg'
+                            : isConnected
                               ? 'bg-purple-500/15 border-purple-500 ring-1 ring-purple-500/30'
                               : isDimmed
-                              ? 'opacity-30 bg-slate-900 border-slate-800'
-                              : 'bg-slate-900/90 hover:bg-slate-800 border-slate-800 hover:border-cyan-500/50'
-                          }`}
+                                ? 'opacity-30 bg-slate-900 border-slate-800'
+                                : 'bg-slate-900/90 hover:bg-slate-800 border-slate-800 hover:border-cyan-500/50'
+                            }`}
                         >
                           <div className="flex items-center justify-between gap-1.5 mb-1.5">
                             <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${getMethodBadge(node.method).class}`}>
@@ -2669,7 +2679,7 @@ export default function ApiFlowModal({
         {viewMode === 'MERMAID' && (
           <div className="w-full h-full p-8 flex items-center justify-center overflow-auto">
             {mermaidSvg ? (
-              <div 
+              <div
                 className="max-w-full overflow-auto select-none"
                 dangerouslySetInnerHTML={{ __html: mermaidSvg }}
               />
@@ -2758,6 +2768,9 @@ export default function ApiFlowModal({
           </button>
           <span className="px-2 text-xs font-mono text-slate-400 font-bold border-l border-slate-800">
             {Math.round(zoom * 100)}%
+          </span>
+          <span className="hidden md:inline-block px-2 text-[10px] font-sans text-slate-400 border-l border-slate-800">
+            Scroll to pan • Ctrl + scroll to zoom • Drag to navigate
           </span>
         </div>
 

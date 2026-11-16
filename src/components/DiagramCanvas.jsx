@@ -1,19 +1,19 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  ZoomIn, ZoomOut, RotateCcw, Maximize2, Minimize2, 
-  Download, Search, Code, Eye, Layers, Database, 
+import {
+  ZoomIn, ZoomOut, RotateCcw, Maximize2, Minimize2,
+  Download, Search, Code, Eye, Layers, Database,
   Box, Cpu, GitCommit, ArrowRight, Check, Move, Sparkles, Workflow
 } from 'lucide-react';
 import DatabaseSchemaDiagram from './DatabaseSchemaDiagram';
 import ApiFlowModal from './ApiFlowModal';
 
-export default function DiagramCanvas({ 
-  diagrams, 
-  schemaData, 
+export default function DiagramCanvas({
+  diagrams,
+  schemaData,
   endpoints = [],
-  theme = 'dark', 
+  theme = 'dark',
   onSelectForImpact,
   activeTab: controlledActiveTab,
   onTabChange,
@@ -125,7 +125,7 @@ export default function DiagramCanvas({
       lastThemeRef.current = theme;
       cleanStrayMermaidErrors();
       const isDark = theme === 'dark';
-      
+
       try {
         window.mermaid.initialize({
           startOnLoad: false,
@@ -188,7 +188,7 @@ export default function DiagramCanvas({
             boxMargin: 15
           }
         });
-      } catch (e) {}
+      } catch (e) { }
     }
   }, [theme, isMermaidReady]);
 
@@ -245,7 +245,7 @@ export default function DiagramCanvas({
     if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
       try {
         await document.fonts.ready;
-      } catch {}
+      } catch { }
     }
 
     if (thisReq !== renderReqId.current) {
@@ -447,7 +447,7 @@ export default function DiagramCanvas({
           document.body.removeChild(downloadLink);
         }
         URL.revokeObjectURL(svgUrl);
-      } catch {}
+      } catch { }
     }, 2000);
   };
 
@@ -471,9 +471,8 @@ export default function DiagramCanvas({
   return (
     <div
       ref={wrapperRef}
-      className={`overflow-hidden flex flex-col border border-border transition-all bg-surface-card shadow-card ${
-        isFullscreen ? 'fixed inset-0 z-50 rounded-none w-screen h-screen' : 'h-[600px] rounded-2xl'
-      }`}
+      className={`overflow-hidden flex flex-col border border-border transition-all bg-surface-card shadow-card ${isFullscreen ? 'fixed inset-0 z-50 rounded-none w-screen h-screen' : 'h-[600px] rounded-2xl'
+        }`}
     >
       {/* Top Floating Controls Header */}
       <div className="chrome-bar px-4 py-2.5 border-b border-border-subtle flex flex-wrap items-center justify-between gap-2.5 select-none">
@@ -490,11 +489,10 @@ export default function DiagramCanvas({
                   if (onTabChange) onTabChange(tab.id);
                   handleResetZoom();
                 }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
-                  isActive
-                    ? 'bg-surface text-foreground shadow-card border-border'
-                    : 'text-muted hover:text-foreground border-transparent hover:bg-surface-subtle'
-                }`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${isActive
+                  ? 'bg-surface text-foreground shadow-card border-border'
+                  : 'text-muted hover:text-foreground border-transparent hover:bg-surface-subtle'
+                  }`}
               >
                 <Icon className="h-3.5 w-3.5" />
                 <span>{tab.label}</span>
@@ -513,11 +511,10 @@ export default function DiagramCanvas({
                   setErdMode('MERMAID');
                   handleResetZoom();
                 }}
-                className={`px-2.5 py-0.5 rounded transition-colors cursor-pointer ${
-                  erdMode === 'MERMAID'
-                    ? 'bg-surface-card text-foreground font-semibold shadow-xs'
-                    : 'text-muted hover:text-foreground'
-                }`}
+                className={`px-2.5 py-0.5 rounded transition-colors cursor-pointer ${erdMode === 'MERMAID'
+                  ? 'bg-surface-card text-foreground font-semibold shadow-xs'
+                  : 'text-muted hover:text-foreground'
+                  }`}
               >
                 Crow's Foot ERD
               </button>
@@ -526,11 +523,10 @@ export default function DiagramCanvas({
                   setErdMode('INTERACTIVE');
                   handleResetZoom();
                 }}
-                className={`px-2.5 py-0.5 rounded transition-colors cursor-pointer ${
-                  erdMode === 'INTERACTIVE'
-                    ? 'bg-surface-card text-foreground font-semibold shadow-xs'
-                    : 'text-muted hover:text-foreground'
-                }`}
+                className={`px-2.5 py-0.5 rounded transition-colors cursor-pointer ${erdMode === 'INTERACTIVE'
+                  ? 'bg-surface-card text-foreground font-semibold shadow-xs'
+                  : 'text-muted hover:text-foreground'
+                  }`}
               >
                 Interactive Topology
               </button>
@@ -542,10 +538,10 @@ export default function DiagramCanvas({
             <button
               onClick={() => setShowInteractiveApiFlow(true)}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-600 dark:text-cyan-400 border border-cyan-500/35 text-xs font-bold transition-all cursor-pointer shadow-xs"
-              title="Open Interactive Visual API Graph Explorer"
+              title="Open Interactive Visual API Topology Explorer"
             >
               <Workflow className="h-3.5 w-3.5 text-cyan-500 animate-pulse" />
-              <span>View Interactive Graph</span>
+              <span>View Interactive Topology</span>
             </button>
           )}
 
@@ -600,11 +596,10 @@ export default function DiagramCanvas({
           {/* Toggle Code / Visual */}
           <button
             onClick={() => setShowCode(!showCode)}
-            className={`p-1.5 rounded-md border transition-colors cursor-pointer ${
-              showCode
-                ? 'bg-surface-raised text-foreground border-border shadow-xs'
-                : 'bg-surface hover:bg-surface-raised text-muted hover:text-foreground border-border'
-            }`}
+            className={`p-1.5 rounded-md border transition-colors cursor-pointer ${showCode
+              ? 'bg-surface-raised text-foreground border-border shadow-xs'
+              : 'bg-surface hover:bg-surface-raised text-muted hover:text-foreground border-border'
+              }`}
             title={showCode ? 'View Visual Diagram' : 'View Mermaid Code'}
           >
             {showCode ? <Eye className="h-3.5 w-3.5" /> : <Code className="h-3.5 w-3.5" />}
@@ -634,9 +629,8 @@ export default function DiagramCanvas({
       {/* Main Interactive Canvas Area */}
       <div
         ref={viewportRef}
-        className={`flex-1 relative overflow-hidden bg-surface canvas-grid canvas-viewport ${
-          isDragging ? 'cursor-grabbing' : 'cursor-grab'
-        }`}
+        className={`flex-1 relative overflow-hidden bg-surface canvas-grid canvas-viewport ${isDragging ? 'cursor-grabbing' : 'cursor-grab'
+          }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -652,7 +646,7 @@ export default function DiagramCanvas({
         {!showCode ? (
           <>
             {/* Interactive Schema Diagram (Only for ERD interactive mode) */}
-            <div 
+            <div
               className={`w-full h-full select-none ${activeTab === 'erd' && erdMode === 'INTERACTIVE' ? 'block' : 'hidden'}`}
               style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`, transformOrigin: 'center center', transition: isDragging ? 'none' : 'transform 0.1s ease-out' }}
             >

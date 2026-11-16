@@ -36,7 +36,7 @@ export default function LandingPage() {
   const [gitToken, setGitToken] = useState('');
   const [crawlDepthMode, setCrawlDepthMode] = useState('deep'); // 'deep' | 'normal'
   const [pastedCode, setPastedCode] = useState(
-`-- Paste SQL DDL, Prisma schema, or ORM models here
+    `-- Paste SQL DDL, Prisma schema, or ORM models here
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -200,8 +200,8 @@ CREATE TABLE orders (
     let savedTheme = 'dark';
     try {
       savedTheme = localStorage.getItem('bendlens-theme') || 'dark';
-    } catch {}
-    
+    } catch { }
+
     setTheme(savedTheme);
     if (savedTheme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -225,7 +225,7 @@ CREATE TABLE orders (
     setTheme(newTheme);
     try {
       localStorage.setItem('bendlens-theme', newTheme);
-    } catch {}
+    } catch { }
     if (newTheme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
@@ -330,7 +330,7 @@ CREATE TABLE orders (
               localStorage.setItem('bendlens-path', result.data.projectPath || result.data.targetUrl);
             }
           }
-        } catch {}
+        } catch { }
         onComplete(result.data);
       } else {
         setErrorMessage(result.error || 'Analysis failed.');
@@ -439,7 +439,7 @@ CREATE TABLE orders (
       return await fetch('/api/git-clone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           repoUrl: normalizedUrl,
           token: token.trim(),
           crawlDepth: crawlDepthMode,
@@ -483,10 +483,10 @@ CREATE TABLE orders (
                 if (retryJson && retryJson.success) {
                   return new Response(JSON.stringify(retryJson), { status: 200, headers: { 'Content-Type': 'application/json' } });
                 }
-              } catch {}
+              } catch { }
             }
           }
-        } catch {}
+        } catch { }
       }
       return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json' } });
     }, (data) => {
@@ -525,7 +525,7 @@ CREATE TABLE orders (
       } else {
         localStorage.removeItem('bendlens-initial-tab');
       }
-    } catch {}
+    } catch { }
     router.push('/lens');
   };
 
@@ -560,10 +560,10 @@ CREATE TABLE orders (
                 className="btn-primary text-xs py-2 px-3.5"
                 title="Download the BendLens Desktop App (.exe)"
               >
-              <Download className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">Download Desktop App</span>
-              <span className="md:hidden">Download</span>
-            </button>
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden md:inline">Download Desktop App</span>
+                <span className="md:hidden">Download</span>
+              </button>
             )}
 
             <ThemeToggle
@@ -628,53 +628,49 @@ CREATE TABLE orders (
             </div>
             {/* Segmented Mode Selector */}
             <div className="flex items-center gap-1 p-1 rounded-xl bg-surface-raised border border-border-subtle shadow-subtle flex-wrap">
-            <button
-              onClick={() => setIngestMode('PATH')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                ingestMode === 'PATH'
+              <button
+                onClick={() => setIngestMode('PATH')}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${ingestMode === 'PATH'
                   ? 'bg-surface text-foreground shadow-card border border-border'
                   : 'text-muted hover:text-foreground border border-transparent'
-              }`}
-            >
-              <FolderSearch className="h-3.5 w-3.5" />
-              <span>Local Path</span>
-            </button>
+                  }`}
+              >
+                <FolderSearch className="h-3.5 w-3.5" />
+                <span>Local Path</span>
+              </button>
 
-            <button
-              onClick={() => setIngestMode('UPLOAD')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                ingestMode === 'UPLOAD'
+              <button
+                onClick={() => setIngestMode('UPLOAD')}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${ingestMode === 'UPLOAD'
                   ? 'bg-surface text-foreground shadow-card border border-border'
                   : 'text-muted hover:text-foreground border border-transparent'
-              }`}
-            >
-              <UploadCloud className="h-3.5 w-3.5" />
-              <span>ZIP / Files</span>
-            </button>
+                  }`}
+              >
+                <UploadCloud className="h-3.5 w-3.5" />
+                <span>ZIP / Files</span>
+              </button>
 
-            <button
-              onClick={() => setIngestMode('PASTE')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                ingestMode === 'PASTE'
+              <button
+                onClick={() => setIngestMode('PASTE')}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${ingestMode === 'PASTE'
                   ? 'bg-surface text-foreground shadow-card border border-border'
                   : 'text-muted hover:text-foreground border border-transparent'
-              }`}
-            >
-              <FileCode className="h-3.5 w-3.5" />
-              <span>Paste Schema</span>
-            </button>
+                  }`}
+              >
+                <FileCode className="h-3.5 w-3.5" />
+                <span>Paste Schema</span>
+              </button>
 
-            <button
-              onClick={() => setIngestMode('GIT')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                ingestMode === 'GIT'
+              <button
+                onClick={() => setIngestMode('GIT')}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${ingestMode === 'GIT'
                   ? 'bg-surface text-foreground shadow-card border border-border'
                   : 'text-muted hover:text-foreground border border-transparent'
-              }`}
-            >
-              <Globe className="h-3.5 w-3.5 text-brand" />
-              <span>Web & API Crawler / Git</span>
-            </button>
+                  }`}
+              >
+                <Globe className="h-3.5 w-3.5 text-brand" />
+                <span>Web & API Crawler / Git</span>
+              </button>
             </div>
           </div>
 
@@ -780,11 +776,10 @@ CREATE TABLE orders (
                   onClick={() => handleScanPath()}
                   disabled={isScanning || !folderPath.trim()}
                   title={!folderPath.trim() ? 'Enter a folder path above to enable analysis' : 'Analyze the provided folder path'}
-                  className={`w-full sm:w-auto px-5 py-2.5 text-xs font-semibold rounded-lg transition-all flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                    analysisResult
-                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-card ring-1 ring-emerald-500/50'
-                      : 'btn-primary shadow-card'
-                  }`}
+                  className={`w-full sm:w-auto px-5 py-2.5 text-xs font-semibold rounded-lg transition-all flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${analysisResult
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-card ring-1 ring-emerald-500/50'
+                    : 'btn-primary shadow-card'
+                    }`}
                 >
                   {isScanning ? (
                     <>
@@ -842,11 +837,10 @@ CREATE TABLE orders (
                     setSelectedFile(droppedFile);
                   }
                 }}
-                className={`border border-dashed rounded-xl p-8 text-center cursor-pointer transition-all mb-3 ${
-                  isDragging
-                    ? 'border-brand bg-brand/10 ring-2 ring-brand/30 scale-[1.01]'
-                    : 'border-border hover:border-brand bg-surface-subtle'
-                }`}
+                className={`border border-dashed rounded-xl p-8 text-center cursor-pointer transition-all mb-3 ${isDragging
+                  ? 'border-brand bg-brand/10 ring-2 ring-brand/30 scale-[1.01]'
+                  : 'border-border hover:border-brand bg-surface-subtle'
+                  }`}
               >
                 <input
                   type="file"
@@ -913,11 +907,10 @@ CREATE TABLE orders (
               <button
                 onClick={handleScanUpload}
                 disabled={isScanning || !selectedFile}
-                className={`w-full py-2.5 text-xs font-semibold rounded-lg transition-all flex items-center justify-center cursor-pointer shadow-xs ${
-                  analysisResult
-                    ? 'bg-surface-raised hover:bg-surface-subtle text-foreground border border-border'
-                    : 'btn-primary'
-                }`}
+                className={`w-full py-2.5 text-xs font-semibold rounded-lg transition-all flex items-center justify-center cursor-pointer shadow-xs ${analysisResult
+                  ? 'bg-surface-raised hover:bg-surface-subtle text-foreground border border-border'
+                  : 'btn-primary'
+                  }`}
               >
                 {isScanning ? (
                   <>
@@ -1078,11 +1071,10 @@ CREATE TABLE audit_logs (
               <button
                 onClick={handleScanPaste}
                 disabled={isScanning || !pastedCode.trim()}
-                className={`w-full py-2.5 text-xs font-semibold rounded-lg transition-all flex items-center justify-center cursor-pointer shadow-xs ${
-                  analysisResult
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-1 ring-emerald-500/50'
-                    : 'btn-primary'
-                }`}
+                className={`w-full py-2.5 text-xs font-semibold rounded-lg transition-all flex items-center justify-center cursor-pointer shadow-xs ${analysisResult
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-1 ring-emerald-500/50'
+                  : 'btn-primary'
+                  }`}
               >
                 {isScanning ? (
                   <>
@@ -1167,8 +1159,8 @@ CREATE TABLE audit_logs (
                     <span>Crawl Depth:</span>
                   </span>
                   <span className="text-[10px] text-muted hidden md:inline">
-                    {crawlDepthMode === 'deep' 
-                      ? 'Exhaustive scan of all 300+ code-split bundles including lazy-loaded Admin & Role modules' 
+                    {crawlDepthMode === 'deep'
+                      ? 'Exhaustive scan of all 300+ code-split bundles including lazy-loaded Admin & Role modules'
                       : 'Standard scan of primary public bundles and top-level routes'}
                   </span>
                 </div>
@@ -1176,11 +1168,10 @@ CREATE TABLE audit_logs (
                   <button
                     type="button"
                     onClick={() => setCrawlDepthMode('deep')}
-                    className={`px-2.5 py-1 rounded transition-colors cursor-pointer flex items-center gap-1.5 ${
-                      crawlDepthMode === 'deep'
-                        ? 'bg-brand text-white shadow-xs font-bold'
-                        : 'text-muted hover:text-foreground'
-                    }`}
+                    className={`px-2.5 py-1 rounded transition-colors cursor-pointer flex items-center gap-1.5 ${crawlDepthMode === 'deep'
+                      ? 'bg-brand text-white shadow-xs font-bold'
+                      : 'text-muted hover:text-foreground'
+                      }`}
                   >
                     <Sparkles className="h-3 w-3" />
                     <span>Deep Crawl (Recommended)</span>
@@ -1188,11 +1179,10 @@ CREATE TABLE audit_logs (
                   <button
                     type="button"
                     onClick={() => setCrawlDepthMode('normal')}
-                    className={`px-2.5 py-1 rounded transition-colors cursor-pointer flex items-center gap-1.5 ${
-                      crawlDepthMode === 'normal'
-                        ? 'bg-surface-card text-foreground shadow-xs font-bold border border-border'
-                        : 'text-muted hover:text-foreground'
-                    }`}
+                    className={`px-2.5 py-1 rounded transition-colors cursor-pointer flex items-center gap-1.5 ${crawlDepthMode === 'normal'
+                      ? 'bg-surface-card text-foreground shadow-xs font-bold border border-border'
+                      : 'text-muted hover:text-foreground'
+                      }`}
                   >
                     <span>Normal Crawl (Fast)</span>
                   </button>
@@ -1213,11 +1203,10 @@ CREATE TABLE audit_logs (
                 <button
                   onClick={handleScanGit}
                   disabled={isScanning}
-                  className={`w-full sm:w-auto px-5 py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center cursor-pointer shadow-xs ${
-                    analysisResult
-                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-1 ring-emerald-500/50'
-                      : 'btn-primary'
-                  }`}
+                  className={`w-full sm:w-auto px-5 py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center cursor-pointer shadow-xs ${analysisResult
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-1 ring-emerald-500/50'
+                    : 'btn-primary'
+                    }`}
                 >
                   {isScanning ? (
                     <>
@@ -1414,14 +1403,14 @@ CREATE TABLE audit_logs (
                           frontendCp?.code === 'vercel'
                             ? { name: 'Vercel Serverless Functions', code: 'vercel', category: 'Serverless Cloud (AWS Lambda Under-the-hood)' }
                             : frontendCp?.code === 'cloudflare'
-                            ? { name: 'Cloudflare Workers (V8 Serverless)', code: 'cloudflare', category: 'Global Edge Compute' }
-                            : frontendCp?.code === 'aws'
-                            ? { name: 'Amazon Web Services (AWS Compute)', code: 'aws', category: 'Hyperscale Cloud (IaaS/PaaS)' }
-                            : frontendCp?.code === 'hostinger'
-                            ? { name: 'Hostinger Cloud Server', code: 'hostinger', category: 'Managed Cloud Infrastructure' }
-                            : frontendCp?.code === 'self_hosted'
-                            ? { name: 'Self-Hosted Linux VPS', code: 'self_hosted', category: 'Dedicated / Linux VPS' }
-                            : { name: ts?.backend?.serverRuntime?.split('(')[0]?.trim() || 'Co-Hosted Cloud Compute', category: 'Backend Server' }
+                              ? { name: 'Cloudflare Workers (V8 Serverless)', code: 'cloudflare', category: 'Global Edge Compute' }
+                              : frontendCp?.code === 'aws'
+                                ? { name: 'Amazon Web Services (AWS Compute)', code: 'aws', category: 'Hyperscale Cloud (IaaS/PaaS)' }
+                                : frontendCp?.code === 'hostinger'
+                                  ? { name: 'Hostinger Cloud Server', code: 'hostinger', category: 'Managed Cloud Infrastructure' }
+                                  : frontendCp?.code === 'self_hosted'
+                                    ? { name: 'Self-Hosted Linux VPS', code: 'self_hosted', category: 'Dedicated / Linux VPS' }
+                                    : { name: ts?.backend?.serverRuntime?.split('(')[0]?.trim() || 'Co-Hosted Cloud Compute', category: 'Backend Server' }
                         );
 
                         const landingVerifiedSignals = (() => {
@@ -1491,11 +1480,10 @@ CREATE TABLE audit_logs (
                                   <button
                                     type="button"
                                     onClick={() => setShowLandingSignals(!showLandingSignals)}
-                                    className={`px-2.5 py-1 text-[11px] font-mono font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
-                                      showLandingSignals
-                                        ? 'bg-cyan-500/20 text-cyan-300 font-bold'
-                                        : 'hover:bg-surface text-foreground hover:text-cyan-400'
-                                    }`}
+                                    className={`px-2.5 py-1 text-[11px] font-mono font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${showLandingSignals
+                                      ? 'bg-cyan-500/20 text-cyan-300 font-bold'
+                                      : 'hover:bg-surface text-foreground hover:text-cyan-400'
+                                      }`}
                                     title="Toggle inline verified detection signatures drawer"
                                   >
                                     <Activity className="h-3.5 w-3.5 text-cyan-400" />
@@ -1595,7 +1583,7 @@ CREATE TABLE audit_logs (
                                       : (frontendCp?.code ? frontendCp.code.toUpperCase() : 'CLOUD')}
                                   </span>
                                 </span>
-                                
+
                                 <div className="space-y-1 text-xs">
                                   <div className="truncate flex items-center gap-1">
                                     <span className="text-[9px] font-mono text-cyan-700 dark:text-cyan-400 font-bold">FE:</span>
@@ -1653,13 +1641,13 @@ CREATE TABLE audit_logs (
                                       try {
                                         const h = new URL(c.startsWith('http') ? c : `https://${c}`).hostname.toLowerCase().replace(/^www\./, '');
                                         if (h) return h;
-                                      } catch {}
+                                      } catch { }
                                     }
                                   }
                                   return null;
                                 })();
 
-                                const targetApex = primaryCandidate ? (function() {
+                                const targetApex = primaryCandidate ? (function () {
                                   const parts = primaryCandidate.split('.');
                                   if (parts.length <= 2) return primaryCandidate;
                                   const secondLevelTlds = ['co.uk', 'org.uk', 'gov.uk', 'ac.uk', 'co.in', 'net.in', 'org.in', 'gen.in', 'gov.in', 'com.au', 'net.au', 'org.au'];
@@ -1696,7 +1684,7 @@ CREATE TABLE audit_logs (
                                 return list.sort();
                               })();
 
-                              const landingMainDomain = landingSubdomainsList[0] || (function() {
+                              const landingMainDomain = landingSubdomainsList[0] || (function () {
                                 try {
                                   const raw = analysisResult.targetUrl || analysisResult.projectPath || analysisResult.projectName || '';
                                   return new URL(raw.startsWith('http') ? raw : `https://${raw}`).hostname.toLowerCase().replace(/^www\./, '');
@@ -1761,22 +1749,20 @@ CREATE TABLE audit_logs (
                                       <button
                                         type="button"
                                         onClick={() => setSubdomainStatusTab('ALL')}
-                                        className={`px-2 py-0.5 text-[10px] font-mono rounded-md border transition-all cursor-pointer font-semibold ${
-                                          subdomainStatusTab === 'ALL'
-                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                                            : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
-                                        }`}
+                                        className={`px-2 py-0.5 text-[10px] font-mono rounded-md border transition-all cursor-pointer font-semibold ${subdomainStatusTab === 'ALL'
+                                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                          : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
+                                          }`}
                                       >
                                         All ({landingSubdomainsList.length})
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => setSubdomainStatusTab('LIVE')}
-                                        className={`px-2 py-0.5 text-[10px] font-mono rounded-md border transition-all cursor-pointer flex items-center gap-1 font-semibold ${
-                                          subdomainStatusTab === 'LIVE'
-                                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                                            : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/20 hover:border-emerald-500/40'
-                                        }`}
+                                        className={`px-2 py-0.5 text-[10px] font-mono rounded-md border transition-all cursor-pointer flex items-center gap-1 font-semibold ${subdomainStatusTab === 'LIVE'
+                                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                          : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/20 hover:border-emerald-500/40'
+                                          }`}
                                       >
                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                         Live Active ({liveCount})
@@ -1784,11 +1770,10 @@ CREATE TABLE audit_logs (
                                       <button
                                         type="button"
                                         onClick={() => setSubdomainStatusTab('HISTORICAL')}
-                                        className={`px-2 py-0.5 text-[10px] font-mono rounded-md border transition-all cursor-pointer flex items-center gap-1 font-semibold ${
-                                          subdomainStatusTab === 'HISTORICAL'
-                                            ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
-                                            : 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-500/20 hover:border-amber-500/40'
-                                        }`}
+                                        className={`px-2 py-0.5 text-[10px] font-mono rounded-md border transition-all cursor-pointer flex items-center gap-1 font-semibold ${subdomainStatusTab === 'HISTORICAL'
+                                          ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                                          : 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-500/20 hover:border-amber-500/40'
+                                          }`}
                                       >
                                         <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                                         Historical / Archive ({historicalCount})
@@ -1803,13 +1788,12 @@ CREATE TABLE audit_logs (
                                       return (
                                         <span
                                           key={sIdx}
-                                          className={`text-xs font-mono px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-colors ${
-                                            isMain
-                                              ? 'bg-indigo-50 text-indigo-950 border-indigo-300 dark:bg-indigo-500/20 dark:text-indigo-200 dark:border-indigo-400 font-bold shadow-xs'
-                                              : isLive
+                                          className={`text-xs font-mono px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-colors ${isMain
+                                            ? 'bg-indigo-50 text-indigo-950 border-indigo-300 dark:bg-indigo-500/20 dark:text-indigo-200 dark:border-indigo-400 font-bold shadow-xs'
+                                            : isLive
                                               ? 'bg-emerald-50/70 text-emerald-950 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/30'
                                               : 'bg-surface text-muted-foreground border-border hover:border-amber-500/40 opacity-80'
-                                          }`}
+                                            }`}
                                         >
                                           <Globe className={`h-3 w-3 ${isMain ? 'text-indigo-700 dark:text-indigo-400' : isLive ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500/80'}`} />
                                           <span>{sub}</span>
@@ -1985,11 +1969,10 @@ CREATE TABLE audit_logs (
                                       setLegalModalTab('privacy');
                                       setShowLegalModal(true);
                                     }}
-                                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
-                                      privacy
-                                        ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
-                                        : "bg-surface hover:bg-surface-card text-muted hover:text-foreground border border-border"
-                                    }`}
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${privacy
+                                      ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
+                                      : "bg-surface hover:bg-surface-card text-muted hover:text-foreground border border-border"
+                                      }`}
                                   >
                                     <FileText className="h-3 w-3" />
                                     <span>{privacy ? 'Read Full Privacy Policy' : 'Audit Privacy Status'}</span>
@@ -2069,11 +2052,10 @@ CREATE TABLE audit_logs (
                                       setLegalModalTab('terms');
                                       setShowLegalModal(true);
                                     }}
-                                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
-                                      terms
-                                        ? "bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30"
-                                        : "bg-surface hover:bg-surface-card text-muted hover:text-foreground border border-border"
-                                    }`}
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${terms
+                                      ? "bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30"
+                                      : "bg-surface hover:bg-surface-card text-muted hover:text-foreground border border-border"
+                                      }`}
                                   >
                                     <Scale className="h-3 w-3" />
                                     <span>{terms ? 'Read Full Terms of Use & Service' : 'Audit Terms Status'}</span>
@@ -2152,10 +2134,10 @@ CREATE TABLE audit_logs (
                                   setShowApiFlowModal(true);
                                 }}
                                 className="px-2 py-0.5 rounded-md text-[10px] font-mono font-medium text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/15 border border-cyan-500/25 flex items-center gap-1 transition-colors cursor-pointer"
-                                title="View Interactive Visual API Communication Graph"
+                                title="View Interactive Visual API Communication & Topology Graph"
                               >
                                 <Workflow className="h-3 w-3 text-cyan-400 animate-pulse" />
-                                <span>View Interactive Graph</span>
+                                <span>View Interactive Topology</span>
                               </button>
 
                               <button
@@ -2204,19 +2186,18 @@ CREATE TABLE audit_logs (
                                   key={m}
                                   type="button"
                                   onClick={() => setLandingMethodFilter(m)}
-                                  className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold transition-all border flex items-center gap-1 cursor-pointer whitespace-nowrap ${
-                                    isActive
-                                      ? m === 'GET'
-                                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-                                        : m === 'POST'
+                                  className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold transition-all border flex items-center gap-1 cursor-pointer whitespace-nowrap ${isActive
+                                    ? m === 'GET'
+                                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                                      : m === 'POST'
                                         ? 'bg-purple-500/15 border-purple-500/40 text-purple-400'
                                         : m === 'PUT'
-                                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
-                                        : m === 'DELETE'
-                                        ? 'bg-rose-500/15 border-rose-500/40 text-rose-400'
-                                        : 'bg-brand/15 border-brand/40 text-brand'
-                                      : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
-                                  }`}
+                                          ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                                          : m === 'DELETE'
+                                            ? 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+                                            : 'bg-brand/15 border-brand/40 text-brand'
+                                    : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
+                                    }`}
                                 >
                                   <span>{m}</span>
                                   <span className="opacity-75">({count})</span>
@@ -2228,12 +2209,12 @@ CREATE TABLE audit_logs (
                           {/* Scrollable Endpoints List */}
                           <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                             {landingFilteredEndpoints.slice(0, landingEndpointsLimit).map((ep, idx) => {
-                              const methodColor = 
+                              const methodColor =
                                 ep.method === 'GET' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25' :
-                                ep.method === 'POST' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
-                                ep.method === 'PUT' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' :
-                                ep.method === 'DELETE' ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' :
-                                'bg-cyan-500/10 text-cyan-400 border-cyan-500/25';
+                                  ep.method === 'POST' ? 'bg-purple-500/10 text-purple-400 border-purple-500/25' :
+                                    ep.method === 'PUT' ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' :
+                                      ep.method === 'DELETE' ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' :
+                                        'bg-cyan-500/10 text-cyan-400 border-cyan-500/25';
 
                               return (
                                 <div
@@ -2352,21 +2333,19 @@ CREATE TABLE audit_logs (
           {/* Scanning Animation & Progress HUD - Distinct Dark and Light Theme Experiences */}
           {isScanning && (
             <div
-              className={`my-4 p-4 sm:p-5 rounded-xl border transition-all animate-fadeIn ${
-                theme === 'dark'
-                  ? 'analysis-scanner-dark border-emerald-500/40 text-slate-100'
-                  : 'analysis-scanner-light border-blue-500/40 text-slate-900 shadow-card'
-              }`}
+              className={`my-4 p-4 sm:p-5 rounded-xl border transition-all animate-fadeIn ${theme === 'dark'
+                ? 'analysis-scanner-dark border-emerald-500/40 text-slate-100'
+                : 'analysis-scanner-light border-blue-500/40 text-slate-900 shadow-card'
+                }`}
             >
               {/* Active Stage Header & Telemetry */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-3">
                 <div className="flex items-center gap-2.5">
                   <div
-                    className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 border ${
-                      theme === 'dark'
-                        ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
-                        : 'bg-blue-50 border-blue-200 text-blue-600 shadow-sm'
-                    }`}
+                    className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 border ${theme === 'dark'
+                      ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                      : 'bg-blue-50 border-blue-200 text-blue-600 shadow-sm'
+                      }`}
                   >
                     {scanStep === 1 && <FileCode className="h-4 w-4 step-radar-pulse" />}
                     {scanStep === 2 && <Database className="h-4 w-4 step-radar-pulse" />}
@@ -2378,9 +2357,8 @@ CREATE TABLE audit_logs (
                   <div>
                     <div className="flex items-center gap-2">
                       <span
-                        className={`text-xs font-bold uppercase tracking-wider ${
-                          theme === 'dark' ? 'text-emerald-400' : 'text-blue-600'
-                        }`}
+                        className={`text-xs font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-emerald-400' : 'text-blue-600'
+                          }`}
                       >
                         {scanStep === 5 ? 'Analysis Finalized' : `Stage ${scanStep || 1} of 4`}
                       </span>
@@ -2390,9 +2368,8 @@ CREATE TABLE audit_logs (
                     </div>
 
                     <h4
-                      className={`text-sm sm:text-base font-bold transition-colors ${
-                        theme === 'dark' ? 'text-slate-100' : 'text-slate-900'
-                      }`}
+                      className={`text-sm sm:text-base font-bold transition-colors ${theme === 'dark' ? 'text-slate-100' : 'text-slate-900'
+                        }`}
                     >
                       {scanStep === 1 && 'AST Ingestion & Syntax Tokenization'}
                       {scanStep === 2 && 'Relational Schema & Key Extraction'}
@@ -2406,11 +2383,10 @@ CREATE TABLE audit_logs (
                 {/* Percentage & Live Elapsed Timer Telemetry */}
                 <div className="flex items-center gap-2 self-start sm:self-auto">
                   <span
-                    className={`text-xs font-mono font-bold px-2.5 py-1 rounded-full border flex items-center gap-1.5 transition-all ${
-                      theme === 'dark'
-                        ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                        : 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
-                    }`}
+                    className={`text-xs font-mono font-bold px-2.5 py-1 rounded-full border flex items-center gap-1.5 transition-all ${theme === 'dark'
+                      ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                      : 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
+                      }`}
                     title="Elapsed analysis processing time"
                   >
                     <Clock className="h-3.5 w-3.5 animate-pulse text-emerald-400 dark:text-emerald-300" />
@@ -2418,16 +2394,14 @@ CREATE TABLE audit_logs (
                   </span>
 
                   <span
-                    className={`text-xs font-mono font-bold px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${
-                      theme === 'dark'
-                        ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                        : 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
-                    }`}
+                    className={`text-xs font-mono font-bold px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${theme === 'dark'
+                      ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                      : 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
+                      }`}
                   >
                     <span
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        theme === 'dark' ? 'bg-emerald-400' : 'bg-blue-600'
-                      } animate-ping`}
+                      className={`h-1.5 w-1.5 rounded-full ${theme === 'dark' ? 'bg-emerald-400' : 'bg-blue-600'
+                        } animate-ping`}
                     />
                     <span>{scanProgress || 25}%</span>
                   </span>
@@ -2446,17 +2420,15 @@ CREATE TABLE audit_logs (
 
               {/* Progress Bar Track with Theme-Specific Animation */}
               <div
-                className={`relative w-full h-2 rounded-full overflow-hidden mb-3.5 ${
-                  theme === 'dark' ? 'bg-slate-900 border border-slate-800' : 'bg-slate-200 border border-slate-300/60'
-                }`}
+                className={`relative w-full h-2 rounded-full overflow-hidden mb-3.5 ${theme === 'dark' ? 'bg-slate-900 border border-slate-800' : 'bg-slate-200 border border-slate-300/60'
+                  }`}
               >
                 {/* Background Fill */}
                 <div
-                  className={`h-full transition-all duration-300 rounded-full relative overflow-hidden ${
-                    theme === 'dark'
-                      ? 'bg-gradient-to-r from-emerald-500 via-cyan-400 to-emerald-400 shadow-[0_0_16px_rgba(16,185,129,0.6)]'
-                      : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 shadow-[0_2px_8px_rgba(37,99,235,0.3)]'
-                  }`}
+                  className={`h-full transition-all duration-300 rounded-full relative overflow-hidden ${theme === 'dark'
+                    ? 'bg-gradient-to-r from-emerald-500 via-cyan-400 to-emerald-400 shadow-[0_0_16px_rgba(16,185,129,0.6)]'
+                    : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 shadow-[0_2px_8px_rgba(37,99,235,0.3)]'
+                    }`}
                   style={{ width: `${scanProgress || 25}%` }}
                 >
                   {/* Theme-Differentiated Overlays */}
@@ -2482,19 +2454,18 @@ CREATE TABLE audit_logs (
                   return (
                     <div
                       key={st.stepNum}
-                      className={`p-2 rounded-lg border text-xs flex items-center gap-1.5 transition-all ${
-                        isDone
-                          ? theme === 'dark'
-                            ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300 font-semibold'
-                            : 'bg-emerald-50 border-emerald-200 text-emerald-800 font-semibold'
-                          : isActive
+                      className={`p-2 rounded-lg border text-xs flex items-center gap-1.5 transition-all ${isDone
+                        ? theme === 'dark'
+                          ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300 font-semibold'
+                          : 'bg-emerald-50 border-emerald-200 text-emerald-800 font-semibold'
+                        : isActive
                           ? theme === 'dark'
                             ? 'bg-cyan-950/50 border-cyan-500/40 text-cyan-200 font-bold shadow-[0_0_8px_rgba(6,182,212,0.25)]'
                             : 'bg-blue-50 border-blue-300 text-blue-900 font-bold shadow-xs'
                           : theme === 'dark'
-                          ? 'bg-surface-raised border-border text-slate-400'
-                          : 'bg-slate-50 border-slate-200 text-slate-500'
-                      }`}
+                            ? 'bg-surface-raised border-border text-slate-400'
+                            : 'bg-slate-50 border-slate-200 text-slate-500'
+                        }`}
                     >
                       {isDone ? (
                         <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
@@ -2511,11 +2482,10 @@ CREATE TABLE audit_logs (
 
               {/* Real-time Telemetry Terminal Strip */}
               <div
-                className={`mt-3 px-3 py-2 rounded-md font-mono text-[11px] flex items-center justify-between border ${
-                  theme === 'dark'
-                    ? 'bg-[#080d18] border-emerald-500/20 text-emerald-400'
-                    : 'bg-[#f8fafc] border-slate-300 text-slate-800'
-                }`}
+                className={`mt-3 px-3 py-2 rounded-md font-mono text-[11px] flex items-center justify-between border ${theme === 'dark'
+                  ? 'bg-[#080d18] border-emerald-500/20 text-emerald-400'
+                  : 'bg-[#f8fafc] border-slate-300 text-slate-800'
+                  }`}
               >
                 <div className="flex items-center gap-1.5 truncate">
                   <span className={theme === 'dark' ? 'text-cyan-400 font-bold' : 'text-blue-700 font-bold'}>
@@ -2561,11 +2531,10 @@ CREATE TABLE audit_logs (
             <button
               onClick={handleLoadSample}
               disabled={isScanning}
-              className={`text-xs py-1.5 px-3.5 rounded-md font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                analysisResult
-                  ? 'bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
-                  : 'btn-secondary'
-              }`}
+              className={`text-xs py-1.5 px-3.5 rounded-md font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${analysisResult
+                ? 'bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                : 'btn-secondary'
+                }`}
             >
               {isScanning ? (
                 <>
@@ -3070,6 +3039,7 @@ CREATE TABLE audit_logs (
           endpoints={landingEndpointsList}
           tables={analysisResult?.schema?.tables || []}
           diagrams={analysisResult?.diagrams || {}}
+          analysisData={analysisResult}
           theme="dark"
           initialFocusedEndpoint={apiFlowFocusedEndpoint}
         />

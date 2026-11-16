@@ -225,7 +225,7 @@ function enrichEndpoint(ep, tables, tableLookup) {
     }
   }
 
-  let rawSub = ep.subdomain || ep['x-subdomain'] || (ep.origin ? (function() { try { return new URL(ep.origin).hostname; } catch { return null; } })() : null) || null;
+  let rawSub = ep.subdomain || ep['x-subdomain'] || (ep.origin ? (function () { try { return new URL(ep.origin).hostname; } catch { return null; } })() : null) || null;
   if (!rawSub && typeof routePath === 'string' && routePath.startsWith('//')) {
     rawSub = routePath.slice(2).split('/')[0];
   }
@@ -330,8 +330,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
   const isUrl = isUrlScan || rawAnalysisData?.isUrlCrawl || !!rawAnalysisData?.crawlerTelemetry || (
     typeof rawAnalysisData?.projectPath === 'string' && (rawAnalysisData.projectPath.startsWith('http://') || rawAnalysisData.projectPath.startsWith('https://'))
   ) || (
-    typeof data?.projectPath === 'string' && (data.projectPath.startsWith('http://') || data.projectPath.startsWith('https://'))
-  );
+      typeof data?.projectPath === 'string' && (data.projectPath.startsWith('http://') || data.projectPath.startsWith('https://'))
+    );
   const techStack = data?.techStack || rawAnalysisData?.techStack || data?.crawlerTelemetry?.techStack || rawAnalysisData?.crawlerTelemetry?.techStack;
 
   const frontendCp = useMemo(() => {
@@ -415,10 +415,10 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
       const primaryLang = (rawAnalysisData?.code?.modules || []).find(m => m.extension)?.extension || '';
       const runtimeName = primaryLang === '.py' ? 'Python Runtime (WSGI/ASGI)'
         : (primaryLang === '.java' || primaryLang === '.kt') ? 'JVM / Spring Boot Runtime'
-        : (primaryLang === '.go') ? 'Go Binary Runtime'
-        : (primaryLang === '.php') ? 'PHP Server Runtime'
-        : (primaryLang === '.rb') ? 'Ruby on Rails Runtime'
-        : 'Node.js Engine (Server Runtime)';
+          : (primaryLang === '.go') ? 'Go Binary Runtime'
+            : (primaryLang === '.php') ? 'PHP Server Runtime'
+              : (primaryLang === '.rb') ? 'Ruby on Rails Runtime'
+                : 'Node.js Engine (Server Runtime)';
       return {
         name: `Local / Self-Hosted (${runtimeName.split(' ')[0]})`,
         code: 'local_process',
@@ -622,7 +622,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
           try {
             const h = new URL(c.startsWith('http') ? c : `https://${c}`).hostname.toLowerCase().replace(/^www\./, '');
             if (h && h.includes('.')) return h;
-          } catch {}
+          } catch { }
         }
       }
       return null;
@@ -1245,8 +1245,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                   }
                 }}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-medium transition-all cursor-pointer ${showSignals
-                    ? 'bg-cyan-500/20 text-cyan-300 font-bold'
-                    : 'hover:bg-surface text-foreground hover:text-cyan-400'
+                  ? 'bg-cyan-500/20 text-cyan-300 font-bold'
+                  : 'hover:bg-surface text-foreground hover:text-cyan-400'
                   }`}
                 title="Toggle inline verified detection signatures drawer"
               >
@@ -1607,13 +1607,12 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                       key={sIdx}
                       type="button"
                       onClick={() => setApiSubdomainFilter(isActive ? 'ALL' : sub)}
-                      className={`text-xs font-mono px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs ring-1 ring-indigo-500/30 dark:bg-indigo-500/25 dark:text-indigo-200 dark:border-indigo-400 font-bold'
-                          : isMain
-                            ? 'bg-indigo-50 text-indigo-950 border-indigo-300 dark:bg-indigo-500/15 dark:text-indigo-200 dark:border-indigo-500/40 font-bold'
-                            : 'bg-surface-raised text-foreground font-medium border-border hover:border-indigo-500/30'
-                      }`}
+                      className={`text-xs font-mono px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${isActive
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs ring-1 ring-indigo-500/30 dark:bg-indigo-500/25 dark:text-indigo-200 dark:border-indigo-400 font-bold'
+                        : isMain
+                          ? 'bg-indigo-50 text-indigo-950 border-indigo-300 dark:bg-indigo-500/15 dark:text-indigo-200 dark:border-indigo-500/40 font-bold'
+                          : 'bg-surface-raised text-foreground font-medium border-border hover:border-indigo-500/30'
+                        }`}
                       title={`Click to filter API routes to ${sub} (${count} endpoints)`}
                     >
                       <Globe className={`h-3 w-3 ${isMain ? (isActive ? 'text-white dark:text-indigo-400' : 'text-indigo-700 dark:text-indigo-400') : 'text-muted'}`} />
@@ -1782,8 +1781,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                           setShowLegalModal(true);
                         }}
                         className={`btn-secondary text-xs py-1.5 px-3 whitespace-nowrap shrink-0 flex items-center gap-1.5 font-medium cursor-pointer transition-colors ${hasAny
-                            ? "border-emerald-500/30 hover:border-emerald-500/50 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
-                            : "border-border hover:border-border-strong hover:bg-surface-raised text-muted hover:text-foreground"
+                          ? "border-emerald-500/30 hover:border-emerald-500/50 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
+                          : "border-border hover:border-border-strong hover:bg-surface-raised text-muted hover:text-foreground"
                           }`}
                         title={hasAny ? "View Privacy Policy and Terms of Use / Service documents in fullscreen" : "Audit Legal Documents: No Privacy Policy or Terms detected on origin"}
                       >
@@ -1820,8 +1819,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                     <button
                       onClick={() => setEndpointsViewMode('grouped')}
                       className={`px-2 py-0.8 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer ${endpointsViewMode === 'grouped'
-                          ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30 shadow-xs'
-                          : 'text-muted hover:text-foreground'
+                        ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30 shadow-xs'
+                        : 'text-muted hover:text-foreground'
                         }`}
                       title="Group endpoints by API service / resource"
                     >
@@ -1831,8 +1830,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                     <button
                       onClick={() => setEndpointsViewMode('flat')}
                       className={`px-2 py-0.8 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer ${endpointsViewMode === 'flat'
-                          ? 'bg-brand/15 text-brand border border-brand/30 shadow-xs'
-                          : 'text-muted hover:text-foreground'
+                        ? 'bg-brand/15 text-brand border border-brand/30 shadow-xs'
+                        : 'text-muted hover:text-foreground'
                         }`}
                       title="View flat list of all endpoints"
                     >
@@ -1846,8 +1845,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                       <button
                         onClick={() => setStackScopeFilter('ALL')}
                         className={`px-2 py-0.8 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${stackScopeFilter === 'ALL'
-                            ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30 shadow-xs'
-                            : 'text-muted hover:text-foreground'
+                          ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30 shadow-xs'
+                          : 'text-muted hover:text-foreground'
                           }`}
                         title="View all discovered endpoints and routes"
                       >
@@ -1856,8 +1855,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                       <button
                         onClick={() => setStackScopeFilter('API')}
                         className={`px-2 py-0.8 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${stackScopeFilter === 'API'
-                            ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-xs'
-                            : 'text-muted hover:text-foreground'
+                          ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-xs'
+                          : 'text-muted hover:text-foreground'
                           }`}
                         title="View only backend REST API endpoints"
                       >
@@ -1866,8 +1865,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                       <button
                         onClick={() => setStackScopeFilter('PAGE')}
                         className={`px-2 py-0.8 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${stackScopeFilter === 'PAGE'
-                            ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-xs'
-                            : 'text-muted hover:text-foreground'
+                          ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-xs'
+                          : 'text-muted hover:text-foreground'
                           }`}
                         title="View only frontend client page routes"
                       >
@@ -1883,16 +1882,16 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                         key={m}
                         onClick={() => setStackMethodFilter(m)}
                         className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition-all border flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${isActive
-                            ? m === 'GET'
-                              ? 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-400'
-                              : m === 'POST'
-                                ? 'bg-purple-50 dark:bg-purple-500/15 border-purple-300 dark:border-purple-500/40 text-purple-700 dark:text-purple-400'
-                                : m === 'PUT'
-                                  ? 'bg-amber-50 dark:bg-amber-500/15 border-amber-300 dark:border-amber-500/40 text-amber-700 dark:text-amber-400'
-                                  : m === 'DELETE'
-                                    ? 'bg-rose-50 dark:bg-rose-500/15 border-rose-300 dark:border-rose-500/40 text-rose-700 dark:text-rose-400'
-                                    : 'bg-brand/15 border-brand/40 text-brand'
-                            : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
+                          ? m === 'GET'
+                            ? 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-400'
+                            : m === 'POST'
+                              ? 'bg-purple-50 dark:bg-purple-500/15 border-purple-300 dark:border-purple-500/40 text-purple-700 dark:text-purple-400'
+                              : m === 'PUT'
+                                ? 'bg-amber-50 dark:bg-amber-500/15 border-amber-300 dark:border-amber-500/40 text-amber-700 dark:text-amber-400'
+                                : m === 'DELETE'
+                                  ? 'bg-rose-50 dark:bg-rose-500/15 border-rose-300 dark:border-rose-500/40 text-rose-700 dark:text-rose-400'
+                                  : 'bg-brand/15 border-brand/40 text-brand'
+                          : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
                           }`}
                       >
                         <span>{m}</span>
@@ -2020,8 +2019,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                                         </span>
                                         {ep.level && (
                                           <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${ep.level === 'HIGH' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/25' :
-                                              ep.level === 'MEDIUM' ? 'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25' :
-                                                'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
+                                            ep.level === 'MEDIUM' ? 'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25' :
+                                              'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
                                             }`}>
                                             {ep.level}
                                           </span>
@@ -2082,12 +2081,12 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                                       onClick={() => handleFetchEndpoint(ep)}
                                       disabled={isPending}
                                       className={`px-2.5 py-1 rounded-md border text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer ${isPending
-                                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse'
-                                          : isFetched
-                                            ? fetchRes?.success
-                                              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                                              : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
-                                            : 'bg-brand/10 hover:bg-brand/20 border-brand/25 text-brand'
+                                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse'
+                                        : isFetched
+                                          ? fetchRes?.success
+                                            ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                                            : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                                          : 'bg-brand/10 hover:bg-brand/20 border-brand/25 text-brand'
                                         }`}
                                       title="Send live local HTTP probe via BendLens air-gapped fetch proxy"
                                     >
@@ -2156,8 +2155,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                               </span>
                               {ep.level && (
                                 <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${ep.level === 'HIGH' ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/25' :
-                                    ep.level === 'MEDIUM' ? 'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25' :
-                                      'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
+                                  ep.level === 'MEDIUM' ? 'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/25' :
+                                    'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
                                   }`}>
                                   {ep.level}
                                 </span>
@@ -2224,12 +2223,12 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                             onClick={() => handleFetchEndpoint(ep)}
                             disabled={isPending}
                             className={`px-2.5 py-1 rounded-md border text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer ${isPending
-                                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse'
-                                : isFetched
-                                  ? fetchRes?.success
-                                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                                    : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
-                                  : 'bg-brand/10 hover:bg-brand/20 border-brand/25 text-brand'
+                              ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse'
+                              : isFetched
+                                ? fetchRes?.success
+                                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                                  : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                                : 'bg-brand/10 hover:bg-brand/20 border-brand/25 text-brand'
                               }`}
                             title="Send live local HTTP probe via BendLens air-gapped fetch proxy"
                           >
@@ -2604,8 +2603,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                   <button
                     onClick={() => setSelectedTableFilter('ALL')}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${selectedTableFilter === 'ALL'
-                        ? 'btn-primary font-bold'
-                        : 'bg-surface hover:bg-surface-raised text-muted hover:text-foreground border border-border'
+                      ? 'btn-primary font-bold'
+                      : 'bg-surface hover:bg-surface-raised text-muted hover:text-foreground border border-border'
                       }`}
                   >
                     <span>All Tables</span>
@@ -2621,8 +2620,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                         key={tbl.name}
                         onClick={() => setSelectedTableFilter(tbl.name)}
                         className={`px-3 py-1.5 rounded-lg text-xs font-mono whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${isSelected
-                            ? 'bg-surface-card text-foreground border-2 border-brand font-bold shadow-xs ring-2 ring-brand/20'
-                            : 'bg-surface hover:bg-surface-raised text-muted hover:text-foreground border border-border'
+                          ? 'bg-surface-card text-foreground border-2 border-brand font-bold shadow-xs ring-2 ring-brand/20'
+                          : 'bg-surface hover:bg-surface-raised text-muted hover:text-foreground border border-border'
                           }`}
                       >
                         <span>{tbl.name}</span>
@@ -2902,10 +2901,10 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                 setShowApiFlowModal(true);
               }}
               className="px-3.5 py-2 text-xs rounded-xl font-bold bg-gradient-to-r from-cyan-500/20 via-blue-500/20 to-purple-500/20 hover:from-cyan-500/30 hover:to-purple-500/30 text-cyan-600 dark:text-cyan-300 border border-cyan-500/35 flex items-center gap-2 shadow-xs transition-all cursor-pointer whitespace-nowrap"
-              title="View Professional Graphical Communication Flow of API Endpoints"
+              title="View Interactive Visual API Communication & Topology Graph"
             >
               <Workflow className="h-3.5 w-3.5 text-cyan-500 animate-pulse" />
-              <span>View Interactive Graph</span>
+              <span>View Interactive Topology</span>
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-400 font-mono font-bold">Interactive</span>
             </button>
 
@@ -2970,8 +2969,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               <button
                 onClick={() => setApiCrawlScopeFilter('NORMAL')}
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer ${apiCrawlScopeFilter === 'NORMAL'
-                    ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400 ring-1 ring-cyan-500/30'
-                    : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
+                  ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400 ring-1 ring-cyan-500/30'
+                  : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
                   }`}
               >
                 Normal: {apiStats.normalCount}
@@ -2979,8 +2978,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               <button
                 onClick={() => setApiCrawlScopeFilter('LAZY')}
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer ${apiCrawlScopeFilter === 'LAZY'
-                    ? 'bg-purple-500/15 border-purple-500/40 text-purple-400 ring-1 ring-purple-500/30'
-                    : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
+                  ? 'bg-purple-500/15 border-purple-500/40 text-purple-400 ring-1 ring-purple-500/30'
+                  : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
                   }`}
               >
                 Lazy: +{apiStats.lazyLoadedCount}
@@ -2988,8 +2987,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
               <button
                 onClick={() => setApiCrawlScopeFilter('ALL')}
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer ${apiCrawlScopeFilter === 'ALL'
-                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 ring-1 ring-emerald-500/30'
-                    : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
+                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 ring-1 ring-emerald-500/30'
+                  : 'bg-surface hover:bg-surface-raised border-border text-muted hover:text-foreground'
                   }`}
               >
                 Deep: {apiStats.deepCount}
@@ -3006,8 +3005,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
           <button
             onClick={() => setApiLevelFilter(apiLevelFilter === 'HIGH' ? 'ALL' : 'HIGH')}
             className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${apiLevelFilter === 'HIGH'
-                ? 'bg-purple-500/15 border-purple-500/40 shadow-sm ring-1 ring-purple-500/30'
-                : 'bg-surface hover:bg-surface-raised border-border'
+              ? 'bg-purple-500/15 border-purple-500/40 shadow-sm ring-1 ring-purple-500/30'
+              : 'bg-surface hover:bg-surface-raised border-border'
               }`}
           >
             <div className="flex items-center justify-between">
@@ -3031,8 +3030,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
           <button
             onClick={() => setApiLevelFilter(apiLevelFilter === 'MEDIUM' ? 'ALL' : 'MEDIUM')}
             className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${apiLevelFilter === 'MEDIUM'
-                ? 'bg-cyan-500/15 border-cyan-500/40 shadow-sm ring-1 ring-cyan-500/30'
-                : 'bg-surface hover:bg-surface-raised border-border'
+              ? 'bg-cyan-500/15 border-cyan-500/40 shadow-sm ring-1 ring-cyan-500/30'
+              : 'bg-surface hover:bg-surface-raised border-border'
               }`}
           >
             <div className="flex items-center justify-between">
@@ -3056,8 +3055,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
           <button
             onClick={() => setApiLevelFilter(apiLevelFilter === 'LOW' ? 'ALL' : 'LOW')}
             className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${apiLevelFilter === 'LOW'
-                ? 'bg-emerald-500/15 border-emerald-500/40 shadow-sm ring-1 ring-emerald-500/30'
-                : 'bg-surface hover:bg-surface-raised border-border'
+              ? 'bg-emerald-500/15 border-emerald-500/40 shadow-sm ring-1 ring-emerald-500/30'
+              : 'bg-surface hover:bg-surface-raised border-border'
               }`}
           >
             <div className="flex items-center justify-between">
@@ -3082,8 +3081,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
             <button
               onClick={() => setApiTableFilter(apiTableFilter === 'CONNECTED' ? 'ALL' : 'CONNECTED')}
               className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${apiTableFilter === 'CONNECTED'
-                  ? 'bg-amber-500/15 border-amber-500/40 shadow-sm ring-1 ring-amber-500/30'
-                  : 'bg-surface hover:bg-surface-raised border-border'
+                ? 'bg-amber-500/15 border-amber-500/40 shadow-sm ring-1 ring-amber-500/30'
+                : 'bg-surface hover:bg-surface-raised border-border'
                 }`}
             >
               <div className="flex items-center justify-between">
@@ -3147,8 +3146,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                     key={cd.id}
                     onClick={() => setApiCrawlScopeFilter(cd.id)}
                     className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${isActive
-                        ? 'bg-surface-card text-foreground border-brand/50 shadow-xs ring-1 ring-brand/20'
-                        : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
+                      ? 'bg-surface-card text-foreground border-brand/50 shadow-xs ring-1 ring-brand/20'
+                      : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
                       }`}
                   >
                     <Icon className={`h-3.5 w-3.5 ${cd.color}`} />
@@ -3182,11 +3181,10 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
             </span>
             <button
               onClick={() => setApiSubdomainFilter('ALL')}
-              className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                apiSubdomainFilter === 'ALL'
-                  ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-900 dark:text-indigo-300 border-indigo-300 dark:border-indigo-500/40 shadow-xs'
-                  : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
-              }`}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${apiSubdomainFilter === 'ALL'
+                ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-900 dark:text-indigo-300 border-indigo-300 dark:border-indigo-500/40 shadow-xs'
+                : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
+                }`}
             >
               <span>All Subdomains</span>
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-surface-raised text-foreground font-bold">
@@ -3210,11 +3208,10 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                       <button
                         key={sub}
                         onClick={() => setApiSubdomainFilter(sub)}
-                        className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                          isActive
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs ring-1 ring-indigo-500/30 dark:bg-indigo-500/25 dark:text-indigo-200 dark:border-indigo-400'
-                            : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
-                        }`}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${isActive
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs ring-1 ring-indigo-500/30 dark:bg-indigo-500/25 dark:text-indigo-200 dark:border-indigo-400'
+                          : 'bg-surface hover:bg-surface-subtle text-muted hover:text-foreground border-border'
+                          }`}
                       >
                         <Globe className={`h-3 w-3 ${isActive ? 'text-white dark:text-indigo-400' : isLive ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
                         <span>{sub}</span>
@@ -3271,8 +3268,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                 key={k.id}
                 onClick={() => setApiKindFilter(k.id)}
                 className={`px-2.5 py-1 rounded-lg border text-xs font-medium flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer ${isActive
-                    ? 'bg-brand/15 text-brand border-brand/40 font-semibold shadow-xs'
-                    : 'bg-surface hover:bg-surface-raised text-muted hover:text-foreground border-border'
+                  ? 'bg-brand/15 text-brand border-brand/40 font-semibold shadow-xs'
+                  : 'bg-surface hover:bg-surface-raised text-muted hover:text-foreground border-border'
                   }`}
               >
                 <Icon className="h-3 w-3" />
@@ -3303,8 +3300,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                 key={lvl.id}
                 onClick={() => setApiLevelFilter(lvl.id)}
                 className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer ${apiLevelFilter === lvl.id
-                    ? 'bg-surface-card text-foreground shadow-xs border border-border'
-                    : 'text-muted hover:text-foreground'
+                  ? 'bg-surface-card text-foreground shadow-xs border border-border'
+                  : 'text-muted hover:text-foreground'
                   }`}
               >
                 <span className={apiLevelFilter === lvl.id ? (lvl.color || '') : ''}>{lvl.label}</span>
@@ -3340,8 +3337,8 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                   key={m}
                   onClick={() => setMethodFilter(m)}
                   className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${methodFilter === m
-                      ? 'bg-surface-card text-foreground shadow-xs font-bold'
-                      : 'text-muted hover:text-foreground'
+                    ? 'bg-surface-card text-foreground shadow-xs font-bold'
+                    : 'text-muted hover:text-foreground'
                     }`}
                 >
                   {m}
@@ -3383,535 +3380,535 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
                 return (
                   <div className="space-y-2">
                     {displayedList.map((ep, idx) => {
-                  const epKey = `${ep.method}-${ep.path}-${idx}`;
-                  const isExpanded = expandedApiRoute === epKey;
+                      const epKey = `${ep.method}-${ep.path}-${idx}`;
+                      const isExpanded = expandedApiRoute === epKey;
 
-                  const isGet = ep.method === 'GET';
-                  const isPost = ep.method === 'POST';
-                  const isPut = ep.method === 'PUT';
-                  const isPatch = ep.method === 'PATCH';
-                  const isDelete = ep.method === 'DELETE';
-                  const isWs = ep.method === 'WS';
+                      const isGet = ep.method === 'GET';
+                      const isPost = ep.method === 'POST';
+                      const isPut = ep.method === 'PUT';
+                      const isPatch = ep.method === 'PATCH';
+                      const isDelete = ep.method === 'DELETE';
+                      const isWs = ep.method === 'WS';
 
-                  const badgeColor = isGet
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
-                    : isPost
-                      ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
-                      : isPut
-                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
-                        : isPatch
-                          ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20'
-                          : isDelete
-                            ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
-                            : 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20';
+                      const badgeColor = isGet
+                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                        : isPost
+                          ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
+                          : isPut
+                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                            : isPatch
+                              ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20'
+                              : isDelete
+                                ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+                                : 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20';
 
-                  const levelPillColor = ep.level === 'HIGH'
-                    ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/25'
-                    : ep.level === 'MEDIUM'
-                      ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/25'
-                      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25';
+                      const levelPillColor = ep.level === 'HIGH'
+                        ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/25'
+                        : ep.level === 'MEDIUM'
+                          ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/25'
+                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25';
 
-                  const KindIcon = ep.kind === 'WEBSOCKET' ? Radio
-                    : ep.kind === 'AUTH' ? ShieldCheck
-                      : ep.kind === 'WEBHOOK' ? Webhook
-                        : ep.kind === 'STORAGE' ? HardDrive
-                          : ep.kind === 'ADMIN' ? Settings
-                            : ep.kind === 'SYSTEM' ? Activity
-                              : Code2;
+                      const KindIcon = ep.kind === 'WEBSOCKET' ? Radio
+                        : ep.kind === 'AUTH' ? ShieldCheck
+                          : ep.kind === 'WEBHOOK' ? Webhook
+                            : ep.kind === 'STORAGE' ? HardDrive
+                              : ep.kind === 'ADMIN' ? Settings
+                                : ep.kind === 'SYSTEM' ? Activity
+                                  : Code2;
 
-                  return (
-                    <div
-                      key={epKey}
-                      className={`p-3 rounded-xl border transition-all ${isExpanded
-                          ? 'border-brand/40 bg-surface-raised shadow-md'
-                          : 'border-border bg-surface hover:bg-surface-raised/80'
-                        }`}
-                    >
-                      {/* Top Row: Method, Path, Badges, Actions */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
-                          {/* Method Badge */}
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded border font-mono shrink-0 shadow-xs ${badgeColor}`}>
-                            {ep.method}
-                          </span>
+                      return (
+                        <div
+                          key={epKey}
+                          className={`p-3 rounded-xl border transition-all ${isExpanded
+                            ? 'border-brand/40 bg-surface-raised shadow-md'
+                            : 'border-border bg-surface hover:bg-surface-raised/80'
+                            }`}
+                        >
+                          {/* Top Row: Method, Path, Badges, Actions */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+                              {/* Method Badge */}
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border font-mono shrink-0 shadow-xs ${badgeColor}`}>
+                                {ep.method}
+                              </span>
 
-                          {/* Level Badge */}
-                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded border font-mono shrink-0 flex items-center gap-1 ${levelPillColor}`}>
-                            {ep.level === 'HIGH' ? <Layers className="h-2.5 w-2.5" /> : ep.level === 'MEDIUM' ? <Box className="h-2.5 w-2.5" /> : <Cpu className="h-2.5 w-2.5" />}
-                            <span>{ep.level}</span>
-                          </span>
+                              {/* Level Badge */}
+                              <span className={`text-[9px] font-bold px-2 py-0.5 rounded border font-mono shrink-0 flex items-center gap-1 ${levelPillColor}`}>
+                                {ep.level === 'HIGH' ? <Layers className="h-2.5 w-2.5" /> : ep.level === 'MEDIUM' ? <Box className="h-2.5 w-2.5" /> : <Cpu className="h-2.5 w-2.5" />}
+                                <span>{ep.level}</span>
+                              </span>
 
-                          {/* Kind Badge */}
-                          <span className="text-[9px] font-medium px-2 py-0.5 rounded border font-mono shrink-0 bg-surface-subtle text-muted border-border flex items-center gap-1">
-                            <KindIcon className="h-2.5 w-2.5 text-brand" />
-                            <span>{ep.kind}</span>
-                          </span>
+                              {/* Kind Badge */}
+                              <span className="text-[9px] font-medium px-2 py-0.5 rounded border font-mono shrink-0 bg-surface-subtle text-muted border-border flex items-center gap-1">
+                                <KindIcon className="h-2.5 w-2.5 text-brand" />
+                                <span>{ep.kind}</span>
+                              </span>
 
-                          {/* Crawl Scope Badge (Normal vs Deep / Lazy-Loaded) */}
-                          {isUrl && (
-                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded border font-mono shrink-0 flex items-center gap-1 ${ep.isLazyLoaded
-                                ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30'
-                                : 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30'
-                              }`}>
-                              {ep.isLazyLoaded ? (
-                                <>
-                                  <Sparkles className="h-2.5 w-2.5 text-purple-500" />
-                                  <span>LAZY-LOADED</span>
-                                </>
-                              ) : (
-                                <>
-                                  <CheckCircle2 className="h-2.5 w-2.5 text-cyan-500" />
-                                  <span>NORMAL</span>
-                                </>
+                              {/* Crawl Scope Badge (Normal vs Deep / Lazy-Loaded) */}
+                              {isUrl && (
+                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded border font-mono shrink-0 flex items-center gap-1 ${ep.isLazyLoaded
+                                  ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30'
+                                  : 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30'
+                                  }`}>
+                                  {ep.isLazyLoaded ? (
+                                    <>
+                                      <Sparkles className="h-2.5 w-2.5 text-purple-500" />
+                                      <span>LAZY-LOADED</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="h-2.5 w-2.5 text-cyan-500" />
+                                      <span>NORMAL</span>
+                                    </>
+                                  )}
+                                </span>
                               )}
-                            </span>
-                          )}
 
-                          {/* Route Path & Module */}
-                          <div className="min-w-0 flex-1">
-                            <div className="font-mono text-xs text-foreground font-semibold truncate flex items-center gap-1.5 flex-wrap">
-                              <span>{ep.path}</span>
-                              {distinctSubdomains.length > 0 && (
-                                <span
-                                  className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 dark:text-indigo-300 border border-indigo-500/30 flex items-center gap-1 font-semibold shrink-0"
-                                  title={`Gateway Host: ${ep.subdomain || distinctSubdomains[0]}`}
-                                >
-                                  <Globe className="h-2.5 w-2.5 shrink-0" />
-                                  <span>{ep.subdomain || distinctSubdomains[0]}</span>
+                              {/* Route Path & Module */}
+                              <div className="min-w-0 flex-1">
+                                <div className="font-mono text-xs text-foreground font-semibold truncate flex items-center gap-1.5 flex-wrap">
+                                  <span>{ep.path}</span>
+                                  {distinctSubdomains.length > 0 && (
+                                    <span
+                                      className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 dark:text-indigo-300 border border-indigo-500/30 flex items-center gap-1 font-semibold shrink-0"
+                                      title={`Gateway Host: ${ep.subdomain || distinctSubdomains[0]}`}
+                                    >
+                                      <Globe className="h-2.5 w-2.5 shrink-0" />
+                                      <span>{ep.subdomain || distinctSubdomains[0]}</span>
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-muted font-mono truncate mt-0.5">
+                                  {ep.module}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Right: Actions */}
+                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                              {/* Inspect Topology / Connections Toggle */}
+                              <button
+                                onClick={() => setExpandedApiRoute(isExpanded ? null : epKey)}
+                                className={`text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 transition-colors cursor-pointer font-medium ${isExpanded
+                                  ? 'bg-brand/15 text-brand border-brand/30 shadow-xs'
+                                  : 'bg-surface-raised hover:bg-surface-subtle text-foreground border-border'
+                                  }`}
+                                title="Inspect connected database entities and execution topology"
+                              >
+                                <Network className="h-3 w-3 text-brand" />
+                                <span className="text-[11px] font-semibold">
+                                  {isExpanded ? 'Hide Map' : 'Connections'}
+                                </span>
+                                {isExpanded ? (
+                                  <ChevronUp className="h-3 w-3 opacity-70" />
+                                ) : (
+                                  <ChevronDown className="h-3 w-3 opacity-70" />
+                                )}
+                              </button>
+
+                              {/* Check Blast Radius */}
+                              <button
+                                onClick={() => onSelectForImpact && onSelectForImpact(ep.path, 'endpoint')}
+                                className="text-[11px] px-2.5 py-1 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/25 transition-colors cursor-pointer font-semibold shrink-0"
+                                title="Simulate architectural blast radius across database and services"
+                              >
+                                Check Blast
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Connection Chips Bar: Tables Read / Written (Only for backend projects with DB tables) */}
+                          {!isUrl && tables.length > 0 && (
+                            <div className="mt-2.5 pt-2 border-t border-border-subtle flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] font-mono text-muted uppercase tracking-wider shrink-0 flex items-center gap-1">
+                                <Database className="h-3 w-3" />
+                                <span>Connected Entities:</span>
+                              </span>
+
+                              {ep.connectedTables && ep.connectedTables.length > 0 ? (
+                                ep.connectedTables.map((ct) => {
+                                  const isRead = ct.action === 'READ';
+                                  const isStream = ct.action === 'STREAM';
+                                  const chipColor = isRead
+                                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+                                    : isStream
+                                      ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20'
+                                      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20';
+
+                                  return (
+                                    <button
+                                      key={ct.name}
+                                      onClick={() => {
+                                        const targetTable = tables.find((t) => t.name === ct.name);
+                                        if (targetTable) setPreviewTable(targetTable);
+                                      }}
+                                      className={`text-[10px] font-mono px-2 py-0.5 rounded border inline-flex items-center gap-1 transition-colors cursor-pointer ${chipColor}`}
+                                      title={`Click to preview schema and sample values for table '${ct.name}' (${ct.action})`}
+                                    >
+                                      <span>{isRead ? '📖' : isStream ? '🔄' : '✍️'}</span>
+                                      <span className="font-semibold">{ct.name}</span>
+                                      <span className="text-[9px] opacity-75">({ct.action})</span>
+                                    </button>
+                                  );
+                                })
+                              ) : (
+                                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-subtle text-muted border border-border-subtle">
+                                  ⚡ Stateless Ingress / In-Memory Controller
                                 </span>
                               )}
                             </div>
-                            <div className="text-[10px] text-muted font-mono truncate mt-0.5">
-                              {ep.module}
+                          )}
+
+                          {/* ========================================================================= */}
+                          {/* INTERACTIVE EXPANDED TOPOLOGY DRAWER                                      */}
+                          {/* ========================================================================= */}
+                          {isExpanded && (
+                            <div className="mt-3.5 pt-3.5 border-t border-border space-y-3.5 animate-fadeIn">
+                              {/* Visual Multi-Tier Architecture Pipeline Flowchart */}
+                              <div className="p-3 rounded-xl bg-surface-subtle border border-border">
+                                <div className="text-[11px] font-bold text-foreground flex items-center justify-between mb-2">
+                                  <span className="flex items-center gap-1.5">
+                                    <Workflow className="h-3.5 w-3.5 text-brand" />
+                                    <span>End-to-End Architectural Execution Pipeline</span>
+                                  </span>
+                                  <span className="text-[10px] font-mono text-muted">
+                                    Multi-Tier Ingress Flow
+                                  </span>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-center text-xs">
+                                  {/* Step 1: Ingress Consumer */}
+                                  <div className="p-2 rounded-lg bg-surface border border-border flex flex-col justify-center">
+                                    <div className="text-[10px] font-bold text-muted uppercase">1. Client Ingress</div>
+                                    <div className="font-semibold text-foreground text-xs mt-0.5">
+                                      {ep.kind === 'WEBSOCKET' ? 'WS Realtime Client' : ep.kind === 'WEBHOOK' ? 'External Webhook' : 'HTTP/1.1 Consumer'}
+                                    </div>
+                                    <div className="text-[10px] text-muted mt-0.5">Public / Secured</div>
+                                  </div>
+
+                                  {/* Step 2: API Route Binding */}
+                                  <div className="p-2 rounded-lg bg-surface border border-brand/30 flex flex-col justify-center shadow-xs">
+                                    <div className="text-[10px] font-bold text-brand uppercase">2. Route Binding</div>
+                                    <div className="font-mono font-bold text-foreground text-[11px] truncate mt-0.5">
+                                      {ep.method} {ep.path}
+                                    </div>
+                                    <div className="text-[10px] text-brand font-mono mt-0.5">{ep.kind} Protocol</div>
+                                  </div>
+
+                                  {/* Step 3: Controller Handler */}
+                                  <div className="p-2 rounded-lg bg-surface border border-border flex flex-col justify-center">
+                                    <div className="text-[10px] font-bold text-muted uppercase">3. Handler Controller</div>
+                                    <div className="font-mono text-[11px] text-foreground truncate mt-0.5">
+                                      {ep.module}
+                                    </div>
+                                    <div className="text-[10px] text-muted mt-0.5">{ep.level}-Level Tier</div>
+                                  </div>
+
+                                  {/* Step 4: Database Entities or Perimeter Surface */}
+                                  <div className="p-2 rounded-lg bg-surface border border-border flex flex-col justify-center">
+                                    <div className="text-[10px] font-bold text-muted uppercase">
+                                      {isUrl ? '4. Perimeter Delivery' : '4. Data Tier & Blast'}
+                                    </div>
+                                    <div className="font-semibold text-foreground text-xs mt-0.5 truncate">
+                                      {isUrl
+                                        ? 'Perimeter Ingress'
+                                        : ep.connectedTables && ep.connectedTables.length > 0
+                                          ? ep.connectedTables.map((t) => t.name).join(', ')
+                                          : 'Stateless In-Memory'}
+                                    </div>
+                                    <div className="text-[10px] text-muted mt-0.5">
+                                      {isUrl ? '100% Local Discovery' : ep.level === 'HIGH' ? 'Critical Impact' : ep.level === 'MEDIUM' ? 'Moderate Impact' : 'Minimal Impact'}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Connected Tables Detail or Route Technical Specs */}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {/* Left Box: Connected Tables (for repos) or Route Technical Specs (for URLs) */}
+                                <div className="p-3 rounded-xl bg-surface border border-border space-y-2">
+                                  {isUrl ? (
+                                    <>
+                                      <div className="text-xs font-bold text-foreground flex items-center justify-between">
+                                        <span className="flex items-center gap-1.5">
+                                          <Code2 className="h-3.5 w-3.5 text-cyan-500" />
+                                          <span>Route Perimeter Specifications</span>
+                                        </span>
+                                        <span className="text-[10px] font-mono text-muted">
+                                          {ep.kind} Protocol
+                                        </span>
+                                      </div>
+                                      <div className="space-y-1.5 text-xs">
+                                        <div className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between">
+                                          <span className="text-[11px] text-muted">Method &amp; Path:</span>
+                                          <span className="font-mono text-xs font-bold text-foreground truncate max-w-[220px]">
+                                            {ep.method} {ep.path}
+                                          </span>
+                                        </div>
+                                        <div className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between">
+                                          <span className="text-[11px] text-muted">Functional Module:</span>
+                                          <span className="font-mono text-xs font-semibold text-foreground">
+                                            {ep.module || 'Default Ingress'}
+                                          </span>
+                                        </div>
+                                        <div className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between">
+                                          <span className="text-[11px] text-muted">Tier Classification:</span>
+                                          <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${ep.level === 'HIGH'
+                                            ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                                            : ep.level === 'LOW'
+                                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                              : 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
+                                            }`}>
+                                            {ep.level}-LEVEL TIER
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="text-xs font-bold text-foreground flex items-center justify-between">
+                                        <span className="flex items-center gap-1.5">
+                                          <Database className="h-3.5 w-3.5 text-cyan-500" />
+                                          <span>Relational Table Dependencies</span>
+                                        </span>
+                                        <span className="text-[10px] font-mono text-muted">
+                                          {ep.connectedTables?.length || 0} Tables
+                                        </span>
+                                      </div>
+
+                                      {ep.connectedTables && ep.connectedTables.length > 0 ? (
+                                        <div className="space-y-1.5">
+                                          {ep.connectedTables.map((ct) => {
+                                            const tObj = tables.find((t) => t.name === ct.name);
+                                            return (
+                                              <div
+                                                key={ct.name}
+                                                className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between"
+                                              >
+                                                <div className="flex items-center gap-2">
+                                                  <span className="font-mono text-xs font-bold text-foreground">
+                                                    {ct.name}
+                                                  </span>
+                                                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ${ct.action === 'READ'
+                                                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                                    : ct.action === 'STREAM'
+                                                      ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
+                                                      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                                    }`}>
+                                                    {ct.action}
+                                                  </span>
+                                                  {tObj && (
+                                                    <span className="text-[10px] text-muted font-mono">
+                                                      ({tObj.columns?.length || 0} cols)
+                                                    </span>
+                                                  )}
+                                                </div>
+
+                                                {tObj && (
+                                                  <button
+                                                    onClick={() => setPreviewTable(tObj)}
+                                                    className="text-[10px] px-2 py-0.5 rounded bg-surface text-brand hover:underline border border-border cursor-pointer font-medium"
+                                                  >
+                                                    Preview Schema
+                                                  </button>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      ) : (
+                                        <div className="text-xs text-muted py-3 text-center">
+                                          This endpoint is decoupled from direct database models (pure ingress handler, auth gatekeeper, or diagnostic telemetry).
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+
+                                {/* Classification Rational & Quick Developer Tools */}
+                                <div className="p-3 rounded-xl bg-surface border border-border space-y-2 flex flex-col justify-between">
+                                  <div>
+                                    <div className="text-xs font-bold text-foreground flex items-center gap-1.5 mb-1.5">
+                                      <Sparkles className="h-3.5 w-3.5 text-brand" />
+                                      <span>Architectural Classification Rationale</span>
+                                    </div>
+                                    <p className="text-[11px] text-muted leading-relaxed">
+                                      {ep.level === 'HIGH'
+                                        ? `Classified as HIGH-LEVEL because it mutates domain state, coordinates transactions, or touches critical business domains (${ep.connectedTables?.length || 0} connected entities).`
+                                        : ep.level === 'MEDIUM'
+                                          ? `Classified as MEDIUM-LEVEL as a standard domain service performing resource operations on backend models.`
+                                          : `Classified as LOW-LEVEL system utility endpoint governing telemetry, health checks, or metadata lookups.`}
+                                    </p>
+                                  </div>
+
+                                  <div className="pt-2 border-t border-border-subtle flex flex-wrap items-center gap-2">
+                                    {/* Live Fetch API Button */}
+                                    <button
+                                      onClick={() => handleFetchEndpoint(ep)}
+                                      disabled={fetchingEndpoint === `${ep.method}-${ep.path}`}
+                                      className="text-xs px-2.5 py-1 rounded-md bg-brand/10 hover:bg-brand/20 text-brand border border-brand/30 flex items-center gap-1.5 cursor-pointer font-semibold transition-colors disabled:opacity-50"
+                                      title={`Fetch ${getFullEndpointUrl(ep)}`}
+                                    >
+                                      {fetchingEndpoint === `${ep.method}-${ep.path}` ? (
+                                        <>
+                                          <RefreshCw className="h-3 w-3 animate-spin text-brand" />
+                                          <span>Fetching API...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Zap className="h-3 w-3 text-brand fill-brand/20" />
+                                          <span>Fetch API</span>
+                                        </>
+                                      )}
+                                    </button>
+
+                                    {/* Copy cURL */}
+                                    <button
+                                      onClick={() => handleCopyCurl(ep)}
+                                      className="text-xs px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface text-foreground border border-border flex items-center gap-1 cursor-pointer font-mono"
+                                      title={`Copy cURL: curl -X ${ep.method} "${getFullEndpointUrl(ep)}"`}
+                                    >
+                                      {copiedCurl === `${ep.method}-${ep.path}` ? (
+                                        <>
+                                          <Check className="h-3 w-3 text-emerald-500" />
+                                          <span className="text-emerald-500 font-bold">Copied cURL!</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Copy className="h-3 w-3 text-muted" />
+                                          <span>Copy cURL</span>
+                                        </>
+                                      )}
+                                    </button>
+
+                                    {/* Copy Path */}
+                                    <button
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(getFullEndpointUrl(ep));
+                                      }}
+                                      className="text-xs px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface text-foreground border border-border flex items-center gap-1 cursor-pointer font-mono"
+                                      title="Copy Full Endpoint URL"
+                                    >
+                                      <Copy className="h-3 w-3 text-muted" />
+                                      <span>Copy URL</span>
+                                    </button>
+
+                                    {/* View Graphical Endpoint Flow */}
+                                    <button
+                                      onClick={() => {
+                                        setApiFlowFocusedEndpoint(ep);
+                                        setShowApiFlowModal(true);
+                                      }}
+                                      className="text-xs px-2.5 py-1 rounded-md bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 flex items-center gap-1 cursor-pointer font-semibold transition-colors"
+                                      title="Inspect incoming callers and downstream communication flow for this endpoint in interactive topology"
+                                    >
+                                      <Workflow className="h-3 w-3 text-cyan-500" />
+                                      <span>View Interactive Topology</span>
+                                    </button>
+
+                                    {/* Simulate Blast Radius */}
+                                    <button
+                                      onClick={() => onSelectForImpact && onSelectForImpact(ep.path, 'endpoint')}
+                                      className="text-xs px-2.5 py-1 rounded-md btn-primary flex items-center gap-1 cursor-pointer font-bold ml-auto"
+                                    >
+                                      <ArrowRight className="h-3 w-3" />
+                                      <span>Simulate Blast</span>
+                                    </button>
+                                  </div>
+
+                                  {/* Live Fetch Response Inspector Panel */}
+                                  {endpointFetchResult[`${ep.method}-${ep.path}`] && (
+                                    <div className="mt-2.5 p-3 rounded-lg bg-surface-subtle border border-border animate-fadeIn space-y-2">
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                          <span className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold ${endpointFetchResult[`${ep.method}-${ep.path}`].status >= 200 && endpointFetchResult[`${ep.method}-${ep.path}`].status < 300
+                                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                            : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                            }`}>
+                                            HTTP {endpointFetchResult[`${ep.method}-${ep.path}`].status || 'ERR'} {endpointFetchResult[`${ep.method}-${ep.path}`].statusText || ''}
+                                          </span>
+                                          <span className="text-[11px] font-mono text-muted">
+                                            ⚡ {endpointFetchResult[`${ep.method}-${ep.path}`].durationMs}ms
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                          <button
+                                            onClick={() => {
+                                              const raw = JSON.stringify(endpointFetchResult[`${ep.method}-${ep.path}`].data, null, 2);
+                                              navigator.clipboard.writeText(raw);
+                                              setCopiedResponse(`${ep.method}-${ep.path}`);
+                                              setTimeout(() => setCopiedResponse(null), 2000);
+                                            }}
+                                            className="text-[10px] px-2 py-0.5 rounded bg-surface hover:bg-surface-raised border border-border text-foreground flex items-center gap-1 font-mono cursor-pointer"
+                                            title="Copy response JSON"
+                                          >
+                                            {copiedResponse === `${ep.method}-${ep.path}` ? (
+                                              <>
+                                                <Check className="h-2.5 w-2.5 text-emerald-500" />
+                                                <span className="text-emerald-500">Copied</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Copy className="h-2.5 w-2.5 text-muted" />
+                                                <span>Copy Data</span>
+                                              </>
+                                            )}
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              setEndpointFetchResult(prev => {
+                                                const copy = { ...prev };
+                                                delete copy[`${ep.method}-${ep.path}`];
+                                                return copy;
+                                              });
+                                            }}
+                                            className="text-muted hover:text-foreground text-xs p-1 cursor-pointer"
+                                            title="Dismiss response view"
+                                          >
+                                            <X className="h-3.5 w-3.5" />
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      <div className="text-[10px] font-mono text-muted truncate">
+                                        Target: <span className="text-foreground">{getFullEndpointUrl(ep)}</span>
+                                      </div>
+
+                                      <div className="max-h-56 overflow-y-auto p-2 rounded bg-surface font-mono text-[11px] text-foreground border border-border-subtle whitespace-pre-wrap break-all selection:bg-brand/30">
+                                        {typeof endpointFetchResult[`${ep.method}-${ep.path}`].data === 'object'
+                                          ? JSON.stringify(endpointFetchResult[`${ep.method}-${ep.path}`].data, null, 2)
+                                          : String(endpointFetchResult[`${ep.method}-${ep.path}`].data || endpointFetchResult[`${ep.method}-${ep.path}`].error || 'No response body')}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-
-                        {/* Right: Actions */}
-                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                          {/* Inspect Topology / Connections Toggle */}
-                          <button
-                            onClick={() => setExpandedApiRoute(isExpanded ? null : epKey)}
-                            className={`text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 transition-colors cursor-pointer font-medium ${isExpanded
-                                ? 'bg-brand/15 text-brand border-brand/30 shadow-xs'
-                                : 'bg-surface-raised hover:bg-surface-subtle text-foreground border-border'
-                              }`}
-                            title="Inspect connected database entities and execution topology"
-                          >
-                            <Network className="h-3 w-3 text-brand" />
-                            <span className="text-[11px] font-semibold">
-                              {isExpanded ? 'Hide Map' : 'Connections'}
-                            </span>
-                            {isExpanded ? (
-                              <ChevronUp className="h-3 w-3 opacity-70" />
-                            ) : (
-                              <ChevronDown className="h-3 w-3 opacity-70" />
-                            )}
-                          </button>
-
-                          {/* Check Blast Radius */}
-                          <button
-                            onClick={() => onSelectForImpact && onSelectForImpact(ep.path, 'endpoint')}
-                            className="text-[11px] px-2.5 py-1 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/25 transition-colors cursor-pointer font-semibold shrink-0"
-                            title="Simulate architectural blast radius across database and services"
-                          >
-                            Check Blast
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Connection Chips Bar: Tables Read / Written (Only for backend projects with DB tables) */}
-                      {!isUrl && tables.length > 0 && (
-                        <div className="mt-2.5 pt-2 border-t border-border-subtle flex flex-wrap items-center gap-1.5">
-                          <span className="text-[10px] font-mono text-muted uppercase tracking-wider shrink-0 flex items-center gap-1">
-                            <Database className="h-3 w-3" />
-                            <span>Connected Entities:</span>
-                          </span>
-
-                          {ep.connectedTables && ep.connectedTables.length > 0 ? (
-                            ep.connectedTables.map((ct) => {
-                              const isRead = ct.action === 'READ';
-                              const isStream = ct.action === 'STREAM';
-                              const chipColor = isRead
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
-                                : isStream
-                                  ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20'
-                                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20';
-
-                              return (
-                                <button
-                                  key={ct.name}
-                                  onClick={() => {
-                                    const targetTable = tables.find((t) => t.name === ct.name);
-                                    if (targetTable) setPreviewTable(targetTable);
-                                  }}
-                                  className={`text-[10px] font-mono px-2 py-0.5 rounded border inline-flex items-center gap-1 transition-colors cursor-pointer ${chipColor}`}
-                                  title={`Click to preview schema and sample values for table '${ct.name}' (${ct.action})`}
-                                >
-                                  <span>{isRead ? '📖' : isStream ? '🔄' : '✍️'}</span>
-                                  <span className="font-semibold">{ct.name}</span>
-                                  <span className="text-[9px] opacity-75">({ct.action})</span>
-                                </button>
-                              );
-                            })
-                          ) : (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-subtle text-muted border border-border-subtle">
-                              ⚡ Stateless Ingress / In-Memory Controller
-                            </span>
                           )}
                         </div>
-                      )}
+                      );
+                    })}
 
-                      {/* ========================================================================= */}
-                      {/* INTERACTIVE EXPANDED TOPOLOGY DRAWER                                      */}
-                      {/* ========================================================================= */}
-                      {isExpanded && (
-                        <div className="mt-3.5 pt-3.5 border-t border-border space-y-3.5 animate-fadeIn">
-                          {/* Visual Multi-Tier Architecture Pipeline Flowchart */}
-                          <div className="p-3 rounded-xl bg-surface-subtle border border-border">
-                            <div className="text-[11px] font-bold text-foreground flex items-center justify-between mb-2">
-                              <span className="flex items-center gap-1.5">
-                                <Workflow className="h-3.5 w-3.5 text-brand" />
-                                <span>End-to-End Architectural Execution Pipeline</span>
-                              </span>
-                              <span className="text-[10px] font-mono text-muted">
-                                Multi-Tier Ingress Flow
-                              </span>
-                            </div>
+                    {group.list.length > limit && (
+                      <div className="pt-2 pb-1 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setTierDisplayLimits(prev => ({ ...prev, [group.level]: (prev[group.level] || 30) + 50 }))}
+                          className="px-4 py-1.5 rounded-lg text-xs font-mono font-medium bg-surface hover:bg-surface-raised border border-border text-foreground transition-all cursor-pointer shadow-xs"
+                        >
+                          Show 50 More ({group.list.length - limit} remaining in {group.title})
+                        </button>
+                      </div>
+                    )}
 
-                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-center text-xs">
-                              {/* Step 1: Ingress Consumer */}
-                              <div className="p-2 rounded-lg bg-surface border border-border flex flex-col justify-center">
-                                <div className="text-[10px] font-bold text-muted uppercase">1. Client Ingress</div>
-                                <div className="font-semibold text-foreground text-xs mt-0.5">
-                                  {ep.kind === 'WEBSOCKET' ? 'WS Realtime Client' : ep.kind === 'WEBHOOK' ? 'External Webhook' : 'HTTP/1.1 Consumer'}
-                                </div>
-                                <div className="text-[10px] text-muted mt-0.5">Public / Secured</div>
-                              </div>
-
-                              {/* Step 2: API Route Binding */}
-                              <div className="p-2 rounded-lg bg-surface border border-brand/30 flex flex-col justify-center shadow-xs">
-                                <div className="text-[10px] font-bold text-brand uppercase">2. Route Binding</div>
-                                <div className="font-mono font-bold text-foreground text-[11px] truncate mt-0.5">
-                                  {ep.method} {ep.path}
-                                </div>
-                                <div className="text-[10px] text-brand font-mono mt-0.5">{ep.kind} Protocol</div>
-                              </div>
-
-                              {/* Step 3: Controller Handler */}
-                              <div className="p-2 rounded-lg bg-surface border border-border flex flex-col justify-center">
-                                <div className="text-[10px] font-bold text-muted uppercase">3. Handler Controller</div>
-                                <div className="font-mono text-[11px] text-foreground truncate mt-0.5">
-                                  {ep.module}
-                                </div>
-                                <div className="text-[10px] text-muted mt-0.5">{ep.level}-Level Tier</div>
-                              </div>
-
-                              {/* Step 4: Database Entities or Perimeter Surface */}
-                              <div className="p-2 rounded-lg bg-surface border border-border flex flex-col justify-center">
-                                <div className="text-[10px] font-bold text-muted uppercase">
-                                  {isUrl ? '4. Perimeter Delivery' : '4. Data Tier & Blast'}
-                                </div>
-                                <div className="font-semibold text-foreground text-xs mt-0.5 truncate">
-                                  {isUrl
-                                    ? 'Perimeter Ingress'
-                                    : ep.connectedTables && ep.connectedTables.length > 0
-                                      ? ep.connectedTables.map((t) => t.name).join(', ')
-                                      : 'Stateless In-Memory'}
-                                </div>
-                                <div className="text-[10px] text-muted mt-0.5">
-                                  {isUrl ? '100% Local Discovery' : ep.level === 'HIGH' ? 'Critical Impact' : ep.level === 'MEDIUM' ? 'Moderate Impact' : 'Minimal Impact'}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Connected Tables Detail or Route Technical Specs */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {/* Left Box: Connected Tables (for repos) or Route Technical Specs (for URLs) */}
-                            <div className="p-3 rounded-xl bg-surface border border-border space-y-2">
-                              {isUrl ? (
-                                <>
-                                  <div className="text-xs font-bold text-foreground flex items-center justify-between">
-                                    <span className="flex items-center gap-1.5">
-                                      <Code2 className="h-3.5 w-3.5 text-cyan-500" />
-                                      <span>Route Perimeter Specifications</span>
-                                    </span>
-                                    <span className="text-[10px] font-mono text-muted">
-                                      {ep.kind} Protocol
-                                    </span>
-                                  </div>
-                                  <div className="space-y-1.5 text-xs">
-                                    <div className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between">
-                                      <span className="text-[11px] text-muted">Method &amp; Path:</span>
-                                      <span className="font-mono text-xs font-bold text-foreground truncate max-w-[220px]">
-                                        {ep.method} {ep.path}
-                                      </span>
-                                    </div>
-                                    <div className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between">
-                                      <span className="text-[11px] text-muted">Functional Module:</span>
-                                      <span className="font-mono text-xs font-semibold text-foreground">
-                                        {ep.module || 'Default Ingress'}
-                                      </span>
-                                    </div>
-                                    <div className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between">
-                                      <span className="text-[11px] text-muted">Tier Classification:</span>
-                                      <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${ep.level === 'HIGH'
-                                          ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
-                                          : ep.level === 'LOW'
-                                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                            : 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
-                                        }`}>
-                                        {ep.level}-LEVEL TIER
-                                      </span>
-                                    </div>
-                                  </div>
-                                </>
-                              ) : (
-                                <>
-                                  <div className="text-xs font-bold text-foreground flex items-center justify-between">
-                                    <span className="flex items-center gap-1.5">
-                                      <Database className="h-3.5 w-3.5 text-cyan-500" />
-                                      <span>Relational Table Dependencies</span>
-                                    </span>
-                                    <span className="text-[10px] font-mono text-muted">
-                                      {ep.connectedTables?.length || 0} Tables
-                                    </span>
-                                  </div>
-
-                                  {ep.connectedTables && ep.connectedTables.length > 0 ? (
-                                    <div className="space-y-1.5">
-                                      {ep.connectedTables.map((ct) => {
-                                        const tObj = tables.find((t) => t.name === ct.name);
-                                        return (
-                                          <div
-                                            key={ct.name}
-                                            className="p-2 rounded-lg bg-surface-raised border border-border flex items-center justify-between"
-                                          >
-                                            <div className="flex items-center gap-2">
-                                              <span className="font-mono text-xs font-bold text-foreground">
-                                                {ct.name}
-                                              </span>
-                                              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ${ct.action === 'READ'
-                                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                                  : ct.action === 'STREAM'
-                                                    ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
-                                                    : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                                }`}>
-                                                {ct.action}
-                                              </span>
-                                              {tObj && (
-                                                <span className="text-[10px] text-muted font-mono">
-                                                  ({tObj.columns?.length || 0} cols)
-                                                </span>
-                                              )}
-                                            </div>
-
-                                            {tObj && (
-                                              <button
-                                                onClick={() => setPreviewTable(tObj)}
-                                                className="text-[10px] px-2 py-0.5 rounded bg-surface text-brand hover:underline border border-border cursor-pointer font-medium"
-                                              >
-                                                Preview Schema
-                                              </button>
-                                            )}
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  ) : (
-                                    <div className="text-xs text-muted py-3 text-center">
-                                      This endpoint is decoupled from direct database models (pure ingress handler, auth gatekeeper, or diagnostic telemetry).
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                            </div>
-
-                            {/* Classification Rational & Quick Developer Tools */}
-                            <div className="p-3 rounded-xl bg-surface border border-border space-y-2 flex flex-col justify-between">
-                              <div>
-                                <div className="text-xs font-bold text-foreground flex items-center gap-1.5 mb-1.5">
-                                  <Sparkles className="h-3.5 w-3.5 text-brand" />
-                                  <span>Architectural Classification Rationale</span>
-                                </div>
-                                <p className="text-[11px] text-muted leading-relaxed">
-                                  {ep.level === 'HIGH'
-                                    ? `Classified as HIGH-LEVEL because it mutates domain state, coordinates transactions, or touches critical business domains (${ep.connectedTables?.length || 0} connected entities).`
-                                    : ep.level === 'MEDIUM'
-                                      ? `Classified as MEDIUM-LEVEL as a standard domain service performing resource operations on backend models.`
-                                      : `Classified as LOW-LEVEL system utility endpoint governing telemetry, health checks, or metadata lookups.`}
-                                </p>
-                              </div>
-
-                              <div className="pt-2 border-t border-border-subtle flex flex-wrap items-center gap-2">
-                                {/* Live Fetch API Button */}
-                                <button
-                                  onClick={() => handleFetchEndpoint(ep)}
-                                  disabled={fetchingEndpoint === `${ep.method}-${ep.path}`}
-                                  className="text-xs px-2.5 py-1 rounded-md bg-brand/10 hover:bg-brand/20 text-brand border border-brand/30 flex items-center gap-1.5 cursor-pointer font-semibold transition-colors disabled:opacity-50"
-                                  title={`Fetch ${getFullEndpointUrl(ep)}`}
-                                >
-                                  {fetchingEndpoint === `${ep.method}-${ep.path}` ? (
-                                    <>
-                                      <RefreshCw className="h-3 w-3 animate-spin text-brand" />
-                                      <span>Fetching API...</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Zap className="h-3 w-3 text-brand fill-brand/20" />
-                                      <span>Fetch API</span>
-                                    </>
-                                  )}
-                                </button>
-
-                                {/* Copy cURL */}
-                                <button
-                                  onClick={() => handleCopyCurl(ep)}
-                                  className="text-xs px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface text-foreground border border-border flex items-center gap-1 cursor-pointer font-mono"
-                                  title={`Copy cURL: curl -X ${ep.method} "${getFullEndpointUrl(ep)}"`}
-                                >
-                                  {copiedCurl === `${ep.method}-${ep.path}` ? (
-                                    <>
-                                      <Check className="h-3 w-3 text-emerald-500" />
-                                      <span className="text-emerald-500 font-bold">Copied cURL!</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Copy className="h-3 w-3 text-muted" />
-                                      <span>Copy cURL</span>
-                                    </>
-                                  )}
-                                </button>
-
-                                {/* Copy Path */}
-                                <button
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(getFullEndpointUrl(ep));
-                                  }}
-                                  className="text-xs px-2.5 py-1 rounded-md bg-surface-raised hover:bg-surface text-foreground border border-border flex items-center gap-1 cursor-pointer font-mono"
-                                  title="Copy Full Endpoint URL"
-                                >
-                                  <Copy className="h-3 w-3 text-muted" />
-                                  <span>Copy URL</span>
-                                </button>
-
-                                {/* View Graphical Endpoint Flow */}
-                                <button
-                                  onClick={() => {
-                                    setApiFlowFocusedEndpoint(ep);
-                                    setShowApiFlowModal(true);
-                                  }}
-                                  className="text-xs px-2.5 py-1 rounded-md bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 flex items-center gap-1 cursor-pointer font-semibold transition-colors"
-                                  title="Inspect incoming callers and downstream communication flow for this endpoint"
-                                >
-                                  <Workflow className="h-3 w-3 text-cyan-500" />
-                                  <span>View Interactive Graph</span>
-                                </button>
-
-                                {/* Simulate Blast Radius */}
-                                <button
-                                  onClick={() => onSelectForImpact && onSelectForImpact(ep.path, 'endpoint')}
-                                  className="text-xs px-2.5 py-1 rounded-md btn-primary flex items-center gap-1 cursor-pointer font-bold ml-auto"
-                                >
-                                  <ArrowRight className="h-3 w-3" />
-                                  <span>Simulate Blast</span>
-                                </button>
-                              </div>
-
-                              {/* Live Fetch Response Inspector Panel */}
-                              {endpointFetchResult[`${ep.method}-${ep.path}`] && (
-                                <div className="mt-2.5 p-3 rounded-lg bg-surface-subtle border border-border animate-fadeIn space-y-2">
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                      <span className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold ${endpointFetchResult[`${ep.method}-${ep.path}`].status >= 200 && endpointFetchResult[`${ep.method}-${ep.path}`].status < 300
-                                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                        }`}>
-                                        HTTP {endpointFetchResult[`${ep.method}-${ep.path}`].status || 'ERR'} {endpointFetchResult[`${ep.method}-${ep.path}`].statusText || ''}
-                                      </span>
-                                      <span className="text-[11px] font-mono text-muted">
-                                        ⚡ {endpointFetchResult[`${ep.method}-${ep.path}`].durationMs}ms
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                      <button
-                                        onClick={() => {
-                                          const raw = JSON.stringify(endpointFetchResult[`${ep.method}-${ep.path}`].data, null, 2);
-                                          navigator.clipboard.writeText(raw);
-                                          setCopiedResponse(`${ep.method}-${ep.path}`);
-                                          setTimeout(() => setCopiedResponse(null), 2000);
-                                        }}
-                                        className="text-[10px] px-2 py-0.5 rounded bg-surface hover:bg-surface-raised border border-border text-foreground flex items-center gap-1 font-mono cursor-pointer"
-                                        title="Copy response JSON"
-                                      >
-                                        {copiedResponse === `${ep.method}-${ep.path}` ? (
-                                          <>
-                                            <Check className="h-2.5 w-2.5 text-emerald-500" />
-                                            <span className="text-emerald-500">Copied</span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <Copy className="h-2.5 w-2.5 text-muted" />
-                                            <span>Copy Data</span>
-                                          </>
-                                        )}
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          setEndpointFetchResult(prev => {
-                                            const copy = { ...prev };
-                                            delete copy[`${ep.method}-${ep.path}`];
-                                            return copy;
-                                          });
-                                        }}
-                                        className="text-muted hover:text-foreground text-xs p-1 cursor-pointer"
-                                        title="Dismiss response view"
-                                      >
-                                        <X className="h-3.5 w-3.5" />
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div className="text-[10px] font-mono text-muted truncate">
-                                    Target: <span className="text-foreground">{getFullEndpointUrl(ep)}</span>
-                                  </div>
-
-                                  <div className="max-h-56 overflow-y-auto p-2 rounded bg-surface font-mono text-[11px] text-foreground border border-border-subtle whitespace-pre-wrap break-all selection:bg-brand/30">
-                                    {typeof endpointFetchResult[`${ep.method}-${ep.path}`].data === 'object'
-                                      ? JSON.stringify(endpointFetchResult[`${ep.method}-${ep.path}`].data, null, 2)
-                                      : String(endpointFetchResult[`${ep.method}-${ep.path}`].data || endpointFetchResult[`${ep.method}-${ep.path}`].error || 'No response body')}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-
-                {group.list.length > limit && (
-                  <div className="pt-2 pb-1 text-center">
-                    <button
-                      type="button"
-                      onClick={() => setTierDisplayLimits(prev => ({ ...prev, [group.level]: (prev[group.level] || 30) + 50 }))}
-                      className="px-4 py-1.5 rounded-lg text-xs font-mono font-medium bg-surface hover:bg-surface-raised border border-border text-foreground transition-all cursor-pointer shadow-xs"
-                    >
-                      Show 50 More ({group.list.length - limit} remaining in {group.title})
-                    </button>
+                    {group.list.length === 0 && (
+                      <div className="text-center py-5 text-xs text-muted bg-surface/50 rounded-xl border border-dashed border-border">
+                        No {group.title.toLowerCase()} match the current filter selection
+                      </div>
+                    )}
                   </div>
-                )}
-
-                {group.list.length === 0 && (
-                  <div className="text-center py-5 text-xs text-muted bg-surface/50 rounded-xl border border-dashed border-border">
-                    No {group.title.toLowerCase()} match the current filter selection
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+                );
+              })()}
             </div>
           ))}
 
@@ -4092,6 +4089,7 @@ export default function DeveloperView({ data, rawAnalysisData, isUrlScan = false
         endpoints={allEnrichedEndpoints}
         tables={tables}
         diagrams={rawAnalysisData?.diagrams || data?.diagrams}
+        analysisData={effectiveAnalysisData}
         theme="dark"
         initialFocusedEndpoint={apiFlowFocusedEndpoint}
         onSelectForImpact={onSelectForImpact}
